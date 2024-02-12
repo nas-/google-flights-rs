@@ -1,4 +1,5 @@
 use crate::requests::config::Config;
+use chrono::Months;
 use governor::{DefaultDirectRateLimiter, Quota};
 use parsers::calendar_graph_request::GraphRequestOptions;
 use parsers::calendar_graph_response::GraphRawResponseContainer;
@@ -22,7 +23,12 @@ pub struct ApiClient {
 }
 
 impl ApiClient {
-    pub async fn new(rate_limiter_quota: Quota) -> Self {
+    pub async fn new() -> Self {
+        let rate_limiter_quota = Quota::per_second(NonZeroU32::new(10).unwrap());
+        Self::new_with_ratelimit(rate_limiter_quota).await
+    }
+
+    pub async fn new_with_ratelimit(rate_limiter_quota: Quota) -> Self {
         let rate_limiter: Arc<DefaultDirectRateLimiter> =
             Arc::new(DefaultDirectRateLimiter::direct(rate_limiter_quota));
         let frontend_version = get_frontend_version().await;
@@ -42,13 +48,18 @@ impl ApiClient {
         Ok(cities_res)
     }
 
-    pub async fn request_graph(&self, args: &Config) -> anyhow::Result<GraphRawResponseContainer> {
+    pub async fn request_graph(
+        &self,
+        args: &Config,
+        months: Months,
+    ) -> anyhow::Result<GraphRawResponseContainer> {
+        let date_end_graph = &args.get_end_graph(months).to_string();
         let req_options = GraphRequestOptions::new(
             &args.departure,
             &args.destination,
             &args.departing_date,
             args.return_date.as_ref(),
-            &args.date_end_graph,
+            date_end_graph,
             args.travellers.clone(),
             &args.travel_class,
             &args.stop_options,

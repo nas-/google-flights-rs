@@ -6,4 +6,3 @@ pub mod common;
 pub mod flight_request;
 pub mod flight_response;
 pub mod offer_response;
-

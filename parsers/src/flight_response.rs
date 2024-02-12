@@ -1,6 +1,3 @@
-use std::fmt;
-use std::fs;
-
 use crate::common::SerializeToWeb;
 
 use super::common::{
@@ -292,22 +289,6 @@ pub struct Itinerary {
     passenger_assistance_links: Option<Vec<CostumerSupport>>,
 }
 
-impl fmt::Display for Itinerary {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let flight_numbers: Vec<String> = self
-            .flight_details
-            .iter()
-            .map(|f| format!("{}{}", f.airplane_info.code, f.airplane_info.flight_number))
-            .collect();
-
-        write!(
-            f,
-            "Flight by: {} {}-{}. Flight numbers {:?}",
-            self.flight_by, self.departure_airport_code, self.arrival_airport_code, flight_numbers
-        )
-    }
-}
-
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ItineraryCost {
     //[[None, 138], 'CjRISnlhWXVsbHpfclVBSEhWcVFCRy0tLS0tLS0td2VicXIxMkFBQUFBR1doVHRnTTFpVHVBEgxMWDc1MXxMWDE2MjgaCgihaxACGgNFVVI4HHDDdQ==']
@@ -324,8 +305,8 @@ pub struct TripCost {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct OtherWeirdThing {
-    pub flight_data: Itinerary,
+pub struct ItineraryContainer {
+    pub itinerary: Itinerary,
     pub itinerary_cost: ItineraryCost,
     unknown2: Option<String>,
     unknown3: bool,
@@ -333,28 +314,28 @@ pub struct OtherWeirdThing {
     unknown5: Vec<bool>,
     unknown6: bool,
     #[serde(deserialize_with = "object_empty_as_none")]
-    trip_warnings: Option<TripWarnings>, //ok 1303 /[2, 'Mytrip', 'https://mytrip.com/rf/self-transfer']
+    itinerary_warnings: Option<ItineraryWarnings>, //ok 1303 /[2, 'Mytrip', 'https://mytrip.com/rf/self-transfer']
     departure_protobuf: String,
     unknown9: Option<Vec<Vec<Option<i32>>>>,
     unknown10: bool,
 }
 
-impl OtherWeirdThing {
+impl ItineraryContainer {
     pub fn get_departure_token(&self) -> String {
         self.itinerary_cost.departure_token.clone()
     }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-struct TripWarnings {
+struct ItineraryWarnings {
     id_or: MaybeStringOrInt,
     company_name: String,
     warning_link: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct ItineraryListContainer {
-    pub itinerary_list: Vec<OtherWeirdThing>,
+pub struct ItineraryContainerList {
+    pub itinerary_list: Vec<ItineraryContainer>,
     unknown1: Option<i32>,
     unknown2: bool,
     unknown3: bool,
@@ -604,9 +585,9 @@ struct OtherCityStruct {
 pub struct RawResponse {
     unknown0: Unknown0,
     city_images: CityImagesStruct,
-    pub best_flights: Option<ItineraryListContainer>, //No stop flights?
-    pub other_flights: Option<ItineraryListContainer>,
-    train_travel: Option<ItineraryListContainer>,
+    pub best_flights: Option<ItineraryContainerList>, //No stop flights?
+    pub other_flights: Option<ItineraryContainerList>,
+    train_travels: Option<ItineraryContainerList>,
     pub price_graph: Option<PriceGraph>,
     travel_cheaper_different_date: Option<Vec<CheaperTravelDifferentDatesContainer>>,
     alliance_mappings: Option<AllianceMappings>,
@@ -641,45 +622,57 @@ pub struct RawResponse {
 }
 
 impl RawResponse {
-    pub fn get_all_flights(&self) -> Vec<OtherWeirdThing> {
-        let mut my_vec: Vec<OtherWeirdThing> = Vec::new();
+    pub fn maybe_get_all_flights(&self) -> Option<Vec<ItineraryContainer>> {
+        let mut all_itineraries: Vec<ItineraryContainer> = Vec::new();
 
-        let options_1: Option<Vec<OtherWeirdThing>> =
+        let options_1: Option<Vec<ItineraryContainer>> =
             self.best_flights.as_ref().map(|f| f.itinerary_list.clone());
-        let options_2: Option<Vec<OtherWeirdThing>> = self
+        let options_2: Option<Vec<ItineraryContainer>> = self
             .other_flights
             .as_ref()
             .map(|f| f.itinerary_list.clone());
 
-        if let Some(x) = options_1 {
-            my_vec.extend(x);
+        for maybe_itinerary in [options_1, options_2].into_iter().flatten() {
+            all_itineraries.extend(maybe_itinerary);
         }
-        if let Some(x) = options_2 {
-            my_vec.extend(x);
-        };
-        my_vec
+        match all_itineraries.len() {
+            0 => None,
+            _ => Some(all_itineraries),
+        }
     }
 
     pub fn get_images_coordinates(&self) -> Vec<(&Coordinates, &Location)> {
-        let images1: Vec<&CityImages> = self.city_images.cities0.cities.iter().collect();
+        let cities: Vec<&CityImages> = self.city_images.cities0.cities.iter().collect();
+        let connection_images: Vec<&CityImages> =
+            self.connection_city_images.iter().flatten().collect();
 
-        let images3: Option<Vec<&CityImages>> = self
+        let images_1: Option<Vec<&CityImages>> = self
+            .city_images
+            .cities0
+            .cities1
+            .as_ref()
+            .map(|f| f.iter().collect());
+        let images_2: Option<Vec<&CityImages>> = self
             .city_images
             .cities1
             .as_ref()
-            .map(|images| images.images.iter().collect());
+            .map(|f| f.images.iter().collect());
+        let images_3: Option<Vec<&CityImages>> = self
+            .city_images
+            .cities1
+            .as_ref()
+            .and_then(|f| f.optional_images.as_ref())
+            .map(|f| f.iter().collect());
 
-        let images2: Vec<&CityImages> = self.connection_city_images.iter().flatten().collect();
+        let mut all_images: Vec<&CityImages> = Vec::new();
 
-        let mut x: Vec<&CityImages> = Vec::new();
-
-        x.extend(images1);
-        x.extend(images2);
-        if let Some(content) = images3 {
-            x.extend(content);
+        all_images.extend(cities);
+        all_images.extend(connection_images);
+        for maybe_image in [images_1, images_2, images_3].into_iter().flatten() {
+            all_images.extend(maybe_image);
         }
 
-        let coordinates: Vec<(&Coordinates, &Location)> = x
+        let coordinates: Vec<(&Coordinates, &Location)> = all_images
             .into_iter()
             .filter(|f| f.coordinates.is_some())
             .map(|f| (f.coordinates.as_ref().unwrap(), &f.destination_codes))
@@ -692,8 +685,6 @@ impl RawResponse {
             .as_ref()
             .map(|f| f.usual_price_low_bound.price)
     }
-
-    //     f.usual_price_low_bound.price
 }
 
 pub fn create_raw_response_vec(raw_inputs: String) -> Result<Vec<RawResponse>> {
@@ -703,7 +694,6 @@ pub fn create_raw_response_vec(raw_inputs: String) -> Result<Vec<RawResponse>> {
         .flat_map(|f| f.resp)
         .filter_map(|f| f.payload)
         .collect();
-    fs::write("out.txt", inner_objects.first().unwrap())?;
     let inner: Vec<RawResponse> = inner_objects
         .into_iter()
         .map(|f| decode_inner_object(&f))
@@ -787,7 +777,7 @@ mod tests {
     fn test_other_weird_thing() {
         let mystr = r#"[["LX", ["SWISS"], [[null, null, null, "LUX", "Luxembourg Airport", "Zurich Airport", "ZRH", null, [10, 50], null, [11, 55], 65, [], 1, "76 cm", null, 1, "Airbus A220-100 Passenger", null, false, [2024, 1, 27], [2024, 1, 27], ["LX", "751", null, "SWISS"], null, null, 1, null, null, null, null, "76 centimetres", 40497], [null, null, "Helvetic", "ZRH", "Zurich Airport", "Milan Malpensa Airport", "MXP", null, [13, 10], null, [14, 5], 55, [null, null, null, null, null, true], 2, "74 cm", null, 1, "Embraer 195 E2", [null, true], false, [2024, 1, 27], [2024, 1, 27], ["LX", "1628", null, "SWISS"], null, null, 1, null, null, null, null, "74 centimetres", 37467]], "LUX", [2024, 1, 27], [10, 50], "MXP", [2024, 1, 27], [14, 5], 195, null, null, false, [[75, "ZRH", "ZRH", null, "Zurich Airport", "Z\u00c3\u00bcrich", "Zurich Airport", "Z\u00c3\u00bcrich"]], null, null, null, "G3nUPe", [[1705070296848121, 139803069, 858572], null, null, null, null, [[2]]], 1, null, null, [null, null, 1, -9, null, true, true, 78000, 86000, null, 119000, 1, false], [1], [["LX", "SWISS", "https://www.swiss.com/gb/en/prepare/special-care"]]], [[null, 138], "CjRISnlhWXVsbHpfclVBSEhWcVFCRy0tLS0tLS0td2VicXIxMkFBQUFBR1doVHRnTTFpVHVBEgxMWDc1MXxMWDE2MjgaCgihaxACGgNFVVI4HHDDdQ=="], null, true, [], [false, false, false], false, [], "[\"CAISA0VVUhoDCKFrIs4BCrgBClkKA0xVWBIZMjAyNC0wMS0yN1QxMDo1MDowMCswMTowMBoDWlJIIhkyMDI0LTAxLTI3VDExOjU1OjAwKzAxOjAwKgJMWDIDNzUxOgJMWEIDNzUxSAFSAzIyMQpbCgNaUkgSGTIwMjQtMDEtMjdUMTM6MTA6MDArMDE6MDAaA01YUCIZMjAyNC0wMS0yN1QxNDowNTowMCswMTowMCoCTFgyBDE2Mjg6AkxYQgQxNjI4SAFSAzI5NRIECAMQARgBKAAyBwoFU1dJU1M\\u003d\"]", [[1]], false]"#;
 
-        let result: Result<OtherWeirdThing, serde_json::Error> = serde_json::from_str(&mystr);
+        let result: Result<ItineraryContainer, serde_json::Error> = serde_json::from_str(&mystr);
         // println!("{:?}", result);
         assert!(result.is_ok());
     }
@@ -798,7 +788,7 @@ mod tests {
 
         let jd: &mut serde_json::Deserializer<serde_json::de::StrRead<'_>> =
             &mut serde_json::Deserializer::from_str(mystr);
-        let result: Result<Vec<OtherWeirdThing>, _> = serde_path_to_error::deserialize(jd);
+        let result: Result<Vec<ItineraryContainer>, _> = serde_path_to_error::deserialize(jd);
         // println!("{:?}", result);
         match result {
             Ok(_) => assert!(result.is_ok()),
@@ -816,7 +806,7 @@ mod tests {
 
         let jd: &mut serde_json::Deserializer<serde_json::de::StrRead<'_>> =
             &mut serde_json::Deserializer::from_str(mystr);
-        let result: Result<ItineraryListContainer, _> = serde_path_to_error::deserialize(jd);
+        let result: Result<ItineraryContainerList, _> = serde_path_to_error::deserialize(jd);
         // println!("{:?}", result);
         match result {
             Ok(_) => assert!(result.is_ok()),
@@ -857,7 +847,7 @@ mod tests {
 
         let jd: &mut serde_json::Deserializer<serde_json::de::StrRead<'_>> =
             &mut serde_json::Deserializer::from_str(&raw_resp);
-        let result: Result<TripWarnings, _> = serde_path_to_error::deserialize(jd);
+        let result: Result<ItineraryWarnings, _> = serde_path_to_error::deserialize(jd);
         println!("{:?}", result);
         match result {
             Ok(_) => assert!(result.is_ok()),

@@ -1,5 +1,3 @@
-use std::fs;
-
 use crate::{
     common::{decode_inner_object, decode_outer_object, MaybeStringOrInt},
     flight_response::{
@@ -11,7 +9,6 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 pub fn create_raw_response_offer_vec(raw_inputs: String) -> Result<Vec<OfferRawResponse>> {
-    fs::write("out.txt", &raw_inputs)?;
     let outer: Vec<RawResponseContainerVec> = decode_outer_object(raw_inputs.as_ref())?;
     let inner_objects: Vec<String> = outer
         .into_iter()
@@ -34,7 +31,7 @@ pub struct OfferRawResponse {
 }
 
 impl OfferRawResponse {
-    pub fn get_prices(&self) -> Option<Vec<(Vec<String>, i32)>> {
+    pub fn get_offer_prices(&self) -> Option<Vec<(Vec<String>, i32)>> {
         let first_result: Vec<(Vec<String>, i32)> = self
             .unknown1
             .offers
@@ -49,7 +46,7 @@ impl OfferRawResponse {
             .filter(|f| f.1.is_some())
             .map(|f| (f.0, f.1.as_ref().unwrap().price))
             .collect();
-        //check if this really works. I am missing some results...
+
         let second_result: Option<Vec<(Vec<String>, i32)>> = self
             .unknown1
             .offers
@@ -325,6 +322,7 @@ struct TravelProtobufed {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn test_parse_offer() -> Result<()> {
@@ -346,7 +344,6 @@ mod tests {
         let datafiles = "test_files/offers_full.txt";
 
         let mystr = fs::read_to_string(datafiles).expect("Cannot read from file");
-        // let restult: Result<Vec<OfferRawResponse>> = create_raw_response_offer_vec(mystr);
 
         let outer: Vec<RawResponseContainerVec> = decode_outer_object(mystr.as_ref())?;
         let inner_objects: Vec<String> = outer
@@ -355,7 +352,6 @@ mod tests {
             .flat_map(|f| f.payload)
             .collect();
         let inner: String = inner_objects.into_iter().nth(0).unwrap();
-        fs::write("out.txt", &inner)?;
         let restult: Result<OfferRawResponse> = decode_inner_object(inner.as_ref());
 
         assert!(restult.is_ok());

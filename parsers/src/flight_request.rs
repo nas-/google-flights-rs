@@ -169,6 +169,7 @@ impl<'a> SingleLegStruct<'a> {
 impl SerializeToWeb for SingleLegStruct<'_> {
     fn serialize_to_web(&self) -> String {
         // [[[[\\"/m/0fq8f\\",4]]],[[[\\"/m/0947l\\",5]]],[0,8,0,23],0,null,null,\\"2024-02-06\\",null,null,null,null,null,null,null,3]
+        //TODO magic number
         let flight_to_show = 3; //All flights. 1= only some
 
         let chosen_itinerary = match self.chosen_itinerary {

@@ -7,8 +7,8 @@ use percent_encoding::{AsciiSet, CONTROLS};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::flight_response::{FlightInfo, OtherWeirdThing};
-pub const CHARACTERS_TO_ENCODE: &AsciiSet = &CONTROLS
+use crate::flight_response::{FlightInfo, ItineraryContainer};
+pub(crate) const CHARACTERS_TO_ENCODE: &AsciiSet = &CONTROLS
     .add(b'[')
     .add(b']')
     .add(b'"')
@@ -24,7 +24,7 @@ pub const CHARACTERS_TO_ENCODE: &AsciiSet = &CONTROLS
 /// Actual data to parse
 /// # Errors
 /// This function will return an error if if the data is wrong.
-pub fn decode_outer_object<T: for<'a> Deserialize<'a>>(body: &str) -> Result<Vec<T>> {
+pub(crate) fn decode_outer_object<T: for<'a> Deserialize<'a>>(body: &str) -> Result<Vec<T>> {
     // Read line from the BufRead
     let lines: Vec<&str> = body
         .lines()
@@ -57,7 +57,7 @@ pub fn decode_outer_object<T: for<'a> Deserialize<'a>>(body: &str) -> Result<Vec
 /// The outer object is two values and a 3rd which is data + a JSON value as a string.
 /// That is parsed and given out as an output.
 /// This function will return an error if if the data is wrong, it errors out.
-pub fn decode_inner_object<T: for<'a> Deserialize<'a>>(body: &str) -> Result<T> {
+pub(crate) fn decode_inner_object<T: for<'a> Deserialize<'a>>(body: &str) -> Result<T> {
     // Parse inner object as JSON
     let jd: &mut serde_json::Deserializer<serde_json::de::StrRead<'_>> =
         &mut serde_json::Deserializer::from_str(body);
@@ -75,7 +75,7 @@ pub fn decode_inner_object<T: for<'a> Deserialize<'a>>(body: &str) -> Result<T> 
 /// Allows to treat empty values as None.
 /// This is needed because for some values, sometimes the api returns
 /// null and some other times []
-pub fn object_empty_as_none<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+pub(crate) fn object_empty_as_none<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
     for<'a> T: Deserialize<'a>,
@@ -424,7 +424,7 @@ impl SerializeToWeb for &Location {
 
 #[derive(Clone)]
 pub struct FixedFlights {
-    flights: Arc<Mutex<Vec<OtherWeirdThing>>>,
+    flights: Arc<Mutex<Vec<ItineraryContainer>>>,
     max_elements: usize,
 }
 
@@ -436,7 +436,7 @@ impl FixedFlights {
         }
     }
 
-    pub fn add_element(&self, element: OtherWeirdThing) -> Result<()> {
+    pub fn add_element(&self, element: ItineraryContainer) -> Result<()> {
         if self.is_full() {
             return Err(anyhow!("Vector max number of elements reached"));
         }
@@ -456,7 +456,7 @@ impl FixedFlights {
         };
 
         let nth = flights.get(nth);
-        nth.map(|f| f.flight_data.flight_details.clone())
+        nth.map(|f| f.itinerary.flight_details.clone())
     }
 
     pub fn is_full(&self) -> bool {
