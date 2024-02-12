@@ -1,4 +1,4 @@
 
-extern crate parsers;
-extern crate protos;
+pub extern crate parsers;
+pub extern crate protos;
 pub mod requests;
