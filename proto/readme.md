@@ -1,0 +1,1 @@
+Use https://protobuf-decoder.netlify.app/ to decode tfs url component.

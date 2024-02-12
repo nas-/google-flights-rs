@@ -1,0 +1,10 @@
+[\"LX\",
+[\"SWISS\"],
+[
+[null,null,null,\"LUX\",\"Luxembourg Airport\",\"Zurich Airport\",\"ZRH\",null,[10,50],null,[11,55],65,[],1,\"76 cm\",null,1,\"Airbus A220-100 Passenger\",null,false,[2024,1,27],[2024,1,27],[\"LX\",\"751\",null,\"SWISS\"],null,null,1,null,null,null,null,\"76 centimetres\",40497],
+[null,null,\"Helvetic\",\"ZRH\",\"Zurich Airport\",\"Milan Malpensa Airport\",\"MXP\",null,[13,10],null,[14,5],55,[null,null,null,null,null,true],2,\"74 cm\",null,1,\"Embraer 195 E2\",[null,true],false,[2024,1,27],[2024,1,27],\[\"LX\",\"1628\",null,\"SWISS\"],null,null,1,null,null,null,null,\"74 centimetres\",37467]],
+
+\"LUX\",[2024,1,27],[10,50],\"MXP\",[2024,1,27],[14,5],195,null,null,false,
+[[75,\"ZRH\",\"ZRH\",null,\"Zurich Airport\",\"Zürich\",\"Zurich Airport\",\"Zürich\"]]
+,null,null,null,\"G3nUPe\",[[1705069838874468,394745,1459686055],null,null,null,null,[[2]]],1,null,null,[null,null,1,-9,null,true,true,78000,86000,null,119000,1,false],[1],[[\"LX\",\"SWISS\",\"https://www.swiss.com/gb/en/prepare/special-care\"]]
+]

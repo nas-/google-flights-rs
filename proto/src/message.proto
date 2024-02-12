@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package urls;
+
+message ItineraryUrl {
+  repeated Leg legs = 3;
+  repeated Traveler travellers = 8;
+  TravelClass class = 9;
+  TripType trip_type = 19;
+}
+
+enum LocType {
+  unknown = 0;
+  airport = 1;
+  city = 2;
+}
+
+message Location {
+  LocType type = 1;
+  string place_name = 2;
+}
+
+message Leg {
+  string date = 2;
+  optional uint32 min_hour_departure = 8;
+  optional uint32 max_hour_departure = 9;
+  optional uint32 min_hour_arrival = 10;
+  optional uint32 max_hour_arrival = 11;
+  repeated Location departure = 13;
+  repeated Location arrival = 14;
+  optional StopOptions stops = 5;
+  optional uint32 max_stopover_minutes = 18;
+  optional uint32 max_duration_minutes = 12;
+}
+enum Traveler {
+  unspecified_traveller = 0;
+  adult = 1;
+  child = 2;
+  infant_lap = 3;
+  infant_seat = 4;
+}
+
+enum TravelClass {
+  unspecified_class = 0;
+  economy = 1;
+  premium_economy = 2;
+  business = 3;
+  first = 4;
+}
+enum TripType {
+  unknown_trip_type = 0;
+  round_trip = 1;
+  one_way = 2;
+}
+
+enum StopOptions {
+  NoStop = 0;
+  OneOrLess = 1;
+  TwoOrLess = 2;
+}
