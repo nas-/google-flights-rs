@@ -1,13 +1,13 @@
 use crate::requests::config::Config;
 use governor::{DefaultDirectRateLimiter, Quota};
-use parser::calendar_graph_request::GraphRequestOptions;
-use parser::calendar_graph_response::GraphRawResponseContainer;
-use parser::city_request::CityRequestOptions;
-use parser::city_response::ResponseInnerBodyParsed;
-use parser::common::{FixedFlights, ToRequestBody};
-use parser::flight_request::FlightRequestOptions;
-use parser::flight_response::{create_raw_response_vec, RawResponse};
-use parser::offer_response::OfferRawResponse;
+use parsers::calendar_graph_request::GraphRequestOptions;
+use parsers::calendar_graph_response::GraphRawResponseContainer;
+use parsers::city_request::CityRequestOptions;
+use parsers::city_response::ResponseInnerBodyParsed;
+use parsers::common::{FixedFlights, ToRequestBody};
+use parsers::flight_request::FlightRequestOptions;
+use parsers::flight_response::{create_raw_response_vec, RawResponse};
+use parsers::offer_response::{self, OfferRawResponse};
 use regex::Regex;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Response, StatusCode};
@@ -131,7 +131,7 @@ impl ApiClient {
             fixed_flights,
         );
         let body = self.do_request(&req_options).await?.text().await?;
-        let inner = parser::offer_response::create_raw_response_offer_vec(body)?;
+        let inner = offer_response::create_raw_response_offer_vec(body)?;
         Ok(inner)
     }
 

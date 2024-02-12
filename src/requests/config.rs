@@ -1,4 +1,4 @@
-use parser::common::{
+use parsers::common::{
     FlightTimes, Location, StopOptions, StopoverDuration, TotalDuration, TravelClass,
     Travelers,
 };
