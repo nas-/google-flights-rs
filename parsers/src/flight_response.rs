@@ -756,7 +756,7 @@ pub struct RawResponseContainer {
     #[serde(default)]
     unknown4: Option<String>,
     #[serde(default)]
-    unknown5: Option<Vec<i32>>,
+    unknown5: Option<Vec<Option<i32>>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
