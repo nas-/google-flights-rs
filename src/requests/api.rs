@@ -7,8 +7,8 @@ use parsers::city_request::CityRequestOptions;
 use parsers::city_response::ResponseInnerBodyParsed;
 use parsers::common::{FixedFlights, ToRequestBody};
 use parsers::flight_request::FlightRequestOptions;
-use parsers::flight_response::{create_raw_response_vec, RawResponse};
-use parsers::offer_response::{self, OfferRawResponse};
+use parsers::flight_response::{create_raw_response_vec, FlightResponseContainer};
+use parsers::offer_response::{self, OfferRawResponseContainer};
 use regex::Regex;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Response, StatusCode};
@@ -79,7 +79,7 @@ impl ApiClient {
         &self,
         args: &Config,
         fixed_flights: &FixedFlights,
-    ) -> anyhow::Result<Vec<RawResponse>> {
+    ) -> anyhow::Result<FlightResponseContainer> {
         let date_start = args.departing_date.to_string();
         let date_return: Option<String> = args.return_date.map(|f| f.to_string());
         println!(
@@ -115,7 +115,7 @@ impl ApiClient {
         &self,
         args: &Config,
         fixed_flights: &FixedFlights,
-    ) -> anyhow::Result<Vec<OfferRawResponse>> {
+    ) -> anyhow::Result<OfferRawResponseContainer> {
         let date_start = args.departing_date.to_string();
         let date_return: Option<String> = args.return_date.map(|f| f.to_string());
         println!(

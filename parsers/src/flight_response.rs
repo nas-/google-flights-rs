@@ -582,6 +582,32 @@ struct OtherCityStruct {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct FlightResponseContainer {
+    pub responses: Vec<RawResponse>,
+}
+
+impl FlightResponseContainer {
+    pub fn new(responses: Vec<RawResponse>) -> Self {
+        Self { responses }
+    }
+    pub fn get_images_coordinates(&self) -> Vec<(&Coordinates, &Location)> {
+        self.responses
+            .iter()
+            .flat_map(|f| f.get_images_coordinates())
+            .collect()
+    }
+    pub fn get_usual_price_bound(&self) -> Option<i32> {
+        let mut res: Vec<i32> = self
+            .responses
+            .iter()
+            .flat_map(|f| f.get_usual_price_bound())
+            .collect();
+        res.sort();
+        res.into_iter().next()
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RawResponse {
     unknown0: Unknown0,
     city_images: CityImagesStruct,
@@ -641,7 +667,7 @@ impl RawResponse {
         }
     }
 
-    pub fn get_images_coordinates(&self) -> Vec<(&Coordinates, &Location)> {
+    fn get_images_coordinates(&self) -> Vec<(&Coordinates, &Location)> {
         let cities: Vec<&CityImages> = self.city_images.cities0.cities.iter().collect();
         let connection_images: Vec<&CityImages> =
             self.connection_city_images.iter().flatten().collect();
@@ -680,14 +706,14 @@ impl RawResponse {
         coordinates
     }
 
-    pub fn get_usual_price_bound(&self) -> Option<i32> {
+    fn get_usual_price_bound(&self) -> Option<i32> {
         self.price_graph
             .as_ref()
             .map(|f| f.usual_price_low_bound.price)
     }
 }
 
-pub fn create_raw_response_vec(raw_inputs: String) -> Result<Vec<RawResponse>> {
+pub fn create_raw_response_vec(raw_inputs: String) -> Result<FlightResponseContainer> {
     let outer: Vec<RawResponseContainerVec> = decode_outer_object(raw_inputs.as_ref())?;
     let inner_objects: Vec<String> = outer
         .into_iter()
@@ -699,8 +725,8 @@ pub fn create_raw_response_vec(raw_inputs: String) -> Result<Vec<RawResponse>> {
         .map(|f| decode_inner_object(&f))
         .filter_map(|f| f.ok())
         .collect();
-
-    Ok(inner)
+    let response = FlightResponseContainer::new(inner);
+    Ok(response)
 }
 
 impl TryFrom<&str> for RawResponse {

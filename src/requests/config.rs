@@ -23,6 +23,7 @@ pub struct Config {
 }
 
 impl Config {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         departing_date: NaiveDate,
         departure: Location,

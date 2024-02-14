@@ -8,7 +8,7 @@ use crate::{
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-pub fn create_raw_response_offer_vec(raw_inputs: String) -> Result<Vec<OfferRawResponse>> {
+pub fn create_raw_response_offer_vec(raw_inputs: String) -> Result<OfferRawResponseContainer> {
     let outer: Vec<RawResponseContainerVec> = decode_outer_object(raw_inputs.as_ref())?;
     let inner_objects: Vec<String> = outer
         .into_iter()
@@ -20,14 +20,24 @@ pub fn create_raw_response_offer_vec(raw_inputs: String) -> Result<Vec<OfferRawR
         .map(|f| decode_inner_object(&f))
         .filter_map(|f| f.ok())
         .collect();
-
-    Ok(inner)
+    Ok(OfferRawResponseContainer::new(inner))
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OfferRawResponse {
     unknown0: Unknown0,
     unknown1: OfferContainer,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct OfferRawResponseContainer {
+    pub response: Vec<OfferRawResponse>,
+}
+
+impl OfferRawResponseContainer {
+    pub fn new(response: Vec<OfferRawResponse>) -> Self {
+        Self { response }
+    }
 }
 
 impl OfferRawResponse {
