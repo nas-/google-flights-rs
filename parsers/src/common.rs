@@ -107,6 +107,11 @@ pub enum PlaceType {
     RegionMaybe = 4,
     City = 5,
 }
+impl Default for PlaceType {
+    fn default() -> Self {
+        Self::Unspecified
+    }
+}
 
 impl From<i32> for PlaceType {
     fn from(value: i32) -> Self {
@@ -163,6 +168,11 @@ pub enum TravelClass {
     Business = 3,
     First = 4,
 }
+impl Default for TravelClass {
+    fn default() -> Self {
+        Self::Economy
+    }
+}
 
 impl SerializeToWeb for TravelClass {
     fn serialize_to_web(&self) -> String {
@@ -176,6 +186,11 @@ pub enum StopOptions {
     NoStop = 1,
     OneOrLess = 2,
     TwoOrLess = 3,
+}
+impl Default for StopOptions {
+    fn default() -> Self {
+        Self::All
+    }
 }
 
 impl SerializeToWeb for StopOptions {
@@ -192,6 +207,17 @@ pub struct Travelers {
     pub infant_in_seat: i32,
 }
 
+impl Default for Travelers {
+    fn default() -> Self {
+        Self {
+            adults: 1,
+            children: 0,
+            infant_on_lap: 0,
+            infant_in_seat: 0,
+        }
+    }
+}
+
 impl Travelers {
     pub fn new(travellers: Vec<i32>) -> Self {
         if travellers[0] < 0 || !travellers.len() == 4 {
@@ -204,6 +230,16 @@ impl Travelers {
             infant_on_lap: travellers[2],
             infant_in_seat: travellers[3],
         }
+    }
+
+    pub fn to_proto_vec(&self) -> Vec<i32> {
+        let mut travellers = Vec::new();
+
+        travellers.extend(vec![1; self.adults.try_into().unwrap()]);
+        travellers.extend(vec![2; self.children.try_into().unwrap()]);
+        travellers.extend(vec![3; self.infant_in_seat.try_into().unwrap()]);
+        travellers.extend(vec![4; self.infant_on_lap.try_into().unwrap()]);
+        travellers
     }
 }
 
@@ -220,6 +256,12 @@ impl SerializeToWeb for Travelers {
 pub enum StopoverDuration {
     Minutes(u32),
     UNLIMITED,
+}
+
+impl Default for StopoverDuration {
+    fn default() -> Self {
+        Self::UNLIMITED
+    }
 }
 
 impl StopoverDuration {
@@ -256,6 +298,12 @@ impl SerializeToWeb for StopoverDuration {
 pub enum TotalDuration {
     Minutes(u32),
     UNLIMITED,
+}
+
+impl Default for TotalDuration {
+    fn default() -> Self {
+        Self::UNLIMITED
+    }
 }
 
 impl TotalDuration {
@@ -386,7 +434,7 @@ where
 }
 
 /// 0 is generic
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
 pub struct Location {
     pub loc_identifier: String,
     pub loc_type: PlaceType,
