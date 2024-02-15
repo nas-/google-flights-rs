@@ -1,4 +1,5 @@
 use crate::requests::config::Config;
+use anyhow::Result;
 use chrono::Months;
 use governor::{DefaultDirectRateLimiter, Quota};
 use parsers::calendar_graph_request::GraphRequestOptions;
@@ -15,6 +16,7 @@ use reqwest::{Client, Response, StatusCode};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
+/// The `ApiClient` struct is used to send requests to the Google Flights website.
 #[derive(Clone)]
 pub struct ApiClient {
     pub rate_limiter: Arc<DefaultDirectRateLimiter>,
@@ -23,11 +25,13 @@ pub struct ApiClient {
 }
 
 impl ApiClient {
+    /// Creates a new instance of `ApiClient` with a default rate limiter of 10 requests per second.
     pub async fn new() -> Self {
         let rate_limiter_quota = Quota::per_second(NonZeroU32::new(10).unwrap());
         Self::new_with_ratelimit(rate_limiter_quota).await
     }
 
+    /// Creates a new instance of `ApiClient` with a custom rate limiter.
     pub async fn new_with_ratelimit(rate_limiter_quota: Quota) -> Self {
         let rate_limiter: Arc<DefaultDirectRateLimiter> =
             Arc::new(DefaultDirectRateLimiter::direct(rate_limiter_quota));
@@ -41,18 +45,38 @@ impl ApiClient {
         }
     }
 
-    pub async fn request_city(&self, city: &str) -> anyhow::Result<ResponseInnerBodyParsed> {
+    /// Sends a request to retrieve information about a city/airport.
+    ///
+    /// # Arguments
+    ///
+    /// * `city` - The name of the city, in english
+    ///
+    /// # Returns
+    ///
+    /// Returns a `ResponseInnerBodyParsed` object containing the parsed response.
+    /// This will contains both the airport associated and the city.
+    pub async fn request_city(&self, city: &str) -> Result<ResponseInnerBodyParsed> {
         let options = CityRequestOptions::new(city, &self.frontend_version);
         let city_response: &str = &self.do_request(&options).await?.text().await?;
         let cities_res = ResponseInnerBodyParsed::try_from(city_response)?;
         Ok(cities_res)
     }
 
+    /// Sends a request to retrieve flight graph data.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - The configuration options for the request.
+    /// * `months` - The number of months to include in the graph.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `GraphRawResponseContainer` object containing the parsed response.
     pub async fn request_graph(
         &self,
         args: &Config,
         months: Months,
-    ) -> anyhow::Result<GraphRawResponseContainer> {
+    ) -> Result<GraphRawResponseContainer> {
         let date_end_graph = &args.get_end_graph(months).to_string();
         let req_options = GraphRequestOptions::new(
             &args.departure,
@@ -75,11 +99,22 @@ impl ApiClient {
         Ok(parsed)
     }
 
+    /// Sends a request to retrieve flight data.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - The configuration options for the request.
+    /// * `fixed_flights` - The fixed flights to include in the request.
+    /// Those are used for requests after the first, to retrieve returns given specific flights uotbound.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `FlightResponseContainer` object containing the parsed response.
     pub async fn request_flights(
         &self,
         args: &Config,
         fixed_flights: &FixedFlights,
-    ) -> anyhow::Result<FlightResponseContainer> {
+    ) -> Result<FlightResponseContainer> {
         let date_start = args.departing_date.to_string();
         let date_return: Option<String> = args.return_date.map(|f| f.to_string());
         println!(
@@ -111,11 +146,21 @@ impl ApiClient {
         Ok(inner)
     }
 
+    /// Sends a request to retrieve flight offer data.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - The configuration options for the request.
+    /// * `fixed_flights` - The fixed flights to include in the request.
+    ///
+    /// # Returns
+    ///
+    /// Returns an `OfferRawResponseContainer` object containing the parsed response.
     pub async fn request_offer(
         &self,
         args: &Config,
         fixed_flights: &FixedFlights,
-    ) -> anyhow::Result<OfferRawResponseContainer> {
+    ) -> Result<OfferRawResponseContainer> {
         let date_start = args.departing_date.to_string();
         let date_return: Option<String> = args.return_date.map(|f| f.to_string());
         println!(
@@ -146,6 +191,7 @@ impl ApiClient {
         Ok(inner)
     }
 
+    /// Sends a request to retrieve flight data.
     async fn do_request(&self, options: &impl ToRequestBody) -> Result<Response, reqwest::Error> {
         let req_payload = options.to_request_body();
         let headers = get_headers();
@@ -169,6 +215,9 @@ impl ApiClient {
     }
 }
 
+/// Default headers for the requests.
+/// Note that the header x-googl-batchexecute-bgr is not included as it is very hard to reverse the logic behind it.
+/// This means that the the responses by the server are not always 100% accurate.
 fn get_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -193,6 +242,7 @@ fn get_headers() -> HeaderMap {
     headers
 }
 
+/// Retrieves the frontend version from the Google Flights website.
 async fn get_frontend_version() -> Option<String> {
     let client = Client::new();
     let headers = get_headers();

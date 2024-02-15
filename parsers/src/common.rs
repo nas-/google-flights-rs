@@ -8,6 +8,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use crate::flight_response::{FlightInfo, ItineraryContainer};
+
+/// The set of characters that are percent-encoded in google flights requests.
 pub(crate) const CHARACTERS_TO_ENCODE: &AsciiSet = &CONTROLS
     .add(b'[')
     .add(b']')
@@ -52,9 +54,10 @@ pub(crate) fn decode_outer_object<T: for<'a> Deserialize<'a>>(body: &str) -> Res
         .collect();
     results
 }
-/// .
+
 /// Decode the inner object
 /// The outer object is two values and a 3rd which is data + a JSON value as a string.
+/// Following there may be other values, but we are interested only in the 3rd one which contains all the data.
 /// That is parsed and given out as an output.
 /// This function will return an error if if the data is wrong, it errors out.
 pub(crate) fn decode_inner_object<T: for<'a> Deserialize<'a>>(body: &str) -> Result<T> {
@@ -97,6 +100,8 @@ where
         Aux::Empty(_) | Aux::Null => Ok(None),
     }
 }
+
+/// This is the type of place. It can be an airport, a city, a region, etc.
 #[derive(Serialize_repr, Deserialize_repr, PartialEq, Debug, Clone, Copy)]
 #[repr(i32)]
 #[serde(untagged)]
@@ -126,6 +131,8 @@ impl From<i32> for PlaceType {
     }
 }
 
+///An helper enum to handle different fields returned by the API.
+/// They are not used so it is pretty generic.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(untagged)]
 pub enum MaybeStringOrInt {
@@ -135,7 +142,9 @@ pub enum MaybeStringOrInt {
     None,
     Bool(bool),
 }
-
+///Helper enum to handle different fields returned by the API.
+/// Not used after, so prtty generic
+///TODO accorpate with MaybeStringOrInt
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(untagged)]
 pub enum VecOrI32 {
@@ -143,6 +152,9 @@ pub enum VecOrI32 {
     VecI32(Vec<Option<i32>>),
 }
 
+/// Helper enum to handle different fields returned by the API.
+/// Not used after, so prtty generic
+/// TODO accorpate with MaybeStringOrInt
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(untagged)]
 pub enum NumbersOrBools {
@@ -151,16 +163,20 @@ pub enum NumbersOrBools {
     None,
 }
 
+/// Trait, serialize the request to a request body, so URL + body.
 pub trait ToRequestBody {
     fn to_request_body(&self) -> RequestBody;
 }
 
+/// Url is the url to make the request to
+/// Body is the POST request body.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RequestBody {
     pub url: String,
     pub body: String,
 }
 
+/// Travel class. It can be economy, premium economy, business or first class.
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, ValueEnum)]
 pub enum TravelClass {
     Economy = 1,
@@ -180,6 +196,7 @@ impl SerializeToWeb for TravelClass {
     }
 }
 
+/// Stop options. It can be all, no stop, one or less, two or less.
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, ValueEnum)]
 pub enum StopOptions {
     All = 0,
@@ -199,6 +216,7 @@ impl SerializeToWeb for StopOptions {
     }
 }
 
+/// Travelers. It contains the number of adults, children, infants on lap and infants in seat.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Travelers {
     pub adults: i32,
@@ -206,7 +224,7 @@ pub struct Travelers {
     pub infant_on_lap: i32,
     pub infant_in_seat: i32,
 }
-
+///Default is one adult.
 impl Default for Travelers {
     fn default() -> Self {
         Self {
@@ -217,7 +235,8 @@ impl Default for Travelers {
         }
     }
 }
-
+///Conversion from a vector of i32 to Travelers.
+///TODO max number of people is 9.
 impl Travelers {
     pub fn new(travellers: Vec<i32>) -> Self {
         if travellers[0] < 0 || !travellers.len() == 4 {
@@ -231,7 +250,8 @@ impl Travelers {
             infant_in_seat: travellers[3],
         }
     }
-
+    /// Conversion to a vector of i32, used in protobuf generation.
+    /// It returns a vector of 1, 2, 3, 4 repeated the number of times of the corresponding field.
     pub fn to_proto_vec(&self) -> Vec<i32> {
         let mut travellers = Vec::new();
 
@@ -251,7 +271,7 @@ impl SerializeToWeb for Travelers {
         )
     }
 }
-
+///Stop over duration. It can be a number of minutes or unlimited, with default unlimited.
 #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 pub enum StopoverDuration {
     Minutes(u32),
@@ -294,6 +314,7 @@ impl SerializeToWeb for StopoverDuration {
     }
 }
 
+///Total duration. It can be a number of minutes or unlimited, with default unlimited.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum TotalDuration {
     Minutes(u32),
@@ -330,7 +351,7 @@ impl SerializeToWeb for TotalDuration {
         }
     }
 }
-
+/// Flight times filters. It is the departure hours, and the arrival hours.
 ///[0,23,13,23] --> Leave between 0:00 and 23:59. Arrival between 13 and 23:59
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct FlightTimes {
@@ -411,7 +432,8 @@ impl SerializeToWeb for FlightTimes {
 pub trait SerializeToWeb {
     fn serialize_to_web(&self) -> String;
 }
-
+/// A vector is serialized as a list of elements separated by a comma and enclosed in square brackets.
+/// The comma is not added at the end of the last element.
 impl<T> SerializeToWeb for Vec<T>
 where
     T: SerializeToWeb,
@@ -433,7 +455,7 @@ where
     }
 }
 
-/// 0 is generic
+///Location is a place. It has an identifier (either 3 letter airport code, or google Knowledge graph identifier), a type and a name.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
 pub struct Location {
     pub loc_identifier: String,
@@ -455,7 +477,7 @@ impl Location {
 
 impl SerializeToWeb for Location {
     fn serialize_to_web(&self) -> String {
-        //TODO seems like there is a mismatch here. Maybe it is variant -1 as i32.
+        // TODO seems like there is a mismatch here. Maybe it is variant -1 as i32.
         // However, seems with type = 5 it works properly...
         match self.loc_type {
             PlaceType::Airport => format!(r#"[\"{}\",{}]"#, &self.loc_identifier, 0_i32),
@@ -470,6 +492,9 @@ impl SerializeToWeb for &Location {
     }
 }
 
+/// Fixed flights is a vector of ItineraryContainer.
+/// It has a maximum number of elements, defined by the type of flight that needs to be searched.
+/// TODO check if futures::mutex needs to be used here instead.
 #[derive(Clone)]
 pub struct FixedFlights {
     flights: Arc<Mutex<Vec<ItineraryContainer>>>,

@@ -9,6 +9,7 @@ use parsers::common::{
 
 use protos::urls::{ItineraryUrl, Leg};
 
+/// The `TripType` enum is used to specify the type of trip.
 #[derive(Debug, Clone)]
 pub enum TripType {
     OneWay,
@@ -20,7 +21,7 @@ impl Default for TripType {
         Self::OneWay
     }
 }
-
+/// The `Config` struct is used to specify the options for a flight search.
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     pub departing_date: NaiveDate,
@@ -38,6 +39,7 @@ pub struct Config {
 }
 
 impl Config {
+    /// Creates a new `Config` object with the specified options.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         departing_date: NaiveDate,
@@ -71,23 +73,26 @@ impl Config {
             trip_type,
         }
     }
-
+    /// Calculates the number of days between the departing and return dates, if this is a return trip.
     pub fn get_diff_days(&self) -> Option<i64> {
         self.return_date
             .map(|x| x.signed_duration_since(self.departing_date).num_days())
     }
-
+    /// Calculates the end date of the graph, given the number of months in the future to include, starting from the departing date.
     pub fn get_end_graph(&self, months: Months) -> NaiveDate {
         self.departing_date.checked_add_months(months).unwrap()
     }
+    /// Returns the Google flight URL for this flight search.
     pub fn to_flight_url(&self) -> String {
         ItineraryUrl::from(self).to_flight_url()
     }
+    /// Returns the encoded string relative to this flight search.
     pub fn to_encoded(&self) -> String {
         ItineraryUrl::from(self).to_encoded()
     }
 }
 
+//// Conversion to Leg Protobuf, used for creating the URL.
 impl From<&Config> for Vec<Leg> {
     fn from(options: &Config) -> Vec<Leg> {
         let stops = match options.stop_options {
@@ -141,6 +146,8 @@ impl From<&Config> for Vec<Leg> {
     }
 }
 
+/// Conversion from Location to LocationProto, used for creating the URL.
+/// Unfortunately, inpossible to create a trait implementation for this as Location and LocationProto live in different subcrates.
 fn location_to_location_proto(location: &Location) -> LocationProto {
     match &location.loc_type {
         PlaceType::Airport => LocationProto {
@@ -154,6 +161,7 @@ fn location_to_location_proto(location: &Location) -> LocationProto {
         x => panic!("PlaceType type not implemented {:?}", x),
     }
 }
+/// Conversion from Config to ItineraryUrl, used for creating the URL.
 impl From<&Config> for ItineraryUrl {
     fn from(options: &Config) -> Self {
         let trip_type = match options.trip_type {
@@ -264,5 +272,31 @@ mod tests {
         println!("{}", it_url.to_flight_url());
         let expected = "GikSCjIwMjQtMDUtMDFqDQgCEgkvbS8wMl8yODZyDAgCEggvbS8wNGpwbBopEgoyMDI0LTA1LTAzagwIAhIIL20vMDRqcGxyDQgCEgkvbS8wMl8yODZCBwEBAQECAwRIAZgBAQ";
         assert_eq!(it_url.to_encoded(), expected);
+    }
+
+    #[test]
+    fn test_location_to_location_proto_airport() {
+        let location = Location {
+            loc_type: PlaceType::Airport,
+            loc_identifier: "JFK".to_string(),
+            location_name: None,
+        };
+
+        let location_proto = location_to_location_proto(&location);
+        assert_eq!(location_proto.r#type, 1);
+        assert_eq!(location_proto.place_name, "JFK");
+    }
+
+    #[test]
+    fn test_location_to_location_proto_city() {
+        let location = Location {
+            loc_type: PlaceType::City,
+            loc_identifier: "/m/04jpl".to_string(),
+            location_name: None,
+        };
+
+        let location_proto = location_to_location_proto(&location);
+        assert_eq!(location_proto.r#type, 2);
+        assert_eq!(location_proto.place_name, "/m/04jpl");
     }
 }
