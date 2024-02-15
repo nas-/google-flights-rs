@@ -16,6 +16,9 @@ const CUSTOM_ENGINE: engine::GeneralPurpose =
 use std::vec;
 
 impl Leg {
+    /// implementation for leg to create a leg from parts
+    /// Currently not in use
+    #[allow(dead_code)]
     pub fn from_parts(arrival: &str, departure: &str, date_departure: &str) -> Self {
         Self {
             date: date_departure.into(),
@@ -33,11 +36,13 @@ impl Leg {
 }
 
 impl ItineraryUrl {
+    /// implementation for ItineraryUrl to encode the message, and return the tfs part of the gflights url.
     pub fn to_encoded(&self) -> String {
         let mut encoded_message = Vec::new();
         self.encode(&mut encoded_message).unwrap();
         CUSTOM_ENGINE.encode(encoded_message)
     }
+    /// implementation for ItineraryUrl to create the complete gflights url from the Itinerary.
     pub fn to_flight_url(&self) -> String {
         let encoded = self.to_encoded();
 

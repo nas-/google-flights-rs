@@ -39,8 +39,9 @@ impl OfferRawResponseContainer {
         Self { response }
     }
 }
-
 impl OfferRawResponse {
+    /// Get offers from the responses.
+    /// This is a vector of tuples. The first element is a vector of strings (OTA(s)/airline(s)), the second is the price.
     pub fn get_offer_prices(&self) -> Option<Vec<(Vec<String>, i32)>> {
         let first_result: Vec<(Vec<String>, i32)> = self
             .unknown1

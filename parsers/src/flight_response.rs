@@ -68,6 +68,7 @@ impl Hour {
     }
 }
 
+/// The type of seat. One is unknown for now.
 #[derive(Serialize_repr, Deserialize_repr, PartialEq, Debug, Clone, Copy)]
 #[repr(i32)]
 #[serde(untagged)]
@@ -97,7 +98,7 @@ impl Default for Wifi {
         Self::None
     }
 }
-
+/// Flight amenities vector. The first value meaning is unknown.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
 struct FlightAmenities {
