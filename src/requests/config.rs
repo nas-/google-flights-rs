@@ -92,7 +92,7 @@ impl Config {
     }
 }
 
-//// Conversion to Leg Protobuf, used for creating the URL.
+/// Conversion to Leg Protobuf, used for creating the URL.
 impl From<&Config> for Vec<Leg> {
     fn from(options: &Config) -> Vec<Leg> {
         let stops = match options.stop_options {

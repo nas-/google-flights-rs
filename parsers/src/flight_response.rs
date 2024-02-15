@@ -472,8 +472,8 @@ pub struct Unknown0 {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct CityImages {
-    destination_codes: Location,
+pub struct CityImages {
+    pub destination_codes: Location,
     #[serde(default)]
     city_name: Option<String>,
     #[serde(default)]
@@ -481,11 +481,11 @@ struct CityImages {
     #[serde(default)]
     coordinates: Option<Coordinates>,
     #[serde(default)]
-    country_code: String,
+    pub country_code: String,
     #[serde(default)]
     unknown5: Option<bool>,
     #[serde(default)]
-    country_name: String,
+    pub country_name: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -597,6 +597,13 @@ impl FlightResponseContainer {
             .flat_map(|f| f.get_images_coordinates())
             .collect()
     }
+
+    pub fn get_all_images(&self) -> Vec<&CityImages> {
+        self.responses
+            .iter()
+            .flat_map(|f| f.get_all_images())
+            .collect()
+    }
     pub fn get_usual_price_bound(&self) -> Option<i32> {
         let mut res: Vec<i32> = self
             .responses
@@ -667,8 +674,7 @@ impl RawResponse {
             _ => Some(all_itineraries),
         }
     }
-
-    fn get_images_coordinates(&self) -> Vec<(&Coordinates, &Location)> {
+    fn get_all_images(&self) -> Vec<&CityImages> {
         let cities: Vec<&CityImages> = self.city_images.cities0.cities.iter().collect();
         let connection_images: Vec<&CityImages> =
             self.connection_city_images.iter().flatten().collect();
@@ -698,6 +704,11 @@ impl RawResponse {
         for maybe_image in [images_1, images_2, images_3].into_iter().flatten() {
             all_images.extend(maybe_image);
         }
+        all_images
+    }
+
+    fn get_images_coordinates(&self) -> Vec<(&Coordinates, &Location)> {
+        let all_images = self.get_all_images();
 
         let coordinates: Vec<(&Coordinates, &Location)> = all_images
             .into_iter()
