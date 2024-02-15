@@ -1,4 +1,5 @@
 use crate::requests::config::Config;
+use anyhow::Result;
 use chrono::Months;
 use governor::{DefaultDirectRateLimiter, Quota};
 use parsers::calendar_graph_request::GraphRequestOptions;
@@ -54,7 +55,7 @@ impl ApiClient {
     ///
     /// Returns a `ResponseInnerBodyParsed` object containing the parsed response.
     /// This will contains both the airport associated and the city.
-    pub async fn request_city(&self, city: &str) -> anyhow::Result<ResponseInnerBodyParsed> {
+    pub async fn request_city(&self, city: &str) -> Result<ResponseInnerBodyParsed> {
         let options = CityRequestOptions::new(city, &self.frontend_version);
         let city_response: &str = &self.do_request(&options).await?.text().await?;
         let cities_res = ResponseInnerBodyParsed::try_from(city_response)?;
@@ -75,7 +76,7 @@ impl ApiClient {
         &self,
         args: &Config,
         months: Months,
-    ) -> anyhow::Result<GraphRawResponseContainer> {
+    ) -> Result<GraphRawResponseContainer> {
         let date_end_graph = &args.get_end_graph(months).to_string();
         let req_options = GraphRequestOptions::new(
             &args.departure,
@@ -113,7 +114,7 @@ impl ApiClient {
         &self,
         args: &Config,
         fixed_flights: &FixedFlights,
-    ) -> anyhow::Result<FlightResponseContainer> {
+    ) -> Result<FlightResponseContainer> {
         let date_start = args.departing_date.to_string();
         let date_return: Option<String> = args.return_date.map(|f| f.to_string());
         println!(
@@ -159,7 +160,7 @@ impl ApiClient {
         &self,
         args: &Config,
         fixed_flights: &FixedFlights,
-    ) -> anyhow::Result<OfferRawResponseContainer> {
+    ) -> Result<OfferRawResponseContainer> {
         let date_start = args.departing_date.to_string();
         let date_return: Option<String> = args.return_date.map(|f| f.to_string());
         println!(
