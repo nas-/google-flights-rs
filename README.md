@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
     );
     let fixed_flights = FixedFlights::new(2_usize);
     let response = client.request_flights(&config, &fixed_flights).await?;
-    let first_flight: ItineraryContainer = response
+    let first_flight: ItineraryContainer = response.responses
         .into_iter()
         .flat_map(|response| response.maybe_get_all_flights())
         .flatten()
@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
     
     fixed_flights.add_element(first_flight)?;
     let second_flight_response = client.request_flights(&config, &fixed_flights).await?;
-    let second_flight: ItineraryContainer = second_flight_response
+    let second_flight: ItineraryContainer = second_flight_response.responses
         .into_iter()
         .flat_map(|response| response.maybe_get_all_flights())
         .flatten()
@@ -74,11 +74,12 @@ async fn main() -> Result<()> {
 
     println!("Return flight itinerary {:?}", second_flight.itinerary);
     println!("Price {:?}", second_flight.itinerary_cost.trip_cost);
+    println!("Itinerary link {:?}", config.to_flight_url());
 
     fixed_flights.add_element(second_flight)?;
     // ask for offers:
     let offers_vec = client.request_offer(&config, &fixed_flights).await?;
-    let offers = offers_vec.first().unwrap().get_offer_prices().unwrap();
+    let offers = offers_vec.response.first().unwrap().get_offer_prices().unwrap();
     println!("Offers for this flight: {:?}", offers);
 
     Ok(())
