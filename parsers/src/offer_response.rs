@@ -171,7 +171,7 @@ struct Offers {
     #[serde(default)]
     unknown23: Option<String>,
     #[serde(default)]
-    unknown24: bool,
+    unknown24: Option<bool>,
     #[serde(default)]
     unknown25: Option<GreenFareInfo>,
     #[serde(default)]
