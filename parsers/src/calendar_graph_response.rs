@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::flight_response::RawResponseContainerVec;
+
 use super::{
     common::{decode_inner_object, decode_outer_object},
     flight_response::{CheaperTravelDifferentDates, RawResponseContainer, Unknown0},
@@ -26,8 +28,11 @@ impl TryFrom<&str> for GraphRawResponseContainer {
     type Error = anyhow::Error;
 
     fn try_from(value: &str) -> Result<Self> {
-        let outer: Vec<Vec<RawResponseContainer>> = decode_outer_object(value)?;
-        let res: Vec<String> = outer
+        let outer: Vec<RawResponseContainerVec> = decode_outer_object(value)?;
+
+        let as_before: Vec<Vec<RawResponseContainer>> = outer.into_iter().map(|f| f.resp).collect();
+
+        let res: Vec<String> = as_before
             .iter()
             .flat_map(|f| f.first().ok_or_else(|| anyhow!("Malformed data!")))
             .filter(|f| f.payload.is_some())
@@ -60,9 +65,9 @@ mod tests {
     #[test]
     fn test_response() {
         let body = fs::read_to_string("test_files/graph_response").expect("Cannot read from file");
-        let res: Result<Vec<Vec<RawResponseContainer>>, _> = decode_outer_object(&body);
+        let res: Result<Vec<RawResponseContainerVec>, _> = decode_outer_object(&body);
         let binding = res.unwrap();
-        let outer = &binding[0][0].payload.as_ref().unwrap();
+        let outer = &binding[0].resp[0].payload.as_ref().unwrap();
         let other: Result<GraphRawResponse, _> = decode_inner_object(outer);
         assert!(other.is_ok())
     }

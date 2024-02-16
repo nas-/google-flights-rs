@@ -26,7 +26,10 @@ pub(crate) const CHARACTERS_TO_ENCODE: &AsciiSet = &CONTROLS
 /// Actual data to parse
 /// # Errors
 /// This function will return an error if if the data is wrong.
-pub(crate) fn decode_outer_object<T: for<'a> Deserialize<'a>>(body: &str) -> Result<Vec<T>> {
+pub(crate) fn decode_outer_object<T>(body: &str) -> Result<Vec<T>>
+where
+    T: for<'a> Deserialize<'a> + GetOuterErrorMessages,
+{
     // Read line from the BufRead
     let lines: Vec<&str> = body
         .lines()
@@ -42,7 +45,17 @@ pub(crate) fn decode_outer_object<T: for<'a> Deserialize<'a>>(body: &str) -> Res
                 &mut serde_json::Deserializer::from_str(f);
             let result: Result<T, _> = serde_path_to_error::deserialize(jd);
             match result {
-                Ok(x) => Ok(x),
+                Ok(x) => {
+                    let test = x.get_error_messages();
+                    match test {
+                    Some(err) => {
+                        let err_messages_joined = err.join("\n");
+                        println!("Error in processing outer object!\n Errors returned from the backend:\n{:?}", err);
+                        Err(anyhow!(err_messages_joined))
+                    }
+                    None => Ok(x),
+                }
+            }
                 Err(err) => {
                     let path = err.path().to_string();
                     println!("Error in processing outer object!\n{}\n{:?}", path, err);
@@ -427,6 +440,11 @@ impl SerializeToWeb for FlightTimes {
             )
         }
     }
+}
+
+/// Trait to get the error messages from the response outer messages.
+pub trait GetOuterErrorMessages {
+    fn get_error_messages(&self) -> Option<Vec<String>>;
 }
 
 pub trait SerializeToWeb {
