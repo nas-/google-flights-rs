@@ -209,6 +209,19 @@ impl SerializeToWeb for TravelClass {
     }
 }
 
+impl From<i32> for TravelClass {
+    fn from(value: i32) -> Self {
+        match value {
+            1 => TravelClass::Economy,
+            2 => TravelClass::PremiumEconomy,
+            3 => TravelClass::Business,
+            4 => TravelClass::First,
+            _ => panic!("Travel class can only be 1,2,3,4, found {}", value),
+        }
+    }
+
+}
+
 /// Stop options. It can be all, no stop, one or less, two or less.
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, ValueEnum)]
 pub enum StopOptions {
@@ -227,6 +240,18 @@ impl SerializeToWeb for StopOptions {
     fn serialize_to_web(&self) -> String {
         format!("{}", *self as i32)
     }
+}
+impl From<i32> for StopOptions {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => StopOptions::All,
+            1 => StopOptions::NoStop,
+            2 => StopOptions::OneOrLess,
+            3 => StopOptions::TwoOrLess,
+            _ => panic!("Stop options can only be 0,1,2,3, found {}", value),
+        }
+    }
+
 }
 
 /// Travelers. It contains the number of adults, children, infants on lap and infants in seat.
