@@ -1,3 +1,4 @@
+use crate::common::GetOuterErrorMessages;
 use crate::common::SerializeToWeb;
 
 use super::common::{
@@ -768,13 +769,82 @@ pub struct RawResponseContainer {
     #[serde(default)]
     unknown4: Option<String>,
     #[serde(default)]
-    unknown5: Option<Vec<Option<i32>>>,
+    unknown5: Option<ErrorContainer>,
+}
+
+impl GetOuterErrorMessages for RawResponseContainer {
+    fn get_error_messages(&self) -> Option<Vec<String>> {
+        match &self.unknown5 {
+            Some(ErrorContainer::Error(e)) => e.get_error_messages(),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+enum ErrorContainer {
+    Success(Vec<Option<i32>>),
+    Error(ErrorFromBackend),
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct ErrorFromBackend {
+    // [3,null,[["type.googleapis.com/travel.frontend.flights.ErrorResponse",[[null,null,0,"fC_PZeTFFMn91PIPw_uwsA4"],0]]]]]]
+    unknown0: Option<i32>,
+    unknown1: Option<String>,
+    error_container: Option<Vec<ErrorSpecific>>,
+}
+
+impl GetOuterErrorMessages for ErrorFromBackend {
+    fn get_error_messages(&self) -> Option<Vec<String>> {
+        let error_specific_vec: Vec<ErrorSpecific> = self.error_container.as_ref()?.to_vec();
+        let messages: Vec<String> = error_specific_vec
+            .iter()
+            .filter_map(|f| f.error_message.as_ref())
+            .map(|f| f.to_string())
+            .collect();
+
+        match messages.len() {
+            0 => None,
+            _ => Some(messages),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct ErrorSpecific {
+    // ["type.googleapis.com/travel.frontend.flights.ErrorResponse",[[null,null,0,"fC_PZeTFFMn91PIPw_uwsA4"],0]]
+    error_message: Option<String>,
+    garbage_data: Option<GarbageData>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct GarbageData {
+    // [[null,null,0,"fC_PZeTFFMn91PIPw_uwsA4"],0]
+    garbage: Option<Vec<Option<MaybeStringOrInt>>>,
+    garbage_data: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct RawResponseContainerVec {
     pub resp: Vec<RawResponseContainer>,
+}
+
+impl GetOuterErrorMessages for RawResponseContainerVec {
+    fn get_error_messages(&self) -> Option<Vec<String>> {
+        let messages: Vec<String> = self
+            .resp
+            .iter()
+            .filter_map(|f| f.get_error_messages())
+            .flatten()
+            .collect();
+        match messages.len() {
+            0 => None,
+            _ => Some(messages),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::common::{Location, PlaceType};
+use crate::common::{GetOuterErrorMessages, Location, PlaceType};
 
 use super::common::{decode_inner_object, decode_outer_object, MaybeStringOrInt};
 
@@ -12,6 +12,13 @@ struct RawResponseContainer {
     unknown1: Option<Vec<MaybeStringOrInt>>,
     #[serde(default)]
     unknown2: Option<Vec<MaybeStringOrInt>>,
+}
+
+impl GetOuterErrorMessages for RawResponseContainer {
+    fn get_error_messages(&self) -> Option<Vec<String>> {
+        // Not clear if there is the possibility for errors in this kind of response.
+        None
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
