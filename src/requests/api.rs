@@ -192,8 +192,8 @@ impl ApiClient {
     }
 
     /// Sends a request to retrieve flight data.
-    async fn do_request(&self, options: &impl ToRequestBody) -> Result<Response, reqwest::Error> {
-        let req_payload = options.to_request_body();
+    async fn do_request(&self, options: &impl ToRequestBody) -> Result<Response> {
+        let req_payload = options.to_request_body()?;
         let headers = get_headers();
 
         let _permit = self

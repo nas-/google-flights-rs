@@ -54,8 +54,7 @@ impl OfferRawResponse {
 
                 (names.clone(), price.clone())
             })
-            .filter(|f| f.1.is_some())
-            .map(|f| (f.0, f.1.as_ref().unwrap().price))
+            .filter_map(|f| f.1.map(|inner| (f.0, inner.price)))
             .collect();
 
         let second_result: Option<Vec<(Vec<String>, i32)>> = self
@@ -71,8 +70,7 @@ impl OfferRawResponse {
 
                 (names.clone(), price.clone())
             })
-            .filter(|f| f.1.is_some())
-            .map(|f| Some((f.0, f.1.as_ref().unwrap().price)))
+            .filter_map(|f| f.1.map(|inner| Some((f.0, inner.price))))
             .collect();
         let mut result: Vec<(Vec<String>, i32)> = Vec::new();
         result.extend(first_result);
