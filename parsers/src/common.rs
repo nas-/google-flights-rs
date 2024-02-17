@@ -219,7 +219,6 @@ impl From<i32> for TravelClass {
             _ => panic!("Travel class can only be 1,2,3,4, found {}", value),
         }
     }
-
 }
 
 /// Stop options. It can be all, no stop, one or less, two or less.
@@ -251,7 +250,6 @@ impl From<i32> for StopOptions {
             _ => panic!("Stop options can only be 0,1,2,3, found {}", value),
         }
     }
-
 }
 
 /// Travelers. It contains the number of adults, children, infants on lap and infants in seat.
