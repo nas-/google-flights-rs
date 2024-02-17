@@ -178,7 +178,7 @@ pub enum NumbersOrBools {
 
 /// Trait, serialize the request to a request body, so URL + body.
 pub trait ToRequestBody {
-    fn to_request_body(&self) -> RequestBody;
+    fn to_request_body(&self) -> Result<RequestBody>;
 }
 
 /// Url is the url to make the request to
@@ -204,8 +204,8 @@ impl Default for TravelClass {
 }
 
 impl SerializeToWeb for TravelClass {
-    fn serialize_to_web(&self) -> String {
-        format!("{}", *self as i32)
+    fn serialize_to_web(&self) -> Result<String> {
+        Ok(format!("{}", *self as i32))
     }
 }
 
@@ -236,8 +236,8 @@ impl Default for StopOptions {
 }
 
 impl SerializeToWeb for StopOptions {
-    fn serialize_to_web(&self) -> String {
-        format!("{}", *self as i32)
+    fn serialize_to_web(&self) -> Result<String> {
+        Ok(format!("{}", *self as i32))
     }
 }
 impl From<i32> for StopOptions {
@@ -291,20 +291,20 @@ impl Travelers {
     pub fn to_proto_vec(&self) -> Vec<i32> {
         let mut travellers = Vec::new();
 
-        travellers.extend(vec![1; self.adults.try_into().unwrap()]);
-        travellers.extend(vec![2; self.children.try_into().unwrap()]);
-        travellers.extend(vec![3; self.infant_in_seat.try_into().unwrap()]);
-        travellers.extend(vec![4; self.infant_on_lap.try_into().unwrap()]);
+        travellers.extend(vec![1; self.adults.try_into().unwrap_or(1)]);
+        travellers.extend(vec![2; self.children.try_into().unwrap_or(0)]);
+        travellers.extend(vec![3; self.infant_in_seat.try_into().unwrap_or(0)]);
+        travellers.extend(vec![4; self.infant_on_lap.try_into().unwrap_or(0)]);
         travellers
     }
 }
 
 impl SerializeToWeb for Travelers {
-    fn serialize_to_web(&self) -> String {
-        format!(
+    fn serialize_to_web(&self) -> Result<String> {
+        Ok(format!(
             r#"[{},{},{},{}]"#,
             self.adults, self.children, self.infant_on_lap, self.infant_in_seat
-        )
+        ))
     }
 }
 ///Stop over duration. It can be a number of minutes or unlimited, with default unlimited.
@@ -337,15 +337,15 @@ impl StopoverDuration {
 
 impl SerializeToWeb for StopoverDuration {
     // Google ui allow stopover max to be checked in 30 mins intervals.
-    fn serialize_to_web(&self) -> String {
+    fn serialize_to_web(&self) -> Result<String> {
         match self {
             StopoverDuration::Minutes(mins) => {
                 if mins % 30 != 0 {
-                    return format!("{}", mins.div_ceil(30) * 30);
+                    return Ok(format!("{}", mins.div_ceil(30) * 30));
                 }
-                format!("{mins}")
+                Ok(format!("{mins}"))
             }
-            StopoverDuration::UNLIMITED => "null".to_string(),
+            StopoverDuration::UNLIMITED => Ok("null".to_string()),
         }
     }
 }
@@ -375,15 +375,15 @@ impl TotalDuration {
 impl SerializeToWeb for TotalDuration {
     // Google ui allow total_length max to be checked in 30 mins intervals.
     // total_length is within parentesis
-    fn serialize_to_web(&self) -> String {
+    fn serialize_to_web(&self) -> Result<String> {
         match self {
             TotalDuration::Minutes(mins) => {
                 if mins % 30 != 0 {
-                    return format!("[{}]", mins.div_ceil(30) * 30);
+                    return Ok(format!("[{}]", mins.div_ceil(30) * 30));
                 }
-                format!("[{mins}]")
+                Ok(format!("[{mins}]"))
             }
-            TotalDuration::UNLIMITED => "null".to_string(),
+            TotalDuration::UNLIMITED => Ok("null".to_string()),
         }
     }
 }
@@ -446,21 +446,21 @@ impl FlightTimes {
 }
 
 impl SerializeToWeb for FlightTimes {
-    fn serialize_to_web(&self) -> String {
+    fn serialize_to_web(&self) -> Result<String> {
         if self.departure_hour_min.is_none()
             && self.departure_hour_max.is_none()
             && self.arrival_hour_min.is_none()
             && self.arrival_hour_max.is_none()
         {
-            "null".to_string()
+            Ok("null".to_string())
         } else {
-            format!(
+            Ok(format!(
                 "[{},{},{},{}]",
                 self.departure_hour_min.unwrap_or(0),
                 self.departure_hour_max.unwrap_or(23),
                 self.arrival_hour_min.unwrap_or(0),
                 self.arrival_hour_max.unwrap_or(23)
-            )
+            ))
         }
     }
 }
@@ -471,7 +471,7 @@ pub trait GetOuterErrorMessages {
 }
 
 pub trait SerializeToWeb {
-    fn serialize_to_web(&self) -> String;
+    fn serialize_to_web(&self) -> Result<String>;
 }
 /// A vector is serialized as a list of elements separated by a comma and enclosed in square brackets.
 /// The comma is not added at the end of the last element.
@@ -479,7 +479,7 @@ impl<T> SerializeToWeb for Vec<T>
 where
     T: SerializeToWeb,
 {
-    fn serialize_to_web(&self) -> String {
+    fn serialize_to_web(&self) -> Result<String> {
         let mut result = String::new();
         result.push('[');
 
@@ -487,12 +487,12 @@ where
             if i > 0 {
                 result.push(',');
             }
-            result.push_str(&item.serialize_to_web());
+            result.push_str(&item.serialize_to_web()?);
         }
 
         result.push(']');
 
-        result
+        Ok(result)
     }
 }
 
@@ -517,18 +517,21 @@ impl Location {
 }
 
 impl SerializeToWeb for Location {
-    fn serialize_to_web(&self) -> String {
+    fn serialize_to_web(&self) -> Result<String> {
         // TODO seems like there is a mismatch here. Maybe it is variant -1 as i32.
         // However, seems with type = 5 it works properly...
         match self.loc_type {
-            PlaceType::Airport => format!(r#"[\"{}\",{}]"#, &self.loc_identifier, 0_i32),
-            _ => format!(r#"[\"{}\",{}]"#, &self.loc_identifier, self.loc_type as i32),
+            PlaceType::Airport => Ok(format!(r#"[\"{}\",{}]"#, &self.loc_identifier, 0_i32)),
+            _ => Ok(format!(
+                r#"[\"{}\",{}]"#,
+                &self.loc_identifier, self.loc_type as i32
+            )),
         }
     }
 }
 
 impl SerializeToWeb for &Location {
-    fn serialize_to_web(&self) -> String {
+    fn serialize_to_web(&self) -> Result<String> {
         (*self).serialize_to_web()
     }
 }

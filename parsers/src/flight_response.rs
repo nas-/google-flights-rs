@@ -49,9 +49,10 @@ impl Date {
     }
 }
 impl SerializeToWeb for Date {
-    fn serialize_to_web(&self) -> String {
-        let date = NaiveDate::from_ymd_opt(self.year, self.month as u32, self.day as u32).unwrap();
-        date.format("%Y-%m-%d").to_string()
+    fn serialize_to_web(&self) -> Result<String> {
+        let date = NaiveDate::from_ymd_opt(self.year, self.month as u32, self.day as u32)
+            .ok_or_else(|| anyhow!("Invalid date!"))?;
+        Ok(date.format("%Y-%m-%d").to_string())
     }
 }
 
@@ -195,16 +196,16 @@ impl FlightInfo {
 }
 
 impl SerializeToWeb for FlightInfo {
-    fn serialize_to_web(&self) -> String {
+    fn serialize_to_web(&self) -> Result<String> {
         //TODO why do i have to escape each of the values?
-        format!(
+        Ok(format!(
             r#"[\"{}\",\"{}\",\"{}\",null,\"{}\",\"{}\"]"#,
             self.departure_airport_code,
-            self.departure_date.serialize_to_web(),
+            self.departure_date.serialize_to_web()?,
             self.destination_airport_code,
             self.airplane_info.code,
             self.airplane_info.flight_number
-        )
+        ))
     }
 }
 
@@ -717,8 +718,7 @@ impl RawResponse {
 
         let coordinates: Vec<(&Coordinates, &Location)> = all_images
             .into_iter()
-            .filter(|f| f.coordinates.is_some())
-            .map(|f| (f.coordinates.as_ref().unwrap(), &f.destination_codes))
+            .flat_map(|f| f.coordinates.as_ref().map(|c| (c, &f.destination_codes)))
             .collect();
         coordinates
     }

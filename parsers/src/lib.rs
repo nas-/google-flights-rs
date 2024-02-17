@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_used)]
 pub mod calendar_graph_request;
 pub mod calendar_graph_response;
 pub mod city_request;

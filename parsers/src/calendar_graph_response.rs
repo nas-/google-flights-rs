@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::flight_response::RawResponseContainerVec;
@@ -34,9 +34,10 @@ impl TryFrom<&str> for GraphRawResponseContainer {
 
         let res: Vec<String> = as_before
             .iter()
-            .flat_map(|f| f.first().ok_or_else(|| anyhow!("Malformed data!")))
+            .flat_map(|f| f.first())
             .filter(|f| f.payload.is_some())
-            .map(|f| f.payload.as_ref().unwrap().clone())
+            .flat_map(|f| f.payload.as_ref())
+            .cloned()
             .collect();
         let res2: Vec<Result<GraphRawResponse>> =
             res.iter().map(|f| decode_inner_object(f)).collect();
