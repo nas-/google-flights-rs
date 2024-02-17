@@ -56,8 +56,10 @@ impl SerializeToWeb for Date {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[serde(default)]
 pub struct Hour {
     //hour = None = hour after midnight
+    #[serde(default)]
     hour: Option<i32>,
     #[serde(default)]
     minute: i32,
@@ -390,7 +392,9 @@ struct CheaperTravelDifferentDatesContainer {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct CheaperTravelDifferentPlaces {
+    #[serde(default)]
     dates: Option<Vec<CheaperTravelDifferentDates>>,
+    #[serde(default)]
     airports: Option<Vec<StartFromOtherAirportOption>>,
 }
 
@@ -1079,5 +1083,26 @@ mod tests {
 
         assert!(result.is_ok());
         Ok(())
+    }
+
+    #[test]
+    fn test_hour_can_be_empty() {
+        let hour_str = "{}".to_string();
+        let hour = serde_json::from_str::<Hour>(&hour_str);
+        assert!(hour.is_ok());
+        let parsed = serde_json::to_string(&hour.unwrap()).unwrap();
+        let res = r#"{"hour":null,"minute":0}"#.to_string();
+        assert_eq!(parsed, res);
+    }
+
+    #[test]
+    fn test_cheaper_travel_different_places_can_be_empty() {
+        let cheaper_travel_str = "{}".to_string();
+        let cheaper_travel =
+            serde_json::from_str::<CheaperTravelDifferentPlaces>(&cheaper_travel_str);
+        assert!(cheaper_travel.is_ok());
+        let parsed = serde_json::to_string(&cheaper_travel.unwrap()).unwrap();
+        let res = r#"{"dates":null,"airports":null}"#.to_string();
+        assert_eq!(parsed, res);
     }
 }
