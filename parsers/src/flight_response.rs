@@ -3,7 +3,7 @@ use crate::common::SerializeToWeb;
 
 use super::common::{
     decode_inner_object, decode_outer_object, object_empty_as_none, Location, MaybeStringOrInt,
-    NumbersOrBools, VecOrI32,
+    NumbersOrBools
 };
 use anyhow::anyhow;
 use anyhow::Result;
@@ -412,7 +412,7 @@ pub struct CheaperTravelDifferentDates {
     pub proposed_departure_date: NaiveDate,
     proposed_return_date: Option<NaiveDate>,
     pub proposed_trip_cost: Option<TripCostContainer>,
-    unknown3: Option<VecOrI32>,
+    unknown3: Option<MaybeStringOrInt>,
     #[serde(default)]
     unknown4: Vec<i32>,
 }
@@ -436,7 +436,7 @@ pub struct PriceGraph {
     pub usual_price_low_bound: TripCost,
     usual_price_high_bound: TripCost,
     unknown6: i32,
-    unknown7: Option<String>,
+    unknown7: Option<Vec<MaybeStringOrInt>>,
     unknown8: Option<String>,
     unknown9: Option<String>,
     price_graph: Option<Vec<Vec<PricePoint>>>,
@@ -748,7 +748,7 @@ pub fn create_raw_response_vec(raw_inputs: String) -> Result<FlightResponseConta
 
 impl TryFrom<&str> for RawResponse {
     type Error = anyhow::Error;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        fn try_from(value: &str) -> Result<Self, Self::Error> {
         let outer: Vec<RawResponseContainerVec> = decode_outer_object(value)?;
         let inner_object = outer
             .first()
