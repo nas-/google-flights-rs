@@ -114,9 +114,7 @@ struct GraphRequest<'a> {
 
 impl SerializeToWeb for GraphRequest<'_> {
     fn serialize_to_web(&self) -> Result<String> {
-        let epoch_now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)?
-            .as_millis();
+        let epoch_now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
 
         let dates: Vec<&str> = self.itinerary.legs.iter().map(|f| f.date).collect();
 

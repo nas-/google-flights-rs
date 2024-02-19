@@ -3,7 +3,7 @@ use crate::common::SerializeToWeb;
 
 use super::common::{
     decode_inner_object, decode_outer_object, object_empty_as_none, Location, MaybeStringOrInt,
-    NumbersOrBools
+    NumbersOrBools,
 };
 use anyhow::anyhow;
 use anyhow::Result;
@@ -748,7 +748,7 @@ pub fn create_raw_response_vec(raw_inputs: String) -> Result<FlightResponseConta
 
 impl TryFrom<&str> for RawResponse {
     type Error = anyhow::Error;
-        fn try_from(value: &str) -> Result<Self, Self::Error> {
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
         let outer: Vec<RawResponseContainerVec> = decode_outer_object(value)?;
         let inner_object = outer
             .first()
