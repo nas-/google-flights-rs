@@ -154,17 +154,8 @@ pub enum MaybeStringOrInt {
     IntVector(Vec<i32>),
     None,
     Bool(bool),
+    VecMaybeI32(Vec<Option<i32>>),
 }
-///Helper enum to handle different fields returned by the API.
-/// Not used after, so prtty generic
-///TODO accorpate with MaybeStringOrInt
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(untagged)]
-pub enum VecOrI32 {
-    IntValue(i32),
-    VecI32(Vec<Option<i32>>),
-}
-
 /// Helper enum to handle different fields returned by the API.
 /// Not used after, so prtty generic
 /// TODO accorpate with MaybeStringOrInt
