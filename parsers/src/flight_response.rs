@@ -155,7 +155,7 @@ pub struct FlightInfo {
     arrival_date: Date,
     airplane_info: AirplaneInfo,
     unknown23: Option<String>,
-    unknown24: Option<String>,
+    unknown24: Option<Unknown24>,
     // Bag carry allowance?
     unknown25: Option<i32>,
     #[serde(default)]
@@ -170,6 +170,18 @@ pub struct FlightInfo {
     legroom_long: Option<String>,
     #[serde(default)]
     carbon_emission_mg: Option<i64>,
+}
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+struct Unknown24 {
+    unknown0: Option<i32>,
+    unknown1: Option<Unknown25>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+struct Unknown25 {
+    unknown0: Option<Vec<MaybeStringOrInt>>,
+    #[serde(default)]
+    unknown1: Option<Vec<MaybeStringOrInt>>,
 }
 
 impl FlightInfo {
@@ -278,7 +290,7 @@ pub struct Itinerary {
     unknown12: Option<bool>,
     connection_airport_info: Option<Vec<ConnectionInfo>>,
     unknown14: Option<String>,
-    unknown15: Option<String>,
+    unknown15: Option<ItinUnknown15>,
     airlines_with_codeshare: Option<Vec<String>>,
     unknown17: Option<String>,
     unknown18: OtherStruct,
@@ -292,6 +304,16 @@ pub struct Itinerary {
     unknown23: Vec<i64>,
     #[serde(default)]
     passenger_assistance_links: Option<Vec<CostumerSupport>>,
+}
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct ItinUnknown15 {
+    unknown0: Option<String>,
+    unknown1: Vec<ItinUnknown16>,
+}
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct ItinUnknown16 {
+    unknown0: Option<i32>,
+    unknown1: Option<Vec<i32>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -659,6 +681,33 @@ pub struct RawResponse {
     trip_cost: Option<Vec<TripCost>>,
     #[serde(default)]
     costumer_support_links: Option<Vec<CostumerSupport>>,
+    #[serde(default)]
+    unknown27: Option<String>,
+    #[serde(default)]
+    train_travel2: Option<TrainTravel2>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct TrainTravel2 {
+    unknown0: Option<Vec<TrainSolution>>,
+    unknown1: Option<i32>,
+    unknown2: OtherStruct,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct TrainSolution {
+    unknown0: Option<Vec<i32>>,
+    unknown1: i32,
+    dep_date: Date,
+    dep_hour: Hour,
+    arr_date: Date,
+    arr_hour: Hour,
+    duration: i32,
+    unknown7: Option<i32>,
+    price: Option<Vec<TripCost>>,
+    unknown9: Option<i32>,
+    departing_station: String,
+    arriving_station: String,
 }
 
 impl RawResponse {
@@ -1104,5 +1153,28 @@ mod tests {
         let parsed = serde_json::to_string(&cheaper_travel.unwrap()).unwrap();
         let res = r#"{"dates":null,"airports":null}"#.to_string();
         assert_eq!(parsed, res);
+    }
+
+    #[test]
+    fn test_test_return_response() -> Result<()> {
+        let datafiles = [
+            "test_files/error0.txt",
+            "test_files/error1.txt",
+            "test_files/with_28_elements.txt",
+        ]
+        .to_vec();
+
+        for datafile in datafiles.iter() {
+            let mystr = fs::read_to_string(datafile).expect("Cannot read from file");
+            let other: Result<RawResponse, _> = decode_inner_object(&mystr);
+            match other {
+                Ok(_) => assert!(other.is_ok()),
+                Err(err) => {
+                    println!("datafile {:?}", datafile);
+                    assert!(false)
+                }
+            }
+        }
+        Ok(())
     }
 }
