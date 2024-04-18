@@ -83,6 +83,7 @@ pub(crate) fn decode_inner_object<T: for<'a> Deserialize<'a>>(body: &str) -> Res
         Err(err) => {
             let path = err.path().to_string();
             println!("Error in processing inner object!\n{}\n{:?}", path, err);
+            std::fs::write("error.txt", body).expect("Unable to write file");
             Err(anyhow!(err))
         }
     }
