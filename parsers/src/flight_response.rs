@@ -174,6 +174,7 @@ pub struct FlightInfo {
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 struct Unknown24 {
     unknown0: Option<i32>,
+    #[serde(default)]
     unknown1: Option<Unknown25>,
 }
 
@@ -307,8 +308,9 @@ pub struct Itinerary {
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct ItinUnknown15 {
-    unknown0: Option<String>,
-    unknown1: Vec<ItinUnknown16>,
+    unknown0: Option<i32>,
+    #[serde(default)]
+    unknown1: Option<Vec<ItinUnknown16>>,
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct ItinUnknown16 {
