@@ -27,6 +27,9 @@ async fn main() -> Result<()> {
     let stopover_max = StopoverDuration::UNLIMITED;
     let duration_max = TotalDuration::UNLIMITED;
 
+    //We want results in euro, so we can avoid providing a currenct, as euros are the default.
+    let currency = None;
+
     let config = Config::new(
         departing_date,
         departure,
@@ -39,6 +42,7 @@ async fn main() -> Result<()> {
         return_times,
         stopover_max,
         duration_max,
+        currency.clone(),
     );
 
     // // Or, shorter...
@@ -66,7 +70,11 @@ async fn main() -> Result<()> {
         }
     };
     println!("Itinerary {:?}", first_flight.itinerary);
-    println!("Price {:?}", first_flight.itinerary_cost.trip_cost);
+    println!(
+        "Price {:?} {:?}",
+        first_flight.itinerary_cost.trip_cost,
+        currency.clone().unwrap_or_default()
+    );
     fixed_flights.add_element(first_flight)?;
 
     //If one-way flight, just quit
@@ -93,7 +101,11 @@ async fn main() -> Result<()> {
     };
 
     println!("Return flight itinerary {:?}", second_flight.itinerary);
-    println!("Price {:?}", second_flight.itinerary_cost.trip_cost);
+    println!(
+        "Price {:?} {:?}",
+        second_flight.itinerary_cost.trip_cost,
+        currency.clone().unwrap_or_default()
+    );
     println!("Itinerary link {:?}", config.to_flight_url());
 
     fixed_flights.add_element(second_flight)?;

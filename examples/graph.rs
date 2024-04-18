@@ -7,7 +7,10 @@ use parsers::{
     flight_response::CheaperTravelDifferentDates,
 };
 
-use gflights::requests::{api::ApiClient, config::Config};
+use gflights::requests::{
+    api::ApiClient,
+    config::{Config, Currency},
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,6 +29,8 @@ async fn main() -> Result<()> {
     let stopover_max = StopoverDuration::UNLIMITED;
     let duration_max = TotalDuration::UNLIMITED;
 
+    //Set currency to USDollar, default is euros.
+    let currency = Some(Currency::USDollar);
     let config = Config::new(
         departing_date,
         departure,
@@ -38,6 +43,7 @@ async fn main() -> Result<()> {
         return_times,
         stopover_max,
         duration_max,
+        currency,
     );
     // Or, shorter...
     // let config = Config{

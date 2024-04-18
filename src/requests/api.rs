@@ -16,6 +16,8 @@ use reqwest::{Client, Response, StatusCode};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
+use super::config::Currency;
+
 /// The `ApiClient` struct is used to send requests to the Google Flights website.
 #[derive(Clone)]
 pub struct ApiClient {
@@ -57,7 +59,7 @@ impl ApiClient {
     /// This will contains both the airport associated and the city.
     pub async fn request_city(&self, city: &str) -> Result<ResponseInnerBodyParsed> {
         let options = CityRequestOptions::new(city, &self.frontend_version);
-        let city_response: &str = &self.do_request(&options).await?.text().await?;
+        let city_response: &str = &self.do_request(&options, None).await?.text().await?;
         let cities_res = ResponseInnerBodyParsed::try_from(city_response)?;
         Ok(cities_res)
     }
@@ -94,7 +96,11 @@ impl ApiClient {
             &self.frontend_version,
         );
 
-        let body = self.do_request(&req_options).await?.text().await?;
+        let body = self
+            .do_request(&req_options, Some(args.currency.clone()))
+            .await?
+            .text()
+            .await?;
         let parsed = GraphRawResponseContainer::try_from(body.as_ref())?;
         Ok(parsed)
     }
@@ -141,7 +147,11 @@ impl ApiClient {
             fixed_flights,
         );
 
-        let body = self.do_request(&req_options).await?.text().await?;
+        let body = self
+            .do_request(&req_options, Some(args.currency.clone()))
+            .await?
+            .text()
+            .await?;
         let inner = create_raw_response_vec(body)?;
         Ok(inner)
     }
@@ -186,15 +196,23 @@ impl ApiClient {
             &self.frontend_version,
             fixed_flights,
         );
-        let body = self.do_request(&req_options).await?.text().await?;
+        let body = self
+            .do_request(&req_options, Some(args.currency.clone()))
+            .await?
+            .text()
+            .await?;
         let inner = offer_response::create_raw_response_offer_vec(body)?;
         Ok(inner)
     }
 
     /// Sends a request to retrieve flight data.
-    async fn do_request(&self, options: &impl ToRequestBody) -> Result<Response> {
+    async fn do_request(
+        &self,
+        options: &impl ToRequestBody,
+        currency: Option<Currency>,
+    ) -> Result<Response> {
         let req_payload = options.to_request_body()?;
-        let headers = get_headers();
+        let headers = get_headers(currency);
 
         let _permit = self
             .rate_limiter
@@ -218,7 +236,7 @@ impl ApiClient {
 /// Default headers for the requests.
 /// Note that the header x-googl-batchexecute-bgr is not included as it is very hard to reverse the logic behind it.
 /// This means that the the responses by the server are not always 100% accurate.
-fn get_headers() -> HeaderMap {
+fn get_headers(currency: Option<Currency>) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(
         reqwest::header::ACCEPT_LANGUAGE,
@@ -239,13 +257,24 @@ fn get_headers() -> HeaderMap {
             .unwrap(),
     );
     headers.insert(reqwest::header::ACCEPT, "*/*".parse().unwrap());
+
+    if let Some(currency) = currency {
+        let currency_header = format!(
+            r#"["en-GB","GB","{}",1,null,[-120],null,[[72534415,72446893,97456553,72399613]],1,[]]"#,
+            currency
+        );
+        headers.insert(
+            reqwest::header::HeaderName::from_static("x-goog-ext-259736195-jspb"),
+            reqwest::header::HeaderValue::from_str(&currency_header).unwrap(),
+        );
+    }
     headers
 }
 
 /// Retrieves the frontend version from the Google Flights website.
 async fn get_frontend_version() -> Option<String> {
     let client = Client::new();
-    let headers = get_headers();
+    let headers = get_headers(None);
     let url = "https://www.google.com/travel/flights".to_string();
     let res = client.get(url).headers(headers).send().await.ok()?;
 
