@@ -3,6 +3,7 @@ use std::fmt;
 
 use crate::protos::urls::Location as LocationProto;
 use chrono::{Months, NaiveDate};
+use clap::ValueEnum;
 use parsers::common::{
     FlightTimes, Location, PlaceType, StopOptions, StopoverDuration, TotalDuration, TravelClass,
     Travelers,
@@ -188,7 +189,7 @@ impl From<&Config> for ItineraryUrl {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, ValueEnum)]
 pub enum Currency {
     AlbanianLek,
     AlgerianDinar,
