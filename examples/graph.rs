@@ -17,9 +17,9 @@ async fn main() -> Result<()> {
     let client = ApiClient::new().await;
     let departure = Location::new("MAD", 1, Some("Madrid".to_string()));
     let destination = Location::new("MEX", 1, Some("Mexico city".to_string()));
-    let departing_date = NaiveDate::parse_from_str("2024-08-10", "%Y-%m-%d").unwrap();
+    let departing_date = NaiveDate::parse_from_str("2024-12-10", "%Y-%m-%d").unwrap();
     let return_date: Option<NaiveDate> =
-        Some(NaiveDate::parse_from_str("2024-08-30", "%Y-%m-%d").unwrap());
+        Some(NaiveDate::parse_from_str("2024-12-30", "%Y-%m-%d").unwrap());
     /*
     Pass None instead for one-way flight.
     let return_date: Option<NaiveDate> = None;

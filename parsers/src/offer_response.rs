@@ -203,7 +203,7 @@ struct FlightsInfo {
     unknown4: Option<Vec<MaybeVecOrStruct>>,
     unknown5: Option<String>,
     amenities: Vec<Amenties>,
-    unknown7: Option<Vec<Option<i32>>>,
+    unknown7: Option<Vec<MaybeStringOrInt>>,
     unknown8: Option<bool>,
     unknown9: Option<String>,
     unknown10: Option<String>,

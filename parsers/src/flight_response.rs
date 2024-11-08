@@ -305,6 +305,10 @@ pub struct Itinerary {
     unknown23: Vec<i64>,
     #[serde(default)]
     passenger_assistance_links: Option<Vec<CostumerSupport>>,
+    #[serde(default)]
+    unknown25: Option<String>,
+    #[serde(default)]
+    unknown26: Vec<Option<MaybeStringOrInt>>,
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct ItinUnknown15 {
@@ -339,7 +343,7 @@ pub struct ItineraryContainer {
     pub itinerary_cost: ItineraryCost,
     unknown2: Option<String>,
     unknown3: bool,
-    unknown4: Vec<Option<i32>>,
+    unknown4: Vec<Option<MaybeStringOrInt>>,
     unknown5: Vec<bool>,
     unknown6: bool,
     #[serde(deserialize_with = "object_empty_as_none")]
@@ -687,6 +691,14 @@ pub struct RawResponse {
     unknown27: Option<String>,
     #[serde(default)]
     train_travel2: Option<TrainTravel2>,
+    #[serde(default)]
+    unknown29: Option<MaybeStringOrInt>,
+    #[serde(default)]
+    unknown30: Option<TripCostContainer>,
+    #[serde(default)]
+    unknown31: Option<bool>,
+    #[serde(default)]
+    unknown32: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
