@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::flight_response::RawResponseContainerVec;
+use crate::parsers::flight_response::RawResponseContainerVec;
 
 use super::{
     common::{decode_inner_object, decode_outer_object},

@@ -1,7 +1,7 @@
 use core::panic;
 use std::fmt;
 
-use crate::protos::urls::Location as LocationProto;
+use crate::{parsers, protos::urls::Location as LocationProto};
 use chrono::{Months, NaiveDate};
 use clap::ValueEnum;
 use parsers::common::{

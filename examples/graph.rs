@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::{Months, NaiveDate};
-use parsers::{
+use gflights::parsers::{
     common::{
         FlightTimes, Location, StopOptions, StopoverDuration, TotalDuration, TravelClass, Travelers,
     },

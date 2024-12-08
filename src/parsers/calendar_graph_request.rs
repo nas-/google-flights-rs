@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::NaiveDate;
 use percent_encoding::utf8_percent_encode;
 
-use crate::common::{FlightTimes, StopoverDuration, TotalDuration};
+use crate::parsers::common::{FlightTimes, StopoverDuration, TotalDuration};
 
 use super::common::{
     Location, RequestBody, SerializeToWeb, StopOptions, ToRequestBody, TravelClass, Travelers,

@@ -7,7 +7,7 @@ use percent_encoding::{AsciiSet, CONTROLS};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::flight_response::{FlightInfo, ItineraryContainer};
+use crate::parsers::flight_response::{FlightInfo, ItineraryContainer};
 
 /// The set of characters that are percent-encoded in google flights requests.
 pub(crate) const CHARACTERS_TO_ENCODE: &AsciiSet = &CONTROLS

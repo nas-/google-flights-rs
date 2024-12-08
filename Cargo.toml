@@ -1,6 +1,5 @@
 [workspace]
-members = [
-  "parsers", "protos",
+members = [ "protos",
 ]
 
 [package]
@@ -11,7 +10,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-parsers = { path = "./parsers" }
 protos = { path = "./protos" }
 anyhow = "1.0.79"
 chrono = { version = "0.4.31", features = ["serde"] }
@@ -25,6 +23,7 @@ serde_path_to_error = "0.1.15"
 tokio = { version = "1.35.1", features = ["full"] }
 governor = "0.6.0"
 regex = "1.10.3"
+serde_repr = "0.1.18"
 
 
 [profile.dev]

@@ -6,8 +6,8 @@ use std::{
 use percent_encoding::utf8_percent_encode;
 
 use crate::{
-    common::{FixedFlights, FlightTimes, StopoverDuration, TotalDuration},
-    flight_response::FlightInfo,
+    parsers::common::{FixedFlights, FlightTimes, StopoverDuration, TotalDuration},
+    parsers::flight_response::FlightInfo,
 };
 
 use super::common::{
@@ -316,7 +316,7 @@ mod tests {
 
     use anyhow::Ok;
 
-    use crate::flight_response::{AirplaneInfo, Date, Hour};
+    use crate::parsers::flight_response::{AirplaneInfo, Date, Hour};
 
     use super::*;
 

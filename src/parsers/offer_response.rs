@@ -1,6 +1,6 @@
 use crate::{
-    common::{decode_inner_object, decode_outer_object, MaybeStringOrInt},
-    flight_response::{
+    parsers::common::{decode_inner_object, decode_outer_object, MaybeStringOrInt},
+    parsers::flight_response::{
         CostumerSupport, ItineraryCost, OtherStruct, PriceGraph, RawResponseContainerVec, TripCost,
         Unknown0, VisitedLocation,
     },

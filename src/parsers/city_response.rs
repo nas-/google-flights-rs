@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::common::{GetOuterErrorMessages, Location, PlaceType};
+use crate::parsers::common::{GetOuterErrorMessages, Location, PlaceType};
 
 use super::common::{decode_inner_object, decode_outer_object, MaybeStringOrInt};
 
