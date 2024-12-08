@@ -13,13 +13,15 @@ Unofficial API for google flights, impemented in Rust.
 
 # Use
 ## Request for a single itinerary & offers
-
+Run with "cargo run --example flights"
 See [Flights Example](examples/flights.rs)
 
 
 ## Request Flight Graph
 
+run with "cargo run --example graph"
 See [Graph Example](examples/graph.rs)
+
 
 
 

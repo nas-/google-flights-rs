@@ -112,7 +112,7 @@ impl ApiClient {
     ///
     /// * `args` - The configuration options for the request.
     /// * `fixed_flights` - The fixed flights to include in the request.
-    /// Those are used for requests after the first, to retrieve returns given specific flights uotbound.
+    ///   Those are used for requests after the first, to retrieve returns given specific flights uotbound.
     ///
     /// # Returns
     ///
