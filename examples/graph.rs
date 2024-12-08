@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
         return_times,
         stopover_max,
         duration_max,
-        currency,
+        currency.clone(),
     );
     // Or, shorter...
     // let config = Config{
@@ -60,5 +60,25 @@ async fn main() -> Result<()> {
     let graph: Vec<CheaperTravelDifferentDates> = response.get_all_graphs();
     // {proposed_departure_date:Date, proposed_trip_cost:Option<{"trip_cost":cost}>}
     println!("Graph: {:?}", graph);
+
+    let lowest_cost = graph
+        .iter()
+        .filter(|graph| graph.proposed_trip_cost.is_some())
+        .min_by(|a, b| {
+            a.proposed_trip_cost
+                .as_ref()
+                .unwrap()
+                .trip_cost
+                .price
+                .partial_cmp(&b.proposed_trip_cost.as_ref().unwrap().trip_cost.price)
+                .unwrap()
+        });
+
+    println!(
+        "Lowest cost itinerarty:{} {:?}",
+        lowest_cost.expect("No prices found for this itinerary"),
+        currency.unwrap_or_default()
+    );
+
     Ok(())
 }

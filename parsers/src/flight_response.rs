@@ -1,3 +1,7 @@
+use core::fmt;
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use crate::common::GetOuterErrorMessages;
 use crate::common::SerializeToWeb;
 
@@ -443,6 +447,33 @@ pub struct CheaperTravelDifferentDates {
     unknown3: Option<MaybeStringOrInt>,
     #[serde(default)]
     unknown4: Vec<i32>,
+}
+
+impl Display for CheaperTravelDifferentDates {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if let Some(return_date) = self.proposed_return_date {
+            write!(
+                f,
+                "Proposed departure date: {}, proposed return date: {}, proposed trip cost: {}",
+                self.proposed_departure_date,
+                return_date,
+                self.proposed_trip_cost
+                    .as_ref()
+                    .map(|f| f.trip_cost.price)
+                    .unwrap_or_default()
+            )
+        } else {
+            write!(
+                f,
+                "One way, proposed departure date: {}, proposed trip cost: {}",
+                self.proposed_departure_date,
+                self.proposed_trip_cost
+                    .as_ref()
+                    .map(|f| f.trip_cost.price)
+                    .unwrap_or_default()
+            )
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
