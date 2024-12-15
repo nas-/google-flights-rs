@@ -5,6 +5,8 @@ use crate::{
     parsers,
     protos::{self, urls::Location as LocationProto},
 };
+use anyhow::anyhow;
+use anyhow::Result;
 use chrono::{Months, NaiveDate};
 use clap::ValueEnum;
 use parsers::common::{
@@ -97,6 +99,115 @@ impl Config {
     /// Returns the encoded string relative to this flight search.
     pub fn to_encoded(&self) -> String {
         ItineraryUrl::from(self).to_encoded()
+    }
+
+    pub fn builder() -> ConfigBuilder {
+        ConfigBuilder::default()
+    }
+}
+
+#[derive(Default)]
+pub struct ConfigBuilder {
+    departing_date: Option<NaiveDate>,
+    departure: Option<Location>,
+    destination: Option<Location>,
+    stop_options: StopOptions,
+    travel_class: TravelClass,
+    return_date: Option<NaiveDate>,
+    travelers: Travelers,
+    departing_times: FlightTimes,
+    return_times: FlightTimes,
+    stopover_max: StopoverDuration,
+    duration_max: TotalDuration,
+    currency: Option<Currency>,
+}
+
+impl ConfigBuilder {
+    pub fn departing_date(mut self, date: NaiveDate) -> Self {
+        self.departing_date = Some(date);
+        self
+    }
+
+    pub fn departure(mut self, location: Location) -> Self {
+        self.departure = Some(location);
+        self
+    }
+
+    pub fn destination(mut self, location: Location) -> Self {
+        self.destination = Some(location);
+        self
+    }
+
+    pub fn return_date(mut self, date: NaiveDate) -> Self {
+        self.return_date = Some(date);
+        self
+    }
+
+    pub fn travelers(mut self, travelers: Travelers) -> Self {
+        self.travelers = travelers;
+        self
+    }
+
+    pub fn stop_options(mut self, stop_options: StopOptions) -> Self {
+        self.stop_options = stop_options;
+        self
+    }
+
+    pub fn travel_class(mut self, travel_class: TravelClass) -> Self {
+        self.travel_class = travel_class;
+        self
+    }
+
+    pub fn departing_times(mut self, times: FlightTimes) -> Self {
+        self.departing_times = times;
+        self
+    }
+
+    pub fn return_times(mut self, times: FlightTimes) -> Self {
+        self.return_times = times;
+        self
+    }
+
+    pub fn stopover_max(mut self, duration: StopoverDuration) -> Self {
+        self.stopover_max = duration;
+        self
+    }
+
+    pub fn duration_max(mut self, duration: TotalDuration) -> Self {
+        self.duration_max = duration;
+        self
+    }
+
+    pub fn currency(mut self, currency: Currency) -> Self {
+        self.currency = Some(currency);
+        self
+    }
+
+    pub fn build(self) -> Result<Config> {
+        Ok(Config {
+            departing_date: self
+                .departing_date
+                .ok_or(anyhow!("Departing date is required"))?,
+            departure: self
+                .departure
+                .ok_or(anyhow!("Departure location is required"))?,
+            destination: self
+                .destination
+                .ok_or(anyhow!("Destination location is required"))?,
+            stop_options: self.stop_options,
+            travel_class: self.travel_class,
+            return_date: self.return_date,
+            travellers: self.travelers,
+            departing_times: self.departing_times,
+            return_times: self.return_times,
+            stopover_max: self.stopover_max,
+            duration_max: self.duration_max,
+            currency: self.currency.unwrap_or_default(),
+            trip_type: match self.return_date {
+                Some(_) => TripType::Return,
+                None => TripType::OneWay,
+            },
+        })
     }
 }
 

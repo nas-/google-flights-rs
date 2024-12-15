@@ -1,9 +1,7 @@
 use anyhow::Result;
 use chrono::{Months, NaiveDate};
 use gflights::parsers::{
-    common::{
-        FlightTimes, Location, StopOptions, StopoverDuration, TotalDuration, TravelClass, Travelers,
-    },
+    common::{Location, Travelers},
     flight_response::CheaperTravelDifferentDates,
 };
 
@@ -18,42 +16,18 @@ async fn main() -> Result<()> {
     let departure = Location::new("MAD", 1, Some("Madrid".to_string()));
     let destination = Location::new("MEX", 1, Some("Mexico city".to_string()));
     let departing_date = NaiveDate::parse_from_str("2024-12-10", "%Y-%m-%d").unwrap();
-    let return_date: Option<NaiveDate> =
-        Some(NaiveDate::parse_from_str("2024-12-30", "%Y-%m-%d").unwrap());
-    /*
-    Pass None instead for one-way flight.
-    let return_date: Option<NaiveDate> = None;
-    */
-    let departing_times = FlightTimes::default(); // No filters to flights times.
-    let return_times = FlightTimes::default(); // No filters to flights times.
-    let stopover_max = StopoverDuration::UNLIMITED;
-    let duration_max = TotalDuration::UNLIMITED;
+    let return_date = NaiveDate::parse_from_str("2024-12-30", "%Y-%m-%d").unwrap();
 
     //Set currency to USDollar, default is euros.
-    let currency = Some(Currency::USDollar);
-    let config = Config::new(
-        departing_date,
-        departure,
-        destination,
-        StopOptions::OneOrLess,
-        TravelClass::Economy,
-        return_date,
-        Travelers::new([1, 0, 0, 0].to_vec()),
-        departing_times,
-        return_times,
-        stopover_max,
-        duration_max,
-        currency.clone(),
-    );
-    // Or, shorter...
-    // let config = Config{
-    //     departing_date,
-    //     departure,
-    //     destination,
-    //     stop_options:StopOptions::OneOrLess,
-    //     return_date,
-    //     ..Default::default()
-    // };
+    let config = Config::builder()
+        .departing_date(departing_date)
+        .departure(departure)
+        .destination(destination)
+        .return_date(return_date)
+        .currency(Currency::USDollar)
+        .travelers(Travelers::new([1, 0, 0, 0].to_vec()))
+        .build()?;
+
     let months = Months::new(5);
     let response = client.request_graph(&config, months).await?;
 
@@ -77,7 +51,7 @@ async fn main() -> Result<()> {
     println!(
         "Lowest cost itinerarty:{} {:?}",
         lowest_cost.expect("No prices found for this itinerary"),
-        currency.unwrap_or_default()
+        config.currency
     );
 
     Ok(())

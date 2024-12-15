@@ -1,11 +1,11 @@
 use anyhow::Result;
 use chrono::NaiveDate;
-use gflights::parsers::{
-    common::{
-        FixedFlights, FlightTimes, Location, StopOptions, StopoverDuration, TotalDuration,
-        TravelClass, Travelers,
+use gflights::{
+    parsers::{
+        common::{FixedFlights, Location, Travelers},
+        flight_response::ItineraryContainer,
     },
-    flight_response::ItineraryContainer,
+    requests::config::TripType,
 };
 
 use gflights::requests::{api::ApiClient, config::Config};
@@ -16,44 +16,18 @@ async fn main() -> Result<()> {
     let departure = Location::new("MAD", 1, Some("Madrid".to_string()));
     let destination = Location::new("MEX", 1, Some("Mexico city".to_string()));
     let departing_date = NaiveDate::parse_from_str("2025-08-10", "%Y-%m-%d").unwrap();
-    let return_date: Option<NaiveDate> =
-        Some(NaiveDate::parse_from_str("2025-08-30", "%Y-%m-%d").unwrap());
-    /*
-    Pass None instead for one-way flight.
-    let return_date: Option<NaiveDate> = None;
-    */
-    let departing_times = FlightTimes::default(); // No filters to flights times.
-    let return_times = FlightTimes::default(); // No filters to flights times.
-    let stopover_max = StopoverDuration::UNLIMITED;
-    let duration_max = TotalDuration::UNLIMITED;
+    let return_date = NaiveDate::parse_from_str("2025-08-30", "%Y-%m-%d").unwrap();
 
-    //We want results in euro, so we can avoid providing a currenct, as euros are the default.
-    let currency = None;
+    let config = Config::builder()
+        .departing_date(departing_date)
+        .departure(departure)
+        .destination(destination)
+        .return_date(return_date)
+        .travelers(Travelers::new([1, 0, 0, 0].to_vec()))
+        .build()?;
 
-    let config = Config::new(
-        departing_date,
-        departure,
-        destination,
-        StopOptions::All,
-        TravelClass::Economy,
-        return_date,
-        Travelers::new([1, 0, 0, 0].to_vec()),
-        departing_times,
-        return_times,
-        stopover_max,
-        duration_max,
-        currency.clone(),
-    );
-
-    // // Or, shorter...
-    // let config = Config{
-    //     departing_date,
-    //     departure,
-    //     destination,
-    //     return_date,
-    //     ..Default::default()
-    // };
     let fixed_flights = FixedFlights::new(2_usize);
+
     let response = client.request_flights(&config, &fixed_flights).await?;
     let maybe_next_flight: Option<ItineraryContainer> = response
         .responses
@@ -72,17 +46,20 @@ async fn main() -> Result<()> {
     println!("Itinerary {:?}", first_flight.itinerary);
     println!(
         "Price {:?} {:?}",
-        first_flight.itinerary_cost.trip_cost,
-        currency.clone().unwrap_or_default()
+        first_flight.itinerary_cost.trip_cost, config.currency
     );
     fixed_flights.add_element(first_flight)?;
 
     //If one-way flight, just quit
-    match return_date {
-        Some(_) => {}
-        None => {
+    match config.trip_type {
+        TripType::Return => {}
+        TripType::OneWay => {
             println!("Flight url {:?}", config.to_flight_url());
             println!("No return date specified, so one_way flight. Quitting.");
+            return Ok(());
+        }
+        _ => {
+            println!("Unsupported trip type");
             return Ok(());
         }
     }
@@ -103,8 +80,7 @@ async fn main() -> Result<()> {
     println!("Return flight itinerary {:?}", second_flight.itinerary);
     println!(
         "Price {:?} {:?}",
-        second_flight.itinerary_cost.trip_cost,
-        currency.clone().unwrap_or_default()
+        second_flight.itinerary_cost.trip_cost, config.currency
     );
     println!("Itinerary link {:?}", config.to_flight_url());
 

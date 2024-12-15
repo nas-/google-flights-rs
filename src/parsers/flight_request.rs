@@ -669,7 +669,7 @@ mod tests {
             Date::new(2024, 2, 1),
             AirplaneInfo::new("AF".to_string(), "350".to_owned(), None, "777".to_string()),
         );
-        let choosen_itinerary = [choosen_itinerary_1, choosen_itinerary_2].to_vec();
-        choosen_itinerary
+
+        [choosen_itinerary_1, choosen_itinerary_2].to_vec()
     }
 }

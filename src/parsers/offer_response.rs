@@ -339,10 +339,10 @@ mod tests {
 
         let mystr = fs::read_to_string(datafiles).expect("Cannot read from file");
 
-        let outer: RawResponseContainerVec = serde_json::from_str(&mystr.as_ref())?;
+        let outer: RawResponseContainerVec = serde_json::from_str(mystr.as_ref())?;
 
         let inner: Result<OfferRawResponse> =
-            decode_inner_object(&outer.resp[0].payload.as_ref().unwrap());
+            decode_inner_object(outer.resp[0].payload.as_ref().unwrap());
 
         assert!(inner.is_ok());
         Ok(())
@@ -360,7 +360,7 @@ mod tests {
             .flat_map(|f| f.resp)
             .flat_map(|f| f.payload)
             .collect();
-        let inner: String = inner_objects.into_iter().nth(0).unwrap();
+        let inner: String = inner_objects.into_iter().next().unwrap();
         let restult: Result<OfferRawResponse> = decode_inner_object(inner.as_ref());
 
         assert!(restult.is_ok());
