@@ -1,6 +1,5 @@
 use anyhow::Result;
 use chrono::{Duration, Months, Utc};
-use gflights::parsers::common::Location;
 
 use gflights::requests::{
     api::ApiClient,
@@ -10,8 +9,6 @@ use gflights::requests::{
 #[tokio::main]
 async fn main() -> Result<()> {
     let client = ApiClient::new().await;
-    let departure = Location::new("MAD", 1, Some("Madrid".to_string()));
-    let destination = Location::new("MEX", 1, Some("Mexico city".to_string()));
 
     let today = Utc::now().date_naive();
     let departing_date = today + Duration::days(10);
@@ -19,9 +16,11 @@ async fn main() -> Result<()> {
 
     //Set currency to USDollar, default is euros.
     let config: Config = Config::builder()
+        .departure("MAD", &client)
+        .await?
+        .destination("MEX", &client)
+        .await?
         .departing_date(departing_date)
-        .departure(departure)
-        .destination(destination)
         .return_date(return_date)
         .currency(Currency::USDollar)
         .build()?;

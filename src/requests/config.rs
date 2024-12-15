@@ -16,6 +16,8 @@ use parsers::common::{
 
 use protos::urls::{ItineraryUrl, Leg};
 
+use super::api::ApiClient;
+
 /// The `TripType` enum is used to specify the type of trip.
 #[derive(Debug, Clone)]
 pub enum TripType {
@@ -128,14 +130,16 @@ impl ConfigBuilder {
         self
     }
 
-    pub fn departure(mut self, location: Location) -> Self {
-        self.departure = Some(location);
-        self
+    pub async fn departure(mut self, location: &str, client: &ApiClient) -> Result<Self> {
+        let departure = get_location(location, client).await?;
+        self.departure = Some(departure);
+        Ok(self)
     }
 
-    pub fn destination(mut self, location: Location) -> Self {
-        self.destination = Some(location);
-        self
+    pub async fn destination(mut self, location: &str, client: &ApiClient) -> Result<Self> {
+        let destination = get_location(location, client).await?;
+        self.destination = Some(destination);
+        Ok(self)
     }
 
     pub fn return_date(mut self, date: NaiveDate) -> Self {
@@ -209,6 +213,15 @@ impl ConfigBuilder {
             },
         })
     }
+}
+
+async fn get_location(location: &str, client: &ApiClient) -> Result<Location, anyhow::Error> {
+    let departure = if location.len() == 3 && location.chars().all(char::is_uppercase) {
+        Location::new(&location, 1, None)
+    } else {
+        client.request_city(location).await?.to_city_list()
+    };
+    Ok(departure)
 }
 
 /// Conversion to Leg Protobuf, used for creating the URL.

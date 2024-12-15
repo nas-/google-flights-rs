@@ -53,9 +53,9 @@ impl TryFrom<&str> for ResponseInnerBodyParsed {
 impl ResponseInnerBodyParsed {
     pub fn to_city_list(&self) -> Location {
         let bulk = &self.result_container[0];
-        if let Some(x) = &bulk.city.airport_code {
+        if let Some(airport_code) = &bulk.city.airport_code {
             // Location type 1 or 0 should make little difference
-            Location::new(x, 1, Some(bulk.city.city_name.clone()))
+            Location::new(airport_code, 1, Some(bulk.city.city_name.clone()))
         } else {
             Location::new(&bulk.city.identifier, 5, Some(bulk.city.city_name.clone()))
         }
@@ -83,6 +83,8 @@ pub struct PlaceDetails {
     unknown9: Option<bool>,
     unknown10: Option<String>,
     unknown11: i32,
+    #[serde(default)]
+    confidence: f64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -1,36 +1,29 @@
 use anyhow::Result;
 use chrono::{Duration, Utc};
-use gflights::{
-    parsers::{
-        common::{FixedFlights, Location},
-        flight_response::ItineraryContainer,
-    },
-    requests::config::TripType,
-};
+use gflights::{parsers::common::FixedFlights, requests::config::TripType};
 
 use gflights::requests::{api::ApiClient, config::Config};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let client = ApiClient::new().await;
-    let departure = Location::new("MAD", 1, Some("Madrid".to_string()));
-    let destination = Location::new("MEX", 1, Some("Mexico city".to_string()));
-
     let today = Utc::now().date_naive();
     let departing_date = today + Duration::days(10);
     let return_date = today + Duration::days(20);
 
     let config = Config::builder()
+        .departure("MAD", &client)
+        .await?
+        .destination("MEX", &client)
+        .await?
         .departing_date(departing_date)
-        .departure(departure)
-        .destination(destination)
         .return_date(return_date)
         .build()?;
 
     let fixed_flights = FixedFlights::new(2_usize);
 
     let response = client.request_flights(&config, &fixed_flights).await?;
-    let maybe_next_flight: Option<ItineraryContainer> = response
+    let maybe_next_flight = response
         .responses
         .into_iter()
         .flat_map(|response| response.maybe_get_all_flights())
