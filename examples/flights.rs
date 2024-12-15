@@ -1,8 +1,8 @@
 use anyhow::Result;
-use chrono::NaiveDate;
+use chrono::{Duration, Utc};
 use gflights::{
     parsers::{
-        common::{FixedFlights, Location, Travelers},
+        common::{FixedFlights, Location},
         flight_response::ItineraryContainer,
     },
     requests::config::TripType,
@@ -15,15 +15,16 @@ async fn main() -> Result<()> {
     let client = ApiClient::new().await;
     let departure = Location::new("MAD", 1, Some("Madrid".to_string()));
     let destination = Location::new("MEX", 1, Some("Mexico city".to_string()));
-    let departing_date = NaiveDate::parse_from_str("2025-08-10", "%Y-%m-%d").unwrap();
-    let return_date = NaiveDate::parse_from_str("2025-08-30", "%Y-%m-%d").unwrap();
+
+    let today = Utc::now().date_naive();
+    let departing_date = today + Duration::days(10);
+    let return_date = today + Duration::days(20);
 
     let config = Config::builder()
         .departing_date(departing_date)
         .departure(departure)
         .destination(destination)
         .return_date(return_date)
-        .travelers(Travelers::new([1, 0, 0, 0].to_vec()))
         .build()?;
 
     let fixed_flights = FixedFlights::new(2_usize);

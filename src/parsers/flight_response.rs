@@ -448,6 +448,12 @@ pub struct CheaperTravelDifferentDates {
     #[serde(default)]
     unknown4: Vec<i32>,
 }
+impl CheaperTravelDifferentDates {
+    pub fn maybe_get_date_price(self) -> Option<(NaiveDate, i32)> {
+        self.proposed_trip_cost
+            .map(|f| (self.proposed_departure_date, f.trip_cost.price))
+    }
+}
 
 impl Display for CheaperTravelDifferentDates {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
