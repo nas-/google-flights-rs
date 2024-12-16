@@ -2,7 +2,7 @@ use core::panic;
 use std::fmt;
 
 use crate::{
-    parsers,
+    parsers::{self, common::FixedFlights},
     protos::{self, urls::Location as LocationProto},
 };
 use anyhow::anyhow;
@@ -46,6 +46,7 @@ pub struct Config {
     pub duration_max: TotalDuration,
     pub trip_type: TripType,
     pub currency: Currency,
+    pub fixed_flights: FixedFlights,
 }
 
 impl Config {
@@ -69,6 +70,11 @@ impl Config {
             Some(_) => TripType::Return,
             None => TripType::OneWay,
         };
+        let fixed_flights = match trip_type {
+            TripType::Return => FixedFlights::new(2),
+            TripType::OneWay => FixedFlights::new(1),
+            TripType::MultiCity => panic!("Multi city trips are not implemented!"),
+        };
         Self {
             departing_date,
             departure,
@@ -83,6 +89,7 @@ impl Config {
             duration_max,
             trip_type,
             currency: currency.unwrap_or_default(),
+            fixed_flights,
         }
     }
     /// Calculates the number of days between the departing and return dates, if this is a return trip.
@@ -188,10 +195,15 @@ impl ConfigBuilder {
     }
 
     pub fn build(self) -> Result<Config> {
+        let departing_date = self
+            .departing_date
+            .ok_or(anyhow!("Departing date is required"))?;
+        let trip_type = match self.return_date {
+            Some(_) => TripType::Return,
+            None => TripType::OneWay,
+        };
         Ok(Config {
-            departing_date: self
-                .departing_date
-                .ok_or(anyhow!("Departing date is required"))?,
+            departing_date,
             departure: self
                 .departure
                 .ok_or(anyhow!("Departure location is required"))?,
@@ -207,9 +219,11 @@ impl ConfigBuilder {
             stopover_max: self.stopover_max,
             duration_max: self.duration_max,
             currency: self.currency.unwrap_or_default(),
-            trip_type: match self.return_date {
-                Some(_) => TripType::Return,
-                None => TripType::OneWay,
+            trip_type: trip_type.clone(),
+            fixed_flights: match trip_type {
+                TripType::Return => FixedFlights::new(2),
+                TripType::OneWay => FixedFlights::new(1),
+                TripType::MultiCity => panic!("Multi city trips are not implemented!"),
             },
         })
     }

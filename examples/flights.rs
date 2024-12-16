@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::{Duration, Utc};
-use gflights::{parsers::common::FixedFlights, requests::config::TripType};
+use gflights::requests::config::TripType;
 
 use gflights::requests::{api::ApiClient, config::Config};
 
@@ -20,9 +20,7 @@ async fn main() -> Result<()> {
         .return_date(return_date)
         .build()?;
 
-    let fixed_flights = FixedFlights::new(2_usize);
-
-    let response = client.request_flights(&config, &fixed_flights).await?;
+    let response = client.request_flights(&config).await?;
     let maybe_next_flight = response
         .responses
         .into_iter()
@@ -42,7 +40,7 @@ async fn main() -> Result<()> {
         "Price {:?} {:?}",
         first_flight.itinerary_cost.trip_cost, config.currency
     );
-    fixed_flights.add_element(first_flight)?;
+    config.fixed_flights.add_element(first_flight)?;
 
     //If one-way flight, just quit
     match config.trip_type {
@@ -58,7 +56,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    let second_flight_response = client.request_flights(&config, &fixed_flights).await?;
+    let second_flight_response = client.request_flights(&config).await?;
     let maybe_second_flight = second_flight_response
         .responses
         .into_iter()
@@ -78,9 +76,9 @@ async fn main() -> Result<()> {
     );
     println!("Itinerary link {:?}", config.to_flight_url());
 
-    fixed_flights.add_element(second_flight)?;
+    config.fixed_flights.add_element(second_flight)?;
     // ask for offers:
-    let offers_vec = client.request_offer(&config, &fixed_flights).await?;
+    let offers_vec = client.request_offer(&config).await?;
     let maybe_offers = offers_vec
         .response
         .first()

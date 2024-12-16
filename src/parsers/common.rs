@@ -531,10 +531,15 @@ impl SerializeToWeb for &Location {
 /// Fixed flights is a vector of ItineraryContainer.
 /// It has a maximum number of elements, defined by the type of flight that needs to be searched.
 /// TODO check if futures::mutex needs to be used here instead.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FixedFlights {
     flights: Arc<Mutex<Vec<ItineraryContainer>>>,
     max_elements: usize,
+}
+impl Default for FixedFlights {
+    fn default() -> Self {
+        Self::new(2_usize)
+    }
 }
 
 impl FixedFlights {

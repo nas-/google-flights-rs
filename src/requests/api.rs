@@ -7,7 +7,7 @@ use parsers::calendar_graph_request::GraphRequestOptions;
 use parsers::calendar_graph_response::GraphRawResponseContainer;
 use parsers::city_request::CityRequestOptions;
 use parsers::city_response::ResponseInnerBodyParsed;
-use parsers::common::{FixedFlights, ToRequestBody};
+use parsers::common::ToRequestBody;
 use parsers::flight_request::FlightRequestOptions;
 use parsers::flight_response::{create_raw_response_vec, FlightResponseContainer};
 use parsers::offer_response::{self, OfferRawResponseContainer};
@@ -111,17 +111,11 @@ impl ApiClient {
     /// # Arguments
     ///
     /// * `args` - The configuration options for the request.
-    /// * `fixed_flights` - The fixed flights to include in the request.
-    ///   Those are used for requests after the first, to retrieve returns given specific flights uotbound.
     ///
     /// # Returns
     ///
     /// Returns a `FlightResponseContainer` object containing the parsed response.
-    pub async fn request_flights(
-        &self,
-        args: &Config,
-        fixed_flights: &FixedFlights,
-    ) -> Result<FlightResponseContainer> {
+    pub async fn request_flights(&self, args: &Config) -> Result<FlightResponseContainer> {
         let date_start = args.departing_date.to_string();
         let date_return: Option<String> = args.return_date.map(|f| f.to_string());
         println!(
@@ -145,7 +139,7 @@ impl ApiClient {
             &args.stopover_max,
             &args.duration_max,
             &self.frontend_version,
-            fixed_flights,
+            &args.fixed_flights,
         );
 
         let body = self
@@ -162,16 +156,11 @@ impl ApiClient {
     /// # Arguments
     ///
     /// * `args` - The configuration options for the request.
-    /// * `fixed_flights` - The fixed flights to include in the request.
     ///
     /// # Returns
     ///
     /// Returns an `OfferRawResponseContainer` object containing the parsed response.
-    pub async fn request_offer(
-        &self,
-        args: &Config,
-        fixed_flights: &FixedFlights,
-    ) -> Result<OfferRawResponseContainer> {
+    pub async fn request_offer(&self, args: &Config) -> Result<OfferRawResponseContainer> {
         let date_start = args.departing_date.to_string();
         let date_return: Option<String> = args.return_date.map(|f| f.to_string());
         println!(
@@ -195,7 +184,7 @@ impl ApiClient {
             &args.stopover_max,
             &args.duration_max,
             &self.frontend_version,
-            fixed_flights,
+            &args.fixed_flights,
         );
         let body = self
             .do_request(&req_options, Some(args.currency.clone()))
