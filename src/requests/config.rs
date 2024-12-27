@@ -231,7 +231,7 @@ impl ConfigBuilder {
 
 async fn get_location(location: &str, client: &ApiClient) -> Result<Location, anyhow::Error> {
     let departure = if location.len() == 3 && location.chars().all(char::is_uppercase) {
-        Location::new(&location, 1, None)
+        Location::new(location, 1, None)
     } else {
         client.request_city(location).await?.to_city_list()
     };

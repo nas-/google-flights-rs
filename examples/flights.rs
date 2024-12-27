@@ -79,14 +79,20 @@ async fn main() -> Result<()> {
     config.fixed_flights.add_element(second_flight)?;
     // ask for offers:
     let offers_vec = client.request_offer(&config).await?;
-    let maybe_offers = offers_vec
+    let mut maybe_offers: Vec<(Vec<String>, i32)> = offers_vec
         .response
-        .first()
-        .and_then(|response| response.get_offer_prices());
-    if let Some(offers) = maybe_offers {
-        println!("Offers for this flight: {:?}", offers);
-    } else {
-        println!("No offers for this flight");
+        .into_iter()
+        .flat_map(|response| response.get_offer_prices())
+        .flatten()
+        .collect();
+    maybe_offers.sort_by(|a, b| a.1.cmp(&b.1));
+
+    if maybe_offers.is_empty() {
+        println!("No offers found");
+        return Ok(());
+    }
+    for (offer, price) in maybe_offers {
+        println!("Offer: {:?} Price: {:?}", offer, price);
     }
 
     Ok(())

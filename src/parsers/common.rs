@@ -95,8 +95,78 @@ pub(crate) fn decode_inner_object<T: for<'a> Deserialize<'a>>(body: &str) -> Res
 pub(crate) fn object_empty_as_none<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
+    T: std::fmt::Debug,
     for<'a> T: Deserialize<'a>,
 {
+    use serde::de::{self, Visitor};
+    use std::fmt;
+    struct RawValueVisitor;
+
+    impl<'de> Visitor<'de> for RawValueVisitor {
+        type Value = serde_json::Value;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("any valid JSON value")
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            serde_json::from_str(v).map_err(de::Error::custom)
+        }
+
+        fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            serde_json::from_str(v).map_err(de::Error::custom)
+        }
+
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            serde_json::from_str(&v).map_err(de::Error::custom)
+        }
+
+        fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            serde_json::from_slice(v).map_err(de::Error::custom)
+        }
+
+        fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            serde_json::from_slice(v).map_err(de::Error::custom)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let mut elements = Vec::new();
+            while let Some(value) = seq.next_element()? {
+                elements.push(value);
+            }
+            Ok(serde_json::Value::Array(elements))
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::MapAccess<'de>,
+        {
+            let mut values = serde_json::Map::new();
+            while let Some((key, value)) = map.next_entry()? {
+                values.insert(key, value);
+            }
+            Ok(serde_json::Value::Object(values))
+        }
+    }
+
     #[derive(Deserialize, Debug)]
     #[serde(deny_unknown_fields)]
     struct Empty {}
@@ -107,11 +177,19 @@ where
         T(T),
         Empty(Empty),
         Null,
+        #[allow(dead_code)]
+        Array(Vec<serde_json::Value>),
+        #[allow(dead_code)]
+        Number(serde_json::Number),
     }
 
-    match Deserialize::deserialize(deserializer)? {
+    let raw_value: serde_json::Value = deserializer.deserialize_any(RawValueVisitor)?;
+
+    let aux: Aux<T> = serde_json::from_value(raw_value).map_err(de::Error::custom)?;
+
+    match aux {
         Aux::T(t) => Ok(Some(t)),
-        Aux::Empty(_) | Aux::Null => Ok(None),
+        Aux::Empty(_) | Aux::Null | Aux::Array(_) | Aux::Number(_) => Ok(None),
     }
 }
 

@@ -637,6 +637,10 @@ pub struct VisitedLocation {
     unknown23: Option<Vec<i32>>,
     #[serde(default)]
     unknown24: Option<Vec<CostumerSupport>>,
+    #[serde(default)]
+    unknown25: Option<String>,
+    #[serde(default)]
+    unknown26: Option<Vec<i32>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

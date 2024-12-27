@@ -128,7 +128,9 @@ struct OtaOffers {
 #[derive(Debug, Deserialize, Serialize)]
 struct InsuranceOptions {
     unknown0: i32,
+    #[serde(default)]
     offered_by: String,
+    #[serde(default)]
     info_link: String,
 }
 

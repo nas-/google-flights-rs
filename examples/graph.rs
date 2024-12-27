@@ -29,8 +29,6 @@ async fn main() -> Result<()> {
     let response = client.request_graph(&config, months).await?;
 
     let graph = response.get_all_graphs();
-    // {proposed_departure_date:Date, proposed_trip_cost:Option<{"trip_cost":cost}>}
-    println!("Graph: {:?}", graph);
 
     let lowest_cost = graph
         .iter()
