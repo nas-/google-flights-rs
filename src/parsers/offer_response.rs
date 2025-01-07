@@ -1,5 +1,5 @@
 use crate::{
-    parsers::common::{decode_inner_object, decode_outer_object, MaybeStringOrInt},
+    parsers::common::{decode_inner_object, decode_outer_object},
     parsers::flight_response::{
         CostumerSupport, ItineraryCost, OtherStruct, PriceGraph, RawResponseContainerVec, TripCost,
         Unknown0, VisitedLocation,
@@ -7,6 +7,7 @@ use crate::{
 };
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 pub fn create_raw_response_offer_vec(raw_inputs: String) -> Result<OfferRawResponseContainer> {
     let outer: Vec<RawResponseContainerVec> = decode_outer_object(raw_inputs.as_ref())?;
@@ -205,11 +206,11 @@ struct FlightsInfo {
     unknown4: Option<Vec<MaybeVecOrStruct>>,
     unknown5: Option<String>,
     amenities: Vec<Amenties>,
-    unknown7: Option<Vec<MaybeStringOrInt>>,
+    unknown7: Option<Value>,
     unknown8: Option<bool>,
     unknown9: Option<String>,
     unknown10: Option<String>,
-    unknown11: Vec<Vec<MaybeStringOrInt>>,
+    unknown11: Vec<Value>,
     unknown12: Option<Vec<VisitedLocation>>,
     unknown13: Option<String>,
     unknown14: i32,
@@ -218,7 +219,7 @@ struct FlightsInfo {
 #[derive(Debug, Deserialize, Serialize)]
 struct Amenties {
     unknown0: Option<i32>,
-    amenities_array: Option<Vec<MaybeStringOrInt>>,
+    amenities_array: Option<Value>,
     unknown2: Option<i32>,
     legroom_short: Option<String>,
     unknown4: Option<String>,

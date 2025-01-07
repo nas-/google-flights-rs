@@ -5,14 +5,12 @@ use std::fmt::Formatter;
 use crate::parsers::common::GetOuterErrorMessages;
 use crate::parsers::common::SerializeToWeb;
 
-use super::common::{
-    decode_inner_object, decode_outer_object, object_empty_as_none, Location, MaybeStringOrInt,
-    NumbersOrBools,
-};
+use super::common::{decode_inner_object, decode_outer_object, object_empty_as_none, Location};
 use anyhow::anyhow;
 use anyhow::Result;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -110,7 +108,7 @@ impl Default for Wifi {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
 struct FlightAmenities {
-    unknown0: Option<NumbersOrBools>,
+    unknown0: Option<Value>,
     power_and_usb_outlets: Option<bool>,
     some_power_and_usb_outlets: Option<bool>,
     in_seat_power_outlet: Option<bool>,
@@ -184,9 +182,9 @@ struct Unknown24 {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 struct Unknown25 {
-    unknown0: Option<Vec<MaybeStringOrInt>>,
+    unknown0: Option<Value>,
     #[serde(default)]
-    unknown1: Option<Vec<MaybeStringOrInt>>,
+    unknown1: Value,
 }
 
 impl FlightInfo {
@@ -312,7 +310,7 @@ pub struct Itinerary {
     #[serde(default)]
     unknown25: Option<String>,
     #[serde(default)]
-    unknown26: Vec<Option<MaybeStringOrInt>>,
+    unknown26: Value,
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct ItinUnknown15 {
@@ -347,7 +345,7 @@ pub struct ItineraryContainer {
     pub itinerary_cost: ItineraryCost,
     unknown2: Option<String>,
     unknown3: bool,
-    unknown4: Vec<Option<MaybeStringOrInt>>,
+    unknown4: Value,
     unknown5: Vec<bool>,
     unknown6: bool,
     #[serde(deserialize_with = "object_empty_as_none")]
@@ -365,7 +363,7 @@ impl ItineraryContainer {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct ItineraryWarnings {
-    id_or: MaybeStringOrInt,
+    id_or: Value,
     company_name: String,
     warning_link: String,
 }
@@ -444,7 +442,7 @@ pub struct CheaperTravelDifferentDates {
     pub proposed_departure_date: NaiveDate,
     proposed_return_date: Option<NaiveDate>,
     pub proposed_trip_cost: Option<TripCostContainer>,
-    unknown3: Option<MaybeStringOrInt>,
+    unknown3: Option<Value>,
     #[serde(default)]
     unknown4: Vec<i32>,
 }
@@ -502,7 +500,7 @@ pub struct PriceGraph {
     pub usual_price_low_bound: TripCost,
     usual_price_high_bound: TripCost,
     unknown6: i32,
-    unknown7: Option<Vec<MaybeStringOrInt>>,
+    unknown7: Option<Value>,
     unknown8: Option<String>,
     unknown9: Option<String>,
     price_graph: Option<Vec<Vec<PricePoint>>>,
@@ -621,7 +619,7 @@ pub struct VisitedLocation {
     unknown10: Option<i32>,
     unknown11: Option<String>,
     unknown12: bool,
-    connecting_airports: Option<Vec<Vec<Option<MaybeStringOrInt>>>>,
+    connecting_airports: Option<Value>,
     unknown14: Option<String>,
     unknown15: Option<String>,
     unknown16: Option<Vec<String>>,
@@ -734,7 +732,7 @@ pub struct RawResponse {
     #[serde(default)]
     train_travel2: Option<TrainTravel2>,
     #[serde(default)]
-    unknown29: Option<MaybeStringOrInt>,
+    unknown29: Option<Value>,
     #[serde(default)]
     unknown30: Option<TripCostContainer>,
     #[serde(default)]
@@ -931,7 +929,7 @@ struct ErrorSpecific {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct GarbageData {
     // [[null,null,0,"fC_PZeTFFMn91PIPw_uwsA4"],0]
-    garbage: Option<Vec<Option<MaybeStringOrInt>>>,
+    garbage: Option<Value>,
     garbage_data: Option<i32>,
 }
 

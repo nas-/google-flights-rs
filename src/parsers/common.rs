@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use clap::ValueEnum;
 use percent_encoding::{AsciiSet, CONTROLS};
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use crate::parsers::flight_response::{FlightInfo, ItineraryContainer};
@@ -221,29 +222,6 @@ impl From<i32> for PlaceType {
             _ => panic!("Place type can only be 0,1,3,4,5, found {}", value),
         }
     }
-}
-
-///An helper enum to handle different fields returned by the API.
-/// They are not used so it is pretty generic.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(untagged)]
-pub enum MaybeStringOrInt {
-    IntValue(i32),
-    StringArray(String),
-    IntVector(Vec<i32>),
-    None,
-    Bool(bool),
-    VecMaybeI32(Vec<Option<i32>>),
-}
-/// Helper enum to handle different fields returned by the API.
-/// Not used after, so prtty generic
-/// TODO accorpate with MaybeStringOrInt
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(untagged)]
-pub enum NumbersOrBools {
-    IntValue(i32),
-    Bools(bool),
-    None,
 }
 
 /// Trait, serialize the request to a request body, so URL + body.
