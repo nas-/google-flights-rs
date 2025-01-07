@@ -9,19 +9,17 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::flight_response::RawResponseContainer;
+
 pub fn create_raw_response_offer_vec(raw_inputs: String) -> Result<OfferRawResponseContainer> {
     let outer: Vec<RawResponseContainerVec> = decode_outer_object(raw_inputs.as_ref())?;
-    let inner_objects: Vec<String> = outer
-        .into_iter()
-        .flat_map(|f| f.resp)
-        .flat_map(|f| f.payload)
+    let inner_objects: Vec<OfferRawResponse> = outer
+        .iter()
+        .flat_map(|f| &f.resp)
+        .flat_map(|f: &RawResponseContainer| f.payload.clone())
+        .filter_map(|payload| decode_inner_object(&payload).ok())
         .collect();
-    let inner: Vec<OfferRawResponse> = inner_objects
-        .into_iter()
-        .map(|f| decode_inner_object(&f))
-        .filter_map(|f| f.ok())
-        .collect();
-    Ok(OfferRawResponseContainer::new(inner))
+    Ok(OfferRawResponseContainer::new(inner_objects))
 }
 
 #[derive(Debug, Deserialize, Serialize)]
