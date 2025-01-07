@@ -27,10 +27,10 @@ struct RawResponse {
     unknown0: Value,
     unknown1: Value,
     body: String,
-    unknown3: Option<String>,
-    unknown4: Option<String>,
-    unknown5: Option<String>,
-    unknown6: Option<String>,
+    unknown3: Value,
+    unknown4: Value,
+    unknown5: Value,
+    unknown6: Value,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -78,11 +78,11 @@ pub struct PlaceDetails {
     municipality: Option<String>,
     pub identifier: String, // /m/05ywg. Knowledge graph location identifier.
     pub airport_code: Option<String>, //PRG
-    unknown6: Option<String>,
-    unknown7: Option<String>,
+    unknown6: Value,
+    unknown7: Value,
     common_name: Option<String>,
-    unknown9: Option<bool>,
-    unknown10: Option<String>,
+    unknown9: Value,
+    unknown10: Value,
     unknown11: i32,
     #[serde(default)]
     confidence: f64,

@@ -1,11 +1,12 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::parsers::flight_response::RawResponseContainerVec;
 
 use super::{
     common::{decode_inner_object, decode_outer_object},
-    flight_response::{CheaperTravelDifferentDates, RawResponseContainer, Unknown0},
+    flight_response::{CheaperTravelDifferentDates, RawResponseContainer},
 };
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -28,6 +29,7 @@ impl TryFrom<&str> for GraphRawResponseContainer {
     type Error = anyhow::Error;
 
     fn try_from(value: &str) -> Result<Self> {
+        // TODO cleanup into_iters and use iter instead
         let outer: Vec<RawResponseContainerVec> = decode_outer_object(value)?;
 
         let as_before: Vec<Vec<RawResponseContainer>> = outer.into_iter().map(|f| f.resp).collect();
@@ -51,7 +53,7 @@ impl TryFrom<&str> for GraphRawResponseContainer {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GraphRawResponse {
-    unknown0: Unknown0,
+    unknown0: Value,
     #[serde(default)]
     pub price_graph: Option<Vec<CheaperTravelDifferentDates>>,
 }

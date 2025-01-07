@@ -5,7 +5,6 @@ use anyhow::{anyhow, Result};
 use clap::ValueEnum;
 use percent_encoding::{AsciiSet, CONTROLS};
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use crate::parsers::flight_response::{FlightInfo, ItineraryContainer};

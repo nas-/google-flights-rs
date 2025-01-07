@@ -1,8 +1,8 @@
 use crate::{
     parsers::common::{decode_inner_object, decode_outer_object},
     parsers::flight_response::{
-        CostumerSupport, ItineraryCost, OtherStruct, PriceGraph, RawResponseContainerVec, TripCost,
-        Unknown0, VisitedLocation,
+        CostumerSupport, ItineraryCost, PriceGraph, RawResponseContainerVec, TripCost,
+        VisitedLocation,
     },
 };
 use anyhow::Result;
@@ -26,7 +26,7 @@ pub fn create_raw_response_offer_vec(raw_inputs: String) -> Result<OfferRawRespo
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OfferRawResponse {
-    unknown0: Unknown0,
+    unknown0: Value,
     unknown1: OfferContainer,
 }
 
@@ -87,22 +87,22 @@ impl OfferRawResponse {
 #[derive(Debug, Deserialize, Serialize)]
 struct OfferContainer {
     offers: Option<Vec<Offers>>,
-    unknown1: Option<Vec<Vec<FlightsInfo>>>,
-    unknown2: Option<Vec<Vec<Vec<Vec<FlightsInfo>>>>>, //WTF?
+    maybe_flights_info: Option<Vec<Vec<FlightsInfo>>>,
+    maybe_other_flights_info: Option<Vec<Vec<Vec<Vec<FlightsInfo>>>>>, //WTF?
     unknown3: Option<String>,
     unknown4: Option<String>,
-    unknown5: VisitedLocationContaner,
+    visited_locations: VisitedLocationContaner,
     unknown6: Option<String>,
     unknown7: Option<Vec<Vec<String>>>,
     unknown8: Option<bool>,
-    unknown9: Option<Vec<CostumerSupport>>,
-    unknown10: Option<OtaOffers>,
+    costumer_support: Option<Vec<CostumerSupport>>,
+    ota_offers: Option<OtaOffers>,
     unknown11: Option<String>,
-    unknown12: Option<PriceGraph>,
+    price_graph: Option<PriceGraph>,
     unknown13: Option<Vec<i32>>,
     links: BackButtonLinks,
     unknown15: Option<String>,
-    unknown16: OtherStruct,
+    unknown16: Value,
     unknown17: Vec<bool>,
     unknown18: Option<String>,
     unknown19: Option<Vec<i32>>,
@@ -151,20 +151,20 @@ struct Offers {
     flight_numbers: Vec<FlightNumbers>,
     unknown4: bool,
     tracking_url_info: Option<BookingLinkComponents>,
-    unknown6: Option<String>,
+    unknown6: Value,
     // Some companies do not show their prices
     solution_price: Option<ItineraryCost>,
     other_currency_prices: Option<Vec<TripCost>>,
     unknown9: Option<InsuranceOptions>,
     unknown10: Option<bool>,
-    unknown11: Option<String>,
+    unknown11: Value,
     unknown12: Option<String>,
     unknown13: Option<ConversionInfo>,
-    unknown14: Option<Vec<Vec<Weird1>>>,
+    unknown14: Option<Value>,
     unknown15: Option<String>,
     unknown16: Option<String>,
-    unknown17: Option<OtherStruct>,
-    unknown18: Option<Vec<MaybeVecOrStruct>>,
+    unknown17: Option<Value>,
+    unknown18: Option<Value>,
     unknown19: Option<String>,
     unknown20: Option<String>,
     unknown21: Option<FlightsInfo>,
@@ -203,7 +203,7 @@ struct FlightsInfo {
     unknown1: Option<Vec<Vec<i32>>>,
     unknown2: Option<bool>,
     unknown3: Option<String>,
-    unknown4: Option<Vec<MaybeVecOrStruct>>,
+    unknown4: Option<Value>,
     unknown5: Option<String>,
     amenities: Vec<Amenties>,
     unknown7: Option<Value>,
@@ -227,42 +227,6 @@ struct Amenties {
     unknown6: Option<i32>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(untagged)]
-enum MaybeVecOrStruct {
-    Struct3(Weird3),
-    Struct4(Weird4),
-    Struct5(Weird5),
-    CurrConversion(CurrencyConversion),
-    IntVector(Vec<i32>),
-    None,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-struct Weird3 {
-    unknown0: i32,
-    unknown1: Vec<Currency>,
-    unknown2: i32,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-struct Weird4 {
-    unknown0: i32,
-    unknown1: Vec<Vec<TripCost>>,
-    unknown2: i32,
-    unknown3: Option<i32>,
-    unknown4: Vec<TripCost>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-struct Weird5 {
-    unknown0: i32,
-    unknown1: Vec<TripCost>,
-    unknown2: i32,
-    unknown3: Option<i32>,
-    unknown4: Vec<TripCost>,
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 struct FlightsOperator {
     unknown0: Option<String>,
@@ -272,24 +236,9 @@ struct FlightsOperator {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-struct CurrencyConversion {
-    unknown0: i32,
-    unknown1: Vec<Currency>,
-    unknown2: i32,
-    unknown3: Vec<Currency>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
 struct Currency {
     unknown0: Option<String>,
     unknown1: i32,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct Weird1 {
-    unknown0: Option<Vec<Vec<Vec<String>>>>,
-    unknown1: Option<Vec<String>>,
-    unknown2: i32,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
