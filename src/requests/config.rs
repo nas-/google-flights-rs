@@ -19,7 +19,7 @@ use protos::urls::{ItineraryUrl, Leg};
 use super::api::ApiClient;
 
 /// The `TripType` enum is used to specify the type of trip.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TripType {
     OneWay,
     Return,

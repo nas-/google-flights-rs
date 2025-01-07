@@ -1,4 +1,6 @@
-use anyhow::Result;
+use std::cmp::Ordering;
+
+use anyhow::{Context, Result};
 use chrono::{Duration, Months, Utc};
 
 use gflights::requests::{
@@ -17,31 +19,44 @@ async fn main() -> Result<()> {
     //Set currency to USDollar, default is euros.
     let config: Config = Config::builder()
         .departure("MAD", &client)
-        .await?
+        .await
+        .with_context(|| "Failed to set departure airport")?
         .destination("MEX", &client)
-        .await?
+        .await
+        .with_context(|| "Failed to set destination airport")?
         .departing_date(departing_date)
         .return_date(return_date)
         .currency(Currency::USDollar)
-        .build()?;
+        .build()
+        .with_context(|| "Failed to build configuration")?;
 
     let months = Months::new(5);
-    let response = client.request_graph(&config, months).await?;
+    let response = client
+        .request_graph(&config, months)
+        .await
+        .with_context(|| "Failed to request flight data")?;
 
-    let graph = response.get_all_graphs();
+    let graphs = response.get_all_graphs();
 
-    let lowest_cost = graph
+    let lowest_cost = graphs
         .iter()
-        .flat_map(|x| x.clone().maybe_get_date_price())
-        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        .filter_map(|graph| graph.maybe_get_date_price())
+        .min_by(|a, b| match a.1.partial_cmp(&b.1) {
+            Some(ordering) => ordering,
+            None => Ordering::Equal,
+        });
 
-    if let Some(date_price) = lowest_cost {
+    // Display the result.
+    if let Some((departure_date, price)) = lowest_cost {
         println!(
-            "Lowest cost itinerary: Departure {:?} {} {:?}",
-            date_price.0, date_price.1, config.currency
+            "Lowest cost itinerary: Departure on {}, Price: {:.2} {:?}",
+            departure_date.format("%Y-%m-%d"),
+            price,
+            config.currency
         );
     } else {
-        println!("No prices found for this itinerary");
+        println!("No prices found for this itinerary.");
     }
+
     Ok(())
 }

@@ -449,8 +449,9 @@ pub struct CheaperTravelDifferentDates {
     unknown4: Vec<i32>,
 }
 impl CheaperTravelDifferentDates {
-    pub fn maybe_get_date_price(self) -> Option<(NaiveDate, i32)> {
+    pub fn maybe_get_date_price(&self) -> Option<(NaiveDate, i32)> {
         self.proposed_trip_cost
+            .as_ref()
             .map(|f| (self.proposed_departure_date, f.trip_cost.price))
     }
 }

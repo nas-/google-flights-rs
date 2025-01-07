@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
 use gflights::requests::config::TripType;
 
@@ -13,28 +13,29 @@ async fn main() -> Result<()> {
 
     let config = Config::builder()
         .departure("MAD", &client)
-        .await?
+        .await
+        .with_context(|| "Failed to set departure airport")?
         .destination("MEX", &client)
-        .await?
+        .await
+        .with_context(|| "Failed to set destination airport")?
         .departing_date(departing_date)
         .return_date(return_date)
-        .build()?;
+        .build()
+        .with_context(|| "Failed to build the configuration")?;
 
-    let response = client.request_flights(&config).await?;
-    let maybe_next_flight = response
+    let flight_response = client
+        .request_flights(&config)
+        .await
+        .with_context(|| "Failed to request flights")?;
+
+    let first_flight = flight_response
         .responses
-        .into_iter()
-        .flat_map(|response| response.maybe_get_all_flights())
+        .iter()
+        .filter_map(|response| response.maybe_get_all_flights())
         .flatten()
-        .next();
+        .next()
+        .with_context(|| "No flights found for this request")?;
 
-    let first_flight = match maybe_next_flight {
-        Some(flight) => flight,
-        None => {
-            print!("No flights found for this request");
-            return Ok(());
-        }
-    };
     println!("Itinerary {:?}", first_flight.itinerary);
     println!(
         "Price {:?} {:?}",
@@ -42,57 +43,81 @@ async fn main() -> Result<()> {
     );
     config.fixed_flights.add_element(first_flight)?;
 
-    //If one-way flight, just quit
-    match config.trip_type {
-        TripType::Return => {}
-        TripType::OneWay => {
-            println!("Flight url {:?}", config.to_flight_url());
-            println!("No return date specified, so one_way flight. Quitting.");
-            return Ok(());
-        }
-        _ => {
-            println!("Unsupported trip type");
-            return Ok(());
-        }
+    // Check the trip type.
+
+    if config.trip_type == TripType::OneWay {
+        println!("Itinerary URL: {}", config.to_flight_url());
+
+        println!("One-way flight detected. Exiting.");
+        return Ok(());
+    } else if config.trip_type != TripType::Return {
+        println!("Unsupported trip type.");
+        return Ok(());
     }
 
-    let second_flight_response = client.request_flights(&config).await?;
-    let maybe_second_flight = second_flight_response
+    // Request return flights.
+
+    let return_flight_response = client
+        .request_flights(&config)
+        .await
+        .with_context(|| "Failed to request return flights")?;
+
+    // Find the second (return) flight.
+
+    let maybe_second_flight = return_flight_response
         .responses
-        .into_iter()
-        .flat_map(|response| response.maybe_get_all_flights())
+        .iter()
+        .filter_map(|resp| resp.maybe_get_all_flights())
         .flatten()
         .next();
 
     let second_flight = match maybe_second_flight {
         Some(flight) => flight,
-        None => return Ok(()),
+
+        None => {
+            println!("No return flights found.");
+
+            return Ok(());
+        }
     };
 
-    println!("Return flight itinerary {:?}", second_flight.itinerary);
+    println!("Return Itinerary: {:?}", second_flight.itinerary);
+
     println!(
-        "Price {:?} {:?}",
+        "Price: {:?} {:?}",
         second_flight.itinerary_cost.trip_cost, config.currency
     );
-    println!("Itinerary link {:?}", config.to_flight_url());
 
-    config.fixed_flights.add_element(second_flight)?;
+    // Add the second flight to the fixed flights in the config.
+
+    config
+        .fixed_flights
+        .add_element(second_flight.clone())
+        .with_context(|| "Failed to add second flight to fixed flights")?;
+
+    println!("Itinerary URL: {}", config.to_flight_url());
+
     // ask for offers:
-    let offers_vec = client.request_offer(&config).await?;
-    let mut maybe_offers: Vec<(Vec<String>, i32)> = offers_vec
+    let offers_response = client
+        .request_offer(&config)
+        .await
+        .with_context(|| "Failed to request offers")?;
+
+    let mut offers: Vec<(Vec<String>, i32)> = offers_response
         .response
-        .into_iter()
-        .flat_map(|response| response.get_offer_prices())
+        .iter()
+        .filter_map(|resp| resp.get_offer_prices())
         .flatten()
         .collect();
-    maybe_offers.sort_by(|a, b| a.1.cmp(&b.1));
 
-    if maybe_offers.is_empty() {
+    offers.sort_by(|a, b| a.1.cmp(&b.1));
+
+    if offers.is_empty() {
         println!("No offers found");
         return Ok(());
     }
-    for (offer, price) in maybe_offers {
-        println!("Offer: {:?} Price: {:?}", offer, price);
+    for (offer, price) in offers {
+        println!("Offer: {:?}, Price: {} {:?}", offer, price, config.currency);
     }
 
     Ok(())
