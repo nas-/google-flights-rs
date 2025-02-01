@@ -31,11 +31,10 @@ impl TryFrom<&str> for GraphRawResponseContainer {
     fn try_from(value: &str) -> Result<Self> {
         let outer: Vec<RawResponseContainerVec> = decode_outer_object(value)?;
 
-        let as_before: Vec<Vec<RawResponseContainer>> = outer.into_iter().map(|f| f.resp).collect();
+        let as_before: Vec<RawResponseContainer> = outer.into_iter().flat_map(|f| f.resp).collect();
 
         let res: Result<Vec<GraphRawResponse>> = as_before
             .iter()
-            .filter_map(|f| f.first())
             .filter_map(|f| f.payload.as_ref())
             .map(|payload| decode_inner_object(payload))
             .filter(|f| f.is_ok())
