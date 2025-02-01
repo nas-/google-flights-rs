@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::common::{RequestBody, ToRequestBody, CHARACTERS_TO_ENCODE};
-
+use crate::parsers::constants::BATCHEXECUTE;
 use anyhow::Result;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -36,7 +36,8 @@ impl TryFrom<&CityRequestOptions> for RequestBody {
             r#"f.req=[[["H028ib","[\"{0}\",[1,2,3,5,4],null,[1,1,1],1]",null,"generic"]]]&at=AAuQa1qqZgn5F209lkOLZp20vq5d:{1}&"#,
             &options.city, epoch_now
         );
-        let url = format!("https://www.google.com/_/TravelFrontendUi/data/batchexecute?rpcids=H028ib&source-path=/travel/flights&f.sid=-2414068248310847860&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=581503&rt=c",options.frontend_version);
+
+        let url = format!("{BATCHEXECUTE}?rpcids=H028ib&source-path=/travel/flights&f.sid=-2414068248310847860&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=581503&rt=c",options.frontend_version);
         Ok(Self {
             url,
             body: utf8_percent_encode(&body, CHARACTERS_TO_ENCODE).to_string(),

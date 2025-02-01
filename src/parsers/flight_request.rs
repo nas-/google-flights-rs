@@ -14,7 +14,7 @@ use super::common::{
     Location, RequestBody, SerializeToWeb, StopOptions, ToRequestBody, TravelClass, Travelers,
     CHARACTERS_TO_ENCODE,
 };
-
+use crate::parsers::constants::FLIGHT_REQUEST;
 use anyhow::Result;
 
 pub struct FlightRequestOptions<'a> {
@@ -124,8 +124,8 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
         };
         let body = complete_flight_request.serialize_to_web()?;
         let url = match options.fixed_flights.is_full() {
-            true => format!("https://www.google.com/_/TravelFrontendUi/data/travel.frontend.flights.FlightsFrontendService/GetBookingResults?f.sid=6921237406276106431&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c", options.frontend_version),
-            false =>   format!("https://www.google.com/_/TravelFrontendUi/data/travel.frontend.flights.FlightsFrontendService/GetShoppingResults?f.sid=6921237406276106431&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c", options.frontend_version)
+            true => format!("{FLIGHT_REQUEST}?f.sid=6921237406276106431&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c", options.frontend_version),
+            false =>   format!("{FLIGHT_REQUEST}?f.sid=6921237406276106431&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c", options.frontend_version)
         };
         let encoded = utf8_percent_encode(&body, CHARACTERS_TO_ENCODE).to_string();
         Ok(Self { url, body: encoded })
