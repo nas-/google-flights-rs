@@ -1,12 +1,12 @@
 pub mod urls {
     include!(concat!(env!("OUT_DIR"), "/urls.rs"));
 }
+use crate::parsers::constants::FLIGHTS_MAIN_PAGE;
 use base64::{
     alphabet,
     engine::{self, general_purpose},
     Engine as _,
 };
-
 use prost::Message;
 use urls::ItineraryUrl;
 use urls::{Leg, LocType, Location};
@@ -46,10 +46,7 @@ impl ItineraryUrl {
     pub fn to_flight_url(&self) -> String {
         let encoded = self.to_encoded();
 
-        format!(
-            "https://www.google.com/travel/flights/search?tfs={}",
-            encoded
-        )
+        format!("{FLIGHTS_MAIN_PAGE}?tfs={}", encoded)
     }
 }
 

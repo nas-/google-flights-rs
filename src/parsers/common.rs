@@ -223,29 +223,6 @@ impl From<i32> for PlaceType {
     }
 }
 
-///An helper enum to handle different fields returned by the API.
-/// They are not used so it is pretty generic.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(untagged)]
-pub enum MaybeStringOrInt {
-    IntValue(i32),
-    StringArray(String),
-    IntVector(Vec<i32>),
-    None,
-    Bool(bool),
-    VecMaybeI32(Vec<Option<i32>>),
-}
-/// Helper enum to handle different fields returned by the API.
-/// Not used after, so prtty generic
-/// TODO accorpate with MaybeStringOrInt
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(untagged)]
-pub enum NumbersOrBools {
-    IntValue(i32),
-    Bools(bool),
-    None,
-}
-
 /// Trait, serialize the request to a request body, so URL + body.
 pub trait ToRequestBody {
     fn to_request_body(&self) -> Result<RequestBody>;

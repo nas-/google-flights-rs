@@ -1,4 +1,6 @@
+use super::config::Currency;
 use crate::parsers;
+use crate::parsers::constants::FLIGHTS_MAIN_PAGE;
 use crate::requests::config::Config;
 use anyhow::Result;
 use chrono::Months;
@@ -16,8 +18,6 @@ use reqwest::header::HeaderMap;
 use reqwest::{Client, Response, StatusCode};
 use std::num::NonZeroU32;
 use std::sync::Arc;
-
-use super::config::Currency;
 
 /// The `ApiClient` struct is used to send requests to the Google Flights website.
 #[derive(Clone)]
@@ -265,7 +265,7 @@ fn get_headers(currency: Option<Currency>) -> HeaderMap {
 async fn get_frontend_version() -> Option<String> {
     let client = Client::new();
     let headers = get_headers(None);
-    let url = "https://www.google.com/travel/flights".to_string();
+    let url = FLIGHTS_MAIN_PAGE.to_string();
     let res = client.get(url).headers(headers).send().await.ok()?;
 
     let response_body = res.text().await.ok()?;

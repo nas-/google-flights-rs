@@ -9,6 +9,7 @@ use super::common::{
     Location, RequestBody, SerializeToWeb, StopOptions, ToRequestBody, TravelClass, Travelers,
 };
 use super::{common::CHARACTERS_TO_ENCODE, flight_request::ItineraryRequest};
+use crate::parsers::constants::CALENDAR_GRAPH;
 
 use anyhow::Result;
 
@@ -97,7 +98,7 @@ impl TryFrom<&GraphRequestOptions<'_>> for RequestBody {
         };
         let body = graph_req.serialize_to_web()?;
 
-        let url = format!("https://www.google.com/_/TravelFrontendUi/data/travel.frontend.flights.FlightsFrontendService/GetCalendarGraph?f.sid=-8880820772586824788&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=957285&rt=c",options.frontend_version);
+        let url = format!("{CALENDAR_GRAPH}?f.sid=-8880820772586824788&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=957285&rt=c",options.frontend_version);
 
         Ok(Self {
             url,

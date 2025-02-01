@@ -1,11 +1,12 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::parsers::flight_response::RawResponseContainerVec;
 
 use super::{
     common::{decode_inner_object, decode_outer_object},
-    flight_response::{CheaperTravelDifferentDates, RawResponseContainer, Unknown0},
+    flight_response::{CheaperTravelDifferentDates, RawResponseContainer},
 };
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -16,10 +17,10 @@ pub struct GraphRawResponseContainer {
 impl GraphRawResponseContainer {
     pub fn get_all_graphs(&self) -> Vec<CheaperTravelDifferentDates> {
         self.graph_respose
-            .clone()
-            .into_iter()
-            .filter_map(|f| f.price_graph)
+            .iter()
+            .filter_map(|f| f.price_graph.as_ref())
             .flatten()
+            .cloned()
             .collect()
     }
 }
@@ -30,28 +31,24 @@ impl TryFrom<&str> for GraphRawResponseContainer {
     fn try_from(value: &str) -> Result<Self> {
         let outer: Vec<RawResponseContainerVec> = decode_outer_object(value)?;
 
-        let as_before: Vec<Vec<RawResponseContainer>> = outer.into_iter().map(|f| f.resp).collect();
+        let as_before: Vec<RawResponseContainer> = outer.into_iter().flat_map(|f| f.resp).collect();
 
-        let res: Vec<String> = as_before
+        let res: Result<Vec<GraphRawResponse>> = as_before
             .iter()
-            .flat_map(|f| f.first())
-            .filter(|f| f.payload.is_some())
-            .flat_map(|f| f.payload.as_ref())
-            .cloned()
+            .filter_map(|f| f.payload.as_ref())
+            .map(|payload| decode_inner_object(payload))
+            .filter(|f| f.is_ok())
             .collect();
-        let res2: Vec<Result<GraphRawResponse>> =
-            res.iter().map(|f| decode_inner_object(f)).collect();
-        let res3: Result<Vec<GraphRawResponse>> = res2.into_iter().filter(|f| f.is_ok()).collect();
 
         Ok(Self {
-            graph_respose: res3?,
+            graph_respose: res?,
         })
     }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GraphRawResponse {
-    unknown0: Unknown0,
+    unknown0: Value,
     #[serde(default)]
     pub price_graph: Option<Vec<CheaperTravelDifferentDates>>,
 }

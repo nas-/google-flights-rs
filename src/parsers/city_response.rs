@@ -1,17 +1,18 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::parsers::common::{GetOuterErrorMessages, Location, PlaceType};
 
-use super::common::{decode_inner_object, decode_outer_object, MaybeStringOrInt};
+use super::common::{decode_inner_object, decode_outer_object};
 
 #[derive(Debug, Deserialize, Serialize)]
 struct RawResponseContainer {
     response: RawResponse,
     #[serde(default)]
-    unknown1: Option<Vec<MaybeStringOrInt>>,
+    unknown1: Value,
     #[serde(default)]
-    unknown2: Option<Vec<MaybeStringOrInt>>,
+    unknown2: Value,
 }
 
 impl GetOuterErrorMessages for RawResponseContainer {
@@ -23,13 +24,13 @@ impl GetOuterErrorMessages for RawResponseContainer {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct RawResponse {
-    unknown0: MaybeStringOrInt,
-    unknown1: MaybeStringOrInt,
+    unknown0: Value,
+    unknown1: Value,
     body: String,
-    unknown3: Option<String>,
-    unknown4: Option<String>,
-    unknown5: Option<String>,
-    unknown6: Option<String>,
+    unknown3: Value,
+    unknown4: Value,
+    unknown5: Value,
+    unknown6: Value,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -77,11 +78,11 @@ pub struct PlaceDetails {
     municipality: Option<String>,
     pub identifier: String, // /m/05ywg. Knowledge graph location identifier.
     pub airport_code: Option<String>, //PRG
-    unknown6: Option<String>,
-    unknown7: Option<String>,
+    unknown6: Value,
+    unknown7: Value,
     common_name: Option<String>,
-    unknown9: Option<bool>,
-    unknown10: Option<String>,
+    unknown9: Value,
+    unknown10: Value,
     unknown11: i32,
     #[serde(default)]
     confidence: f64,
