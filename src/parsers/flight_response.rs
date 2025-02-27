@@ -228,6 +228,8 @@ struct Emissions {
     co2_lowest_route_g: i64,
     unknown11: i64,
     unknown12: bool,
+    unknown13: Option<Value>,
+    unknown14: Option<Value>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
