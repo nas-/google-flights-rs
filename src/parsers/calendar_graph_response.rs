@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::parsers::common::get_idx;
 use crate::parsers::flight_response::RawResponseContainerVec;
 
 use super::{
@@ -46,11 +47,19 @@ impl TryFrom<&str> for GraphRawResponseContainer {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+// Vec<Value> based — absorbs any number of trailing fields Google may add
+#[derive(Debug, Serialize, Clone)]
 pub struct GraphRawResponse {
-    unknown0: Value,
-    #[serde(default)]
     pub price_graph: Option<Vec<CheaperTravelDifferentDates>>,
+}
+
+impl<'de> Deserialize<'de> for GraphRawResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let arr = Vec::<Value>::deserialize(d)?;
+        Ok(GraphRawResponse {
+            price_graph: get_idx(&arr, 1),
+        })
+    }
 }
 
 #[cfg(test)]

@@ -120,7 +120,6 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
         let complete_flight_request = CompleteFlightRequest {
             itinerary,
             departure_token: departure_token.as_deref(),
-            is_second_leg: options.fixed_flights.is_full(),
         };
         let body = complete_flight_request.serialize_to_web()?;
         let url = match options.fixed_flights.is_full() {
@@ -282,7 +281,6 @@ impl SerializeToWeb for ItineraryRequest<'_> {
 struct CompleteFlightRequest<'a> {
     itinerary: ItineraryRequest<'a>,
     departure_token: Option<&'a str>,
-    is_second_leg: bool,
 }
 
 impl SerializeToWeb for CompleteFlightRequest<'_> {
@@ -294,11 +292,9 @@ impl SerializeToWeb for CompleteFlightRequest<'_> {
             None => "[]".to_string(),
         };
 
-        //TODOno difference for the moment.
-        let end_part = match self.is_second_leg {
-            false => "1,0,0".to_owned(),
-            true => "null,0".to_owned(),
-        };
+        // When both legs are fixed (offer request), use the same end_part as a normal search.
+        // "null,0" was tried previously but causes the server to reject the request.
+        let end_part = "1,0,0";
 
         Ok(format!(
             r#"f.req=[null,"[{},{},{}]"]&at=AAuQa1qiXfSThbBOCdcDUAVTopoc:{}&"#,
@@ -567,7 +563,6 @@ mod tests {
         let complete_req = CompleteFlightRequest {
             itinerary: itinerary_return,
             departure_token: None,
-            is_second_leg: false,
         };
         assert!(complete_req
             .serialize_to_web()?

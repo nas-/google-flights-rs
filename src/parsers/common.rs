@@ -7,6 +7,18 @@ use percent_encoding::{AsciiSet, CONTROLS};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
+/// Extract and deserialize a single element from a JSON array by index.
+/// Returns None if the index is out of bounds or the value fails to deserialize.
+/// Use this instead of positional serde struct fields so trailing elements
+/// added by Google never cause "trailing characters" parse errors.
+pub(crate) fn get_idx<T: serde::de::DeserializeOwned>(
+    arr: &[serde_json::Value],
+    i: usize,
+) -> Option<T> {
+    arr.get(i)
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+}
+
 use crate::parsers::flight_response::{FlightInfo, ItineraryContainer};
 
 /// The set of characters that are percent-encoded in google flights requests.
