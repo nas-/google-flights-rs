@@ -18,8 +18,8 @@ use crate::parsers::constants::FLIGHT_REQUEST;
 use anyhow::Result;
 
 pub struct FlightRequestOptions<'a> {
-    deparing_city: &'a Location,
-    arriving_city: &'a Location,
+    departing_city: &'a [Location],
+    arriving_city: &'a [Location],
     date_start: &'a str,
     date_return: Option<&'a str>,
     travellers: Travelers,
@@ -36,8 +36,8 @@ pub struct FlightRequestOptions<'a> {
 impl<'a> FlightRequestOptions<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        departing_city: &'a Location,
-        arriving_city: &'a Location,
+        departing_city: &'a [Location],
+        arriving_city: &'a [Location],
         date_start: &'a str,
         date_return: Option<&'a str>,
         travellers: Travelers,
@@ -51,7 +51,7 @@ impl<'a> FlightRequestOptions<'a> {
         fixed_flights: &'a FixedFlights,
     ) -> Self {
         Self {
-            deparing_city: departing_city,
+            departing_city,
             arriving_city,
             date_start,
             date_return,
@@ -77,8 +77,8 @@ impl ToRequestBody for FlightRequestOptions<'_> {
 impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
     type Error = anyhow::Error;
     fn try_from(options: &FlightRequestOptions) -> Result<Self> {
-        let departure = vec![vec![options.deparing_city]];
-        let arrival = vec![vec![options.arriving_city]];
+        let departure = vec![options.departing_city.iter().collect::<Vec<_>>()];
+        let arrival = vec![options.arriving_city.iter().collect::<Vec<_>>()];
         let itinerary_going = options.fixed_flights.maybe_get_nth_flight_info(0_usize);
         let itinerary_return = options.fixed_flights.maybe_get_nth_flight_info(1_usize);
         let leg1 = SingleLegStruct {
@@ -208,8 +208,8 @@ pub struct ItineraryRequest<'a> {
 impl<'a> ItineraryRequest<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        departure: &'a Location,
-        arrival: &'a Location,
+        departure: &'a [Location],
+        arrival: &'a [Location],
         stop_options: &'a StopOptions,
         date_start: &'a str,
         date_return: &'a Option<&str>,
@@ -223,8 +223,8 @@ impl<'a> ItineraryRequest<'a> {
     ) -> Self {
         let mut legs = vec![];
         let first = SingleLegStruct {
-            departure: vec![vec![departure]],
-            arrival: vec![vec![arrival]],
+            departure: vec![departure.iter().collect()],
+            arrival: vec![arrival.iter().collect()],
             stop_options,
             date: date_start,
             times: departing_times,
@@ -235,8 +235,8 @@ impl<'a> ItineraryRequest<'a> {
         legs.push(first);
         if let Some(x) = date_return {
             legs.push(SingleLegStruct {
-                departure: vec![vec![arrival]],
-                arrival: vec![vec![departure]],
+                departure: vec![arrival.iter().collect()],
+                arrival: vec![departure.iter().collect()],
                 date: x,
                 stop_options,
                 times: return_times,
@@ -327,8 +327,8 @@ mod tests {
         let frontend_version = "boq_travel-frontend-ui_20240110.02_p0".to_string();
         let fixed_flights = FixedFlights::new(1_usize);
         let search_settings: FlightRequestOptions = FlightRequestOptions::new(
-            &departure,
-            &arrival,
+            core::slice::from_ref(&departure),
+            core::slice::from_ref(&arrival),
             "2024-02-02",
             None,
             travellers,
@@ -361,8 +361,8 @@ mod tests {
         let frontend_version = "boq_travel-frontend-ui_20240110.02_p0".to_string();
         let fixed_flights = FixedFlights::new(2_usize);
         let search_settings: FlightRequestOptions = FlightRequestOptions::new(
-            &departure,
-            &arrival,
+            core::slice::from_ref(&departure),
+            core::slice::from_ref(&arrival),
             "2024-02-02",
             Some("2024-03-02"),
             travellers,
@@ -546,8 +546,8 @@ mod tests {
         let duration_max = TotalDuration::UNLIMITED;
         let binding = FlightTimes::default();
         let itinerary_return = ItineraryRequest::new(
-            &departure,
-            &arrival,
+            core::slice::from_ref(&departure),
+            core::slice::from_ref(&arrival),
             &StopOptions::All,
             "2022-10-20",
             &Some("2022-10-30"),
@@ -642,6 +642,71 @@ mod tests {
             a.serialize_to_web()?,
             r#"[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-11-20\",null,[[\"MXP\",\"2024-02-01\",\"LHR\",null,\"BA\",\"420\"],[\"LHR\",\"2024-02-01\",\"CDG\",null,\"AF\",\"350\"]],null,null,null,420,null,3]"#
         );
+        Ok(())
+    }
+
+    /// Two departure airports in one group serialise as two entries inside the
+    /// innermost array: `[[["LHR",0],["LGW",0]]]`.
+    #[test]
+    fn test_multi_airport_departure_serializes_correctly() -> Result<()> {
+        let lhr = Location::new("LHR", 0, None);
+        let lgw = Location::new("LGW", 0, None);
+        let jfk = Location::new("JFK", 0, None);
+        let stopover_max = StopoverDuration::UNLIMITED;
+        let duration_max = TotalDuration::UNLIMITED;
+        let binding = FlightTimes::default();
+
+        let leg = SingleLegStruct::new(
+            vec![vec![&lhr, &lgw]],
+            vec![vec![&jfk]],
+            &StopOptions::All,
+            "2025-06-01",
+            &binding,
+            &stopover_max,
+            &duration_max,
+            None,
+        );
+        assert_eq!(
+            leg.serialize_to_web()?,
+            r#"[[[[\"LHR\",0],[\"LGW\",0]]],[[[\"JFK\",0]]],null,0,null,null,\"2025-06-01\",null,null,null,null,null,null,null,3]"#
+        );
+        Ok(())
+    }
+
+    /// `FlightRequestOptions::new` with multiple departure airports produces a
+    /// request body that contains all airport codes.
+    #[test]
+    fn test_flight_request_options_multi_departure() -> Result<()> {
+        let lhr = Location::new("LHR", 0, None);
+        let lgw = Location::new("LGW", 0, None);
+        let jfk = Location::new("JFK", 0, None);
+        let departures = [lhr, lgw];
+        let stopover_max = StopoverDuration::UNLIMITED;
+        let duration_max = TotalDuration::UNLIMITED;
+        let flight_times = FlightTimes::default();
+        let frontend_version = "boq_travel-frontend-ui_20240110.02_p0".to_string();
+        let fixed_flights = FixedFlights::new(1_usize);
+
+        let opts = FlightRequestOptions::new(
+            &departures,
+            core::slice::from_ref(&jfk),
+            "2025-06-01",
+            None,
+            Travelers::new(vec![1, 0, 0, 0]),
+            &TravelClass::Economy,
+            &StopOptions::All,
+            &flight_times,
+            &flight_times,
+            &stopover_max,
+            &duration_max,
+            &frontend_version,
+            &fixed_flights,
+        );
+        let req: RequestBody = (&opts).try_into()?;
+        // Both LHR and LGW must appear in the body; JFK as the single arrival.
+        assert!(req.body.contains("LHR"), "body should contain LHR");
+        assert!(req.body.contains("LGW"), "body should contain LGW");
+        assert!(req.body.contains("JFK"), "body should contain JFK");
         Ok(())
     }
 

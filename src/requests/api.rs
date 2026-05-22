@@ -166,8 +166,8 @@ impl ApiClient {
     ///
     /// Returns a `FlightResponseContainer` object containing the parsed response.
     #[tracing::instrument(skip_all, fields(
-        from = ?args.departure.location_name,
-        to = ?args.destination.location_name,
+        from = ?args.departure.iter().map(|l| l.loc_identifier.as_str()).collect::<Vec<_>>(),
+        to = ?args.destination.iter().map(|l| l.loc_identifier.as_str()).collect::<Vec<_>>(),
         date = %args.departing_date,
         class = ?args.travel_class,
         stops = ?args.stop_options,
@@ -211,8 +211,8 @@ impl ApiClient {
     ///
     /// Returns an `OfferRawResponseContainer` object containing the parsed response.
     #[tracing::instrument(skip_all, fields(
-        from = ?args.departure.location_name,
-        to = ?args.destination.location_name,
+        from = ?args.departure.iter().map(|l| l.loc_identifier.as_str()).collect::<Vec<_>>(),
+        to = ?args.destination.iter().map(|l| l.loc_identifier.as_str()).collect::<Vec<_>>(),
         date = %args.departing_date,
         class = ?args.travel_class,
         stops = ?args.stop_options,

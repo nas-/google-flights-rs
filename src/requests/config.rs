@@ -31,11 +31,17 @@ impl Default for TripType {
     }
 }
 /// The `Config` struct is used to specify the options for a flight search.
+///
+/// `departure` and `destination` each hold 1–4 airports.  When multiple
+/// airports are supplied Google Flights treats them as "any of these" for
+/// that end of the journey (e.g. all London-area airports as the origin).
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     pub departing_date: NaiveDate,
-    pub departure: Location,
-    pub destination: Location,
+    /// One to four departure airports / city identifiers.
+    pub departure: Vec<Location>,
+    /// One to four destination airports / city identifiers.
+    pub destination: Vec<Location>,
     pub stop_options: StopOptions,
     pub travel_class: TravelClass,
     pub return_date: Option<NaiveDate>,
@@ -54,8 +60,8 @@ impl Config {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         departing_date: NaiveDate,
-        departure: Location,
-        destination: Location,
+        departure: Vec<Location>,
+        destination: Vec<Location>,
         stop_options: StopOptions,
         travel_class: TravelClass,
         return_date: Option<NaiveDate>,
@@ -118,8 +124,8 @@ impl Config {
 #[derive(Default)]
 pub struct ConfigBuilder {
     departing_date: Option<NaiveDate>,
-    departure: Option<Location>,
-    destination: Option<Location>,
+    departure: Vec<Location>,
+    destination: Vec<Location>,
     stop_options: StopOptions,
     travel_class: TravelClass,
     return_date: Option<NaiveDate>,
@@ -137,15 +143,41 @@ impl ConfigBuilder {
         self
     }
 
+    /// Set the departure to a single airport/city, clearing any previously
+    /// added departure airports.
     pub async fn departure(mut self, location: &str, client: &ApiClient) -> Result<Self> {
-        let departure = get_location(location, client).await?;
-        self.departure = Some(departure);
+        let loc = get_location(location, client).await?;
+        self.departure = vec![loc];
         Ok(self)
     }
 
+    /// Add an additional departure airport/city (up to 4 total).
+    /// Google Flights will search "any of these airports" as the origin.
+    pub async fn add_departure(mut self, location: &str, client: &ApiClient) -> Result<Self> {
+        if self.departure.len() >= 4 {
+            return Err(anyhow!("A maximum of 4 departure airports is supported"));
+        }
+        let loc = get_location(location, client).await?;
+        self.departure.push(loc);
+        Ok(self)
+    }
+
+    /// Set the destination to a single airport/city, clearing any previously
+    /// added destination airports.
     pub async fn destination(mut self, location: &str, client: &ApiClient) -> Result<Self> {
-        let destination = get_location(location, client).await?;
-        self.destination = Some(destination);
+        let loc = get_location(location, client).await?;
+        self.destination = vec![loc];
+        Ok(self)
+    }
+
+    /// Add an additional destination airport/city (up to 4 total).
+    /// Google Flights will search "any of these airports" as the destination.
+    pub async fn add_destination(mut self, location: &str, client: &ApiClient) -> Result<Self> {
+        if self.destination.len() >= 4 {
+            return Err(anyhow!("A maximum of 4 destination airports is supported"));
+        }
+        let loc = get_location(location, client).await?;
+        self.destination.push(loc);
         Ok(self)
     }
 
@@ -202,14 +234,16 @@ impl ConfigBuilder {
             Some(_) => TripType::Return,
             None => TripType::OneWay,
         };
+        if self.departure.is_empty() {
+            return Err(anyhow!("At least one departure airport is required"));
+        }
+        if self.destination.is_empty() {
+            return Err(anyhow!("At least one destination airport is required"));
+        }
         Ok(Config {
             departing_date,
-            departure: self
-                .departure
-                .ok_or(anyhow!("Departure location is required"))?,
-            destination: self
-                .destination
-                .ok_or(anyhow!("Destination location is required"))?,
+            departure: self.departure,
+            destination: self.destination,
             stop_options: self.stop_options,
             travel_class: self.travel_class,
             return_date: self.return_date,
@@ -248,14 +282,22 @@ impl From<&Config> for Vec<Leg> {
         let max_stopover_minutes = options.stopover_max.to_option();
         let max_duration_minutes = options.duration_max.to_option();
 
-        let departure = location_to_location_proto(&options.departure);
+        let departure: Vec<LocationProto> = options
+            .departure
+            .iter()
+            .map(location_to_location_proto)
+            .collect();
 
-        let destination = location_to_location_proto(&options.destination);
+        let destination: Vec<LocationProto> = options
+            .destination
+            .iter()
+            .map(location_to_location_proto)
+            .collect();
 
         let first_leg = Leg {
             date: options.departing_date.to_string(),
-            departure: vec![departure.clone()],
-            arrival: vec![destination.clone()],
+            departure: departure.clone(),
+            arrival: destination.clone(),
             min_hour_departure: options.departing_times.get_departure_hour_min(),
             max_hour_departure: options.departing_times.get_departure_hour_max(),
             min_hour_arrival: options.departing_times.get_arrival_hour_min(),
@@ -273,8 +315,8 @@ impl From<&Config> for Vec<Leg> {
             TripType::Return => {
                 let second_leg = Leg {
                     date: options.return_date.unwrap().to_string(),
-                    departure: vec![destination.clone()],
-                    arrival: vec![departure.clone()],
+                    departure: destination.clone(),
+                    arrival: departure.clone(),
                     min_hour_departure: options.return_times.get_departure_hour_min(),
                     max_hour_departure: options.return_times.get_departure_hour_max(),
                     min_hour_arrival: options.return_times.get_arrival_hour_min(),
@@ -488,6 +530,7 @@ impl fmt::Display for Currency {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protos;
 
     #[test]
     fn it_works_airports_oneway() {
@@ -504,8 +547,8 @@ mod tests {
 
         let config = Config {
             departing_date: NaiveDate::parse_from_str("2024-05-01", "%Y-%m-%d").unwrap(),
-            departure,
-            destination,
+            departure: vec![departure],
+            destination: vec![destination],
             return_date: Some(NaiveDate::parse_from_str("2024-05-03", "%Y-%m-%d").unwrap()),
             trip_type: TripType::OneWay,
             ..Default::default()
@@ -532,8 +575,8 @@ mod tests {
 
         let config = Config {
             departing_date: NaiveDate::parse_from_str("2024-05-01", "%Y-%m-%d").unwrap(),
-            departure,
-            destination,
+            departure: vec![departure],
+            destination: vec![destination],
             return_date: Some(NaiveDate::parse_from_str("2024-05-03", "%Y-%m-%d").unwrap()),
             trip_type: TripType::Return,
             ..Default::default()
@@ -561,8 +604,8 @@ mod tests {
 
         let config = Config {
             departing_date: NaiveDate::parse_from_str("2024-05-01", "%Y-%m-%d").unwrap(),
-            departure,
-            destination,
+            departure: vec![departure],
+            destination: vec![destination],
             return_date: Some(NaiveDate::parse_from_str("2024-05-03", "%Y-%m-%d").unwrap()),
             trip_type: TripType::Return,
             travellers: parsers::common::Travelers::new(vec![4, 1, 1, 1]),
@@ -599,5 +642,111 @@ mod tests {
         let location_proto = location_to_location_proto(&location);
         assert_eq!(location_proto.r#type, 2);
         assert_eq!(location_proto.place_name, "/m/04jpl");
+    }
+
+    // -----------------------------------------------------------------------
+    // Multi-airport unit tests
+    // -----------------------------------------------------------------------
+
+    /// The builder's `departure()` call resets to a single airport, while
+    /// subsequent `add_departure()` calls accumulate up to 4.
+    #[test]
+    fn builder_accumulates_airports_up_to_four() {
+        let lhr = Location::new("LHR", 0, None);
+        let lgw = Location::new("LGW", 0, None);
+        let stn = Location::new("STN", 0, None);
+        let ltn = Location::new("LTN", 0, None);
+        let jfk = Location::new("JFK", 0, None);
+
+        let config = Config {
+            departing_date: NaiveDate::parse_from_str("2025-06-01", "%Y-%m-%d").unwrap(),
+            departure: vec![lhr, lgw, stn, ltn],
+            destination: vec![jfk],
+            trip_type: TripType::OneWay,
+            ..Default::default()
+        };
+        assert_eq!(config.departure.len(), 4);
+        assert_eq!(config.destination.len(), 1);
+    }
+
+    /// `build()` returns an error when no departure airport was set.
+    #[test]
+    fn build_fails_without_departure() {
+        let result = Config::builder()
+            .departing_date(NaiveDate::from_ymd_opt(2025, 6, 1).unwrap())
+            .build();
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("departure"), "error should mention departure");
+    }
+
+    /// `build()` returns an error when no departure airport was set (departure
+    /// is validated before destination, so the error message mentions it first).
+    #[test]
+    fn build_fails_without_both_airports() {
+        // Neither departure nor destination is set — the first missing check fires.
+        let result = Config::builder()
+            .departing_date(NaiveDate::from_ymd_opt(2025, 6, 1).unwrap())
+            .build();
+        assert!(result.is_err());
+        // The validation checks departure first, then destination.
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("departure") || msg.contains("destination"),
+            "error should mention a missing airport, got: {msg}"
+        );
+    }
+
+    /// Two departure airports produce two `LocationProto` entries in the first
+    /// Leg's departure field when converted to the URL proto.
+    #[test]
+    fn multi_departure_produces_two_proto_entries() {
+        let config = Config {
+            departing_date: NaiveDate::parse_from_str("2025-06-01", "%Y-%m-%d").unwrap(),
+            departure: vec![
+                Location::new("LHR", 1, None), // 1 = Airport
+                Location::new("LGW", 1, None),
+            ],
+            destination: vec![Location::new("JFK", 1, None)],
+            trip_type: TripType::OneWay,
+            ..Default::default()
+        };
+        let legs: Vec<protos::urls::Leg> = (&config).into();
+        assert_eq!(legs.len(), 1);
+        assert_eq!(
+            legs[0].departure.len(),
+            2,
+            "both LHR and LGW should appear as separate proto entries"
+        );
+        let codes: Vec<&str> = legs[0].departure.iter().map(|l| l.place_name.as_str()).collect();
+        assert!(codes.contains(&"LHR"));
+        assert!(codes.contains(&"LGW"));
+    }
+
+    /// On a return trip the second leg swaps departure/destination,
+    /// including all airports from each group.
+    #[test]
+    fn multi_airport_return_trip_swaps_legs() {
+        let config = Config {
+            departing_date: NaiveDate::parse_from_str("2025-06-01", "%Y-%m-%d").unwrap(),
+            departure: vec![
+                Location::new("LHR", 1, None), // 1 = Airport
+                Location::new("LGW", 1, None),
+            ],
+            destination: vec![Location::new("JFK", 1, None)],
+            return_date: Some(NaiveDate::parse_from_str("2025-06-10", "%Y-%m-%d").unwrap()),
+            trip_type: TripType::Return,
+            ..Default::default()
+        };
+        let legs: Vec<protos::urls::Leg> = (&config).into();
+        assert_eq!(legs.len(), 2);
+        // Outbound: departs from [LHR, LGW], arrives at [JFK]
+        assert_eq!(legs[0].departure.len(), 2);
+        assert_eq!(legs[0].arrival.len(), 1);
+        assert_eq!(legs[0].arrival[0].place_name, "JFK");
+        // Return: departs from [JFK], arrives at [LHR, LGW]
+        assert_eq!(legs[1].departure.len(), 1);
+        assert_eq!(legs[1].departure[0].place_name, "JFK");
+        assert_eq!(legs[1].arrival.len(), 2);
     }
 }

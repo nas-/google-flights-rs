@@ -15,8 +15,8 @@ use anyhow::Result;
 
 // TODO remove this in favour of the other struct?
 pub struct GraphRequestOptions<'a> {
-    departing_city: &'a Location,
-    arriving_city: &'a Location,
+    departing_city: &'a [Location],
+    arriving_city: &'a [Location],
     date_start: &'a NaiveDate,
     date_return: Option<&'a NaiveDate>,
     date_end_graph: &'a str,
@@ -33,8 +33,8 @@ pub struct GraphRequestOptions<'a> {
 impl<'a> GraphRequestOptions<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        departing_city: &'a Location,
-        arriving_city: &'a Location,
+        departing_city: &'a [Location],
+        arriving_city: &'a [Location],
         date_start: &'a NaiveDate,
         date_return: Option<&'a NaiveDate>,
         date_end_graph: &'a str,
@@ -160,8 +160,8 @@ mod tests {
         let date_start = NaiveDate::parse_from_str("2024-02-02", "%Y-%m-%d").unwrap();
         let frontend_version = "boq_travel-frontend-ui_20240110.02_p0".to_string();
         let search_settings = GraphRequestOptions::new(
-            &departure,
-            &arrival,
+            core::slice::from_ref(&departure),
+            core::slice::from_ref(&arrival),
             &date_start,
             None,
             "2024-05-02",
@@ -190,8 +190,8 @@ mod tests {
         let duration_max = TotalDuration::UNLIMITED;
         let flight_times = FlightTimes::default();
         let itinerary = ItineraryRequest::new(
-            &departure,
-            &arrival,
+            core::slice::from_ref(&departure),
+            core::slice::from_ref(&arrival),
             &StopOptions::All,
             "2024-02-02",
             &None,
