@@ -311,8 +311,13 @@ mod tests {
     use std::vec;
 
     use anyhow::Ok;
+    use chrono::{Duration, Utc};
 
     use crate::parsers::flight_response::{AirplaneInfo, Date, Hour};
+
+    fn future_date(days: i64) -> String {
+        (Utc::now().date_naive() + Duration::days(days)).to_string()
+    }
 
     use super::*;
 
@@ -655,21 +660,22 @@ mod tests {
         let stopover_max = StopoverDuration::UNLIMITED;
         let duration_max = TotalDuration::UNLIMITED;
         let binding = FlightTimes::default();
+        let date = future_date(30);
 
         let leg = SingleLegStruct::new(
             vec![vec![&lhr, &lgw]],
             vec![vec![&jfk]],
             &StopOptions::All,
-            "2025-06-01",
+            &date,
             &binding,
             &stopover_max,
             &duration_max,
             None,
         );
-        assert_eq!(
-            leg.serialize_to_web()?,
-            r#"[[[[\"LHR\",0],[\"LGW\",0]]],[[[\"JFK\",0]]],null,0,null,null,\"2025-06-01\",null,null,null,null,null,null,null,3]"#
+        let expected = format!(
+            r#"[[[[\"LHR\",0],[\"LGW\",0]]],[[[\"JFK\",0]]],null,0,null,null,\"{date}\",null,null,null,null,null,null,null,3]"#
         );
+        assert_eq!(leg.serialize_to_web()?, expected);
         Ok(())
     }
 
@@ -686,11 +692,12 @@ mod tests {
         let flight_times = FlightTimes::default();
         let frontend_version = "boq_travel-frontend-ui_20240110.02_p0".to_string();
         let fixed_flights = FixedFlights::new(1_usize);
+        let date = future_date(30);
 
         let opts = FlightRequestOptions::new(
             &departures,
             core::slice::from_ref(&jfk),
-            "2025-06-01",
+            &date,
             None,
             Travelers::new(vec![1, 0, 0, 0]),
             &TravelClass::Economy,

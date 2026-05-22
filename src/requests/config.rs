@@ -531,6 +531,11 @@ impl fmt::Display for Currency {
 mod tests {
     use super::*;
     use crate::protos;
+    use chrono::{Duration, Utc};
+
+    fn future_date(days: i64) -> NaiveDate {
+        Utc::now().date_naive() + Duration::days(days)
+    }
 
     #[test]
     fn it_works_airports_oneway() {
@@ -659,7 +664,7 @@ mod tests {
         let jfk = Location::new("JFK", 0, None);
 
         let config = Config {
-            departing_date: NaiveDate::parse_from_str("2025-06-01", "%Y-%m-%d").unwrap(),
+            departing_date: future_date(30),
             departure: vec![lhr, lgw, stn, ltn],
             destination: vec![jfk],
             trip_type: TripType::OneWay,
@@ -673,7 +678,7 @@ mod tests {
     #[test]
     fn build_fails_without_departure() {
         let result = Config::builder()
-            .departing_date(NaiveDate::from_ymd_opt(2025, 6, 1).unwrap())
+            .departing_date(future_date(30))
             .build();
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
@@ -686,7 +691,7 @@ mod tests {
     fn build_fails_without_both_airports() {
         // Neither departure nor destination is set — the first missing check fires.
         let result = Config::builder()
-            .departing_date(NaiveDate::from_ymd_opt(2025, 6, 1).unwrap())
+            .departing_date(future_date(30))
             .build();
         assert!(result.is_err());
         // The validation checks departure first, then destination.
@@ -702,7 +707,7 @@ mod tests {
     #[test]
     fn multi_departure_produces_two_proto_entries() {
         let config = Config {
-            departing_date: NaiveDate::parse_from_str("2025-06-01", "%Y-%m-%d").unwrap(),
+            departing_date: future_date(30),
             departure: vec![
                 Location::new("LHR", 1, None), // 1 = Airport
                 Location::new("LGW", 1, None),
@@ -728,13 +733,13 @@ mod tests {
     #[test]
     fn multi_airport_return_trip_swaps_legs() {
         let config = Config {
-            departing_date: NaiveDate::parse_from_str("2025-06-01", "%Y-%m-%d").unwrap(),
+            departing_date: future_date(30),
             departure: vec![
                 Location::new("LHR", 1, None), // 1 = Airport
                 Location::new("LGW", 1, None),
             ],
             destination: vec![Location::new("JFK", 1, None)],
-            return_date: Some(NaiveDate::parse_from_str("2025-06-10", "%Y-%m-%d").unwrap()),
+            return_date: Some(future_date(37)),
             trip_type: TripType::Return,
             ..Default::default()
         };
