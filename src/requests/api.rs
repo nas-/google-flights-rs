@@ -17,14 +17,46 @@ use regex::Regex;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Response, StatusCode};
 use std::num::NonZeroU32;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+/// Returned when the Google Flights API responds with HTTP 429 (Too Many Requests).
+///
+/// Once any request on an [`ApiClient`] receives a 429, that client (and all
+/// its clones, which share the same flag) will refuse to send further requests
+/// until [`ApiClient::reset_rate_limit`] is called.
+///
+/// You can match on this error type via [`anyhow::Error::downcast_ref`]:
+///
+/// ```rust,ignore
+/// if let Some(_) = err.downcast_ref::<RateLimitedError>() {
+///     // wait and retry, or surface to the user
+/// }
+/// ```
+#[derive(Debug)]
+pub struct RateLimitedError;
+
+impl std::fmt::Display for RateLimitedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Google Flights returned HTTP 429 Too Many Requests — all further requests on this client are blocked; call ApiClient::reset_rate_limit() to resume")
+    }
+}
+
+impl std::error::Error for RateLimitedError {}
+
 /// The `ApiClient` struct is used to send requests to the Google Flights website.
+///
+/// Cloning this struct is cheap — all clones share the same underlying HTTP
+/// client, rate-limiter, and rate-limit flag via `Arc`.
 #[derive(Clone)]
 pub struct ApiClient {
     pub rate_limiter: Arc<DefaultDirectRateLimiter>,
     pub client: Arc<Client>,
     frontend_version: String,
+    /// Set to `true` the first time any request on this client (or any clone)
+    /// receives HTTP 429.  While `true`, every call to `do_request` returns
+    /// [`RateLimitedError`] immediately without touching the network.
+    rate_limited: Arc<AtomicBool>,
 }
 
 impl ApiClient {
@@ -45,7 +77,23 @@ impl ApiClient {
             client: Arc::new(Client::new()),
             frontend_version: frontend_version
                 .unwrap_or("boq_travel-frontend-ui_20240110.02_p0".into()),
+            rate_limited: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Returns `true` if this client has been halted by a 429 response.
+    ///
+    /// All clones of the same `ApiClient` share this flag.
+    pub fn is_rate_limited(&self) -> bool {
+        self.rate_limited.load(Ordering::SeqCst)
+    }
+
+    /// Clears the 429 flag so the client can send requests again.
+    ///
+    /// Call this after an appropriate back-off period.  The client will resume
+    /// normal operation on the next request.
+    pub fn reset_rate_limit(&self) {
+        self.rate_limited.store(false, Ordering::SeqCst);
     }
 
     /// Sends a request to retrieve information about a city/airport.
@@ -195,12 +243,21 @@ impl ApiClient {
         Ok(inner)
     }
 
-    /// Sends a request to retrieve flight data.
+    /// Sends a single HTTP request, enforcing the shared rate-limit flag.
+    ///
+    /// Returns [`RateLimitedError`] (as an `anyhow::Error`) in two situations:
+    /// - The flag is already set from a previous 429 on this client or any clone.
+    /// - The server responds with HTTP 429 (the flag is then set for all clones).
     async fn do_request(
         &self,
         options: &impl ToRequestBody,
         currency: Option<Currency>,
     ) -> Result<Response> {
+        // Refuse immediately if a previous request already received a 429.
+        if self.rate_limited.load(Ordering::SeqCst) {
+            return Err(anyhow::Error::new(RateLimitedError));
+        }
+
         let req_payload = options.to_request_body()?;
         let headers = get_headers(currency);
 
@@ -215,10 +272,20 @@ impl ApiClient {
             .headers(headers)
             .send()
             .await?;
+
         match res.status() {
-            StatusCode::OK => (),
-            _ => eprintln!("Response: {:?} {}", res.version(), res.status()),
+            StatusCode::OK => {}
+            StatusCode::TOO_MANY_REQUESTS => {
+                // Signal all clones to stop; they will return RateLimitedError
+                // on their next attempt without hitting the network.
+                self.rate_limited.store(true, Ordering::SeqCst);
+                return Err(anyhow::Error::new(RateLimitedError));
+            }
+            status => {
+                eprintln!("Unexpected response status: {:?} {}", res.version(), status);
+            }
         }
+
         Ok(res)
     }
 }
@@ -259,6 +326,57 @@ fn get_headers(currency: Option<Currency>) -> HeaderMap {
         );
     }
     headers
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a minimal ApiClient without hitting the network (no frontend-version fetch).
+    fn make_client() -> ApiClient {
+        let quota = governor::Quota::per_second(NonZeroU32::new(100).unwrap());
+        ApiClient {
+            rate_limiter: Arc::new(DefaultDirectRateLimiter::direct(quota)),
+            client: Arc::new(Client::new()),
+            frontend_version: "test".into(),
+            rate_limited: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[test]
+    fn not_rate_limited_by_default() {
+        let client = make_client();
+        assert!(!client.is_rate_limited());
+    }
+
+    #[test]
+    fn rate_limited_flag_can_be_set_and_reset() {
+        let client = make_client();
+        client.rate_limited.store(true, Ordering::SeqCst);
+        assert!(client.is_rate_limited());
+        client.reset_rate_limit();
+        assert!(!client.is_rate_limited());
+    }
+
+    #[test]
+    fn clones_share_the_rate_limited_flag() {
+        let client = make_client();
+        let clone = client.clone();
+
+        // Set on original — clone sees it.
+        client.rate_limited.store(true, Ordering::SeqCst);
+        assert!(clone.is_rate_limited());
+
+        // Reset on clone — original sees it.
+        clone.reset_rate_limit();
+        assert!(!client.is_rate_limited());
+    }
+
+    #[test]
+    fn rate_limited_error_is_downcasted() {
+        let err = anyhow::Error::new(RateLimitedError);
+        assert!(err.downcast_ref::<RateLimitedError>().is_some());
+    }
 }
 
 /// Retrieves the frontend version from the Google Flights website.
