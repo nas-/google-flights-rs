@@ -106,6 +106,7 @@ impl ApiClient {
     ///
     /// Returns a `ResponseInnerBodyParsed` object containing the parsed response.
     /// This will contains both the airport associated and the city.
+    #[tracing::instrument(skip(self))]
     pub async fn request_city(&self, city: &str) -> Result<ResponseInnerBodyParsed> {
         let options = CityRequestOptions::new(city, &self.frontend_version);
         let city_response: &str = &self.do_request(&options, None).await?.text().await?;
@@ -123,6 +124,7 @@ impl ApiClient {
     /// # Returns
     ///
     /// Returns a `GraphRawResponseContainer` object containing the parsed response.
+    #[tracing::instrument(skip_all)]
     pub async fn request_graph(
         &self,
         args: &Config,
@@ -163,17 +165,17 @@ impl ApiClient {
     /// # Returns
     ///
     /// Returns a `FlightResponseContainer` object containing the parsed response.
+    #[tracing::instrument(skip_all, fields(
+        from = ?args.departure.location_name,
+        to = ?args.destination.location_name,
+        date = %args.departing_date,
+        class = ?args.travel_class,
+        stops = ?args.stop_options,
+    ))]
     pub async fn request_flights(&self, args: &Config) -> Result<FlightResponseContainer> {
         let date_start = args.departing_date.to_string();
         let date_return: Option<String> = args.return_date.map(|f| f.to_string());
-        println!(
-            "Processing {:?} flights from {:?} to {:?} date {} in class {:?}",
-            args.stop_options,
-            args.departure.location_name,
-            args.destination.location_name,
-            date_start,
-            args.travel_class
-        );
+        tracing::info!("Requesting flights");
         let req_options = FlightRequestOptions::new(
             &args.departure,
             &args.destination,
@@ -208,17 +210,17 @@ impl ApiClient {
     /// # Returns
     ///
     /// Returns an `OfferRawResponseContainer` object containing the parsed response.
+    #[tracing::instrument(skip_all, fields(
+        from = ?args.departure.location_name,
+        to = ?args.destination.location_name,
+        date = %args.departing_date,
+        class = ?args.travel_class,
+        stops = ?args.stop_options,
+    ))]
     pub async fn request_offer(&self, args: &Config) -> Result<OfferRawResponseContainer> {
         let date_start = args.departing_date.to_string();
         let date_return: Option<String> = args.return_date.map(|f| f.to_string());
-        println!(
-            "Processing {:?} flights from {:?} to {:?} date {} in class {:?}",
-            args.stop_options,
-            args.departure.location_name,
-            args.destination.location_name,
-            date_start,
-            args.travel_class
-        );
+        tracing::info!("Requesting offers");
         let req_options = FlightRequestOptions::new(
             &args.departure,
             &args.destination,
@@ -281,9 +283,11 @@ impl ApiClient {
                 self.rate_limited.store(true, Ordering::SeqCst);
                 return Err(anyhow::Error::new(RateLimitedError));
             }
-            status => {
-                eprintln!("Unexpected response status: {:?} {}", res.version(), status);
-            }
+            status => tracing::warn!(
+                http_version = ?res.version(),
+                status_code = %status,
+                "Unexpected HTTP response status"
+            ),
         }
 
         Ok(res)

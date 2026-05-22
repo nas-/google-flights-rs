@@ -6,6 +6,15 @@ use gflights::requests::{api::ApiClient, config::Config};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialise tracing. Set RUST_LOG=gflights=debug (or =trace) to see
+    // detailed library logs; defaults to INFO if the env var is absent.
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("gflights=info")),
+        )
+        .init();
+
     let client = ApiClient::new().await;
     let today = Utc::now().date_naive();
     let departing_date = today + Duration::days(10);

@@ -62,7 +62,7 @@ where
                     match test {
                     Some(err) => {
                         let err_messages_joined = err.join("\n");
-                        println!("Error in processing outer object!\n Errors returned from the backend:\n{:?}", err);
+                        tracing::error!(errors = ?err, "Error in processing outer object: errors returned from the backend");
                         Err(anyhow!(err_messages_joined))
                     }
                     None => Ok(x),
@@ -70,7 +70,7 @@ where
             }
                 Err(err) => {
                     let path = err.path().to_string();
-                    println!("Error in processing outer object!\n{}\n{:?}", path, err);
+                    tracing::error!(path = %path, error = ?err, "Error deserializing outer object");
                     Err(anyhow!(err))
                 }
             }
@@ -94,7 +94,7 @@ pub(crate) fn decode_inner_object<T: for<'a> Deserialize<'a>>(body: &str) -> Res
         Ok(x) => Ok(x),
         Err(err) => {
             let path = err.path().to_string();
-            println!("Error in processing inner object!\n{}\n{:?}", path, err);
+            tracing::error!(path = %path, error = ?err, "Error deserializing inner object");
             std::fs::write("error.txt", body).expect("Unable to write file");
             Err(anyhow!(err))
         }
