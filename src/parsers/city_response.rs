@@ -2,35 +2,46 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::parsers::common::{GetOuterErrorMessages, Location, PlaceType};
+use crate::parsers::common::{get_idx, GetOuterErrorMessages, Location, PlaceType};
 
 use super::common::{decode_inner_object, decode_outer_object};
 
-#[derive(Debug, Deserialize, Serialize)]
+// Vec<Value> based — absorbs trailing fields
+#[derive(Debug, Serialize)]
 struct RawResponseContainer {
     response: RawResponse,
-    #[serde(default)]
-    unknown1: Value,
-    #[serde(default)]
-    unknown2: Value,
+}
+
+impl<'de> Deserialize<'de> for RawResponseContainer {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let arr = Vec::<Value>::deserialize(d)?;
+        Ok(RawResponseContainer {
+            response: get_idx(&arr, 0)
+                .ok_or_else(|| serde::de::Error::custom("missing response at index 0"))?,
+        })
+    }
 }
 
 impl GetOuterErrorMessages for RawResponseContainer {
     fn get_error_messages(&self) -> Option<Vec<String>> {
-        // Not clear if there is the possibility for errors in this kind of response.
         None
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+// Vec<Value> based — only `body` at index 2 is needed
+#[derive(Debug, Serialize)]
 struct RawResponse {
-    unknown0: Value,
-    unknown1: Value,
     body: String,
-    unknown3: Value,
-    unknown4: Value,
-    unknown5: Value,
-    unknown6: Value,
+}
+
+impl<'de> Deserialize<'de> for RawResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let arr = Vec::<Value>::deserialize(d)?;
+        Ok(RawResponse {
+            body: get_idx(&arr, 2)
+                .ok_or_else(|| serde::de::Error::custom("missing body at index 2"))?,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -70,22 +81,25 @@ pub struct ResultContainer {
     pub airport: Option<Vec<AirportsNames>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+// Vec<Value> based — extract only the fields used by to_city_list()
+#[derive(Debug, Serialize)]
 pub struct PlaceDetails {
     pub place_type: PlaceType,
-    city_region: String,
-    city_name: String,
-    municipality: Option<String>,
-    pub identifier: String, // /m/05ywg. Knowledge graph location identifier.
-    pub airport_code: Option<String>, //PRG
-    unknown6: Value,
-    unknown7: Value,
-    common_name: Option<String>,
-    unknown9: Value,
-    unknown10: Value,
-    unknown11: i32,
-    #[serde(default)]
-    confidence: f64,
+    pub city_name: String,
+    pub identifier: String,
+    pub airport_code: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for PlaceDetails {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let arr = Vec::<Value>::deserialize(d)?;
+        Ok(PlaceDetails {
+            place_type: get_idx(&arr, 0).unwrap_or_default(),
+            city_name: get_idx(&arr, 2).unwrap_or_default(),
+            identifier: get_idx(&arr, 4).unwrap_or_default(),
+            airport_code: get_idx(&arr, 5),
+        })
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -1,9 +1,6 @@
 use crate::{
-    parsers::common::{decode_inner_object, decode_outer_object},
-    parsers::flight_response::{
-        CostumerSupport, ItineraryCost, PriceGraph, RawResponseContainerVec, TripCost,
-        VisitedLocation,
-    },
+    parsers::common::{decode_inner_object, decode_outer_object, get_idx},
+    parsers::flight_response::{ItineraryCost, RawResponseContainerVec, TripCost},
 };
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -22,10 +19,23 @@ pub fn create_raw_response_offer_vec(raw_inputs: String) -> Result<OfferRawRespo
     Ok(OfferRawResponseContainer::new(inner_objects))
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+// ---------------------------------------------------------------------------
+// OfferRawResponse — Vec<Value> based
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
 pub struct OfferRawResponse {
-    unknown0: Value,
-    unknown1: OfferContainer,
+    pub offer_container: OfferContainer,
+}
+
+impl<'de> Deserialize<'de> for OfferRawResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let arr = Vec::<Value>::deserialize(d)?;
+        Ok(OfferRawResponse {
+            offer_container: get_idx(&arr, 1)
+                .ok_or_else(|| serde::de::Error::custom("missing offer_container at index 1"))?,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -38,245 +48,132 @@ impl OfferRawResponseContainer {
         Self { response }
     }
 }
+
 impl OfferRawResponse {
     /// Get offers from the responses.
-    /// This is a vector of tuples. The first element is a vector of strings (OTA(s)/airline(s)), the second is the price.
+    /// Returns a vector of (partner names, price) tuples.
     pub fn get_offer_prices(&self) -> Option<Vec<(Vec<String>, i32)>> {
-        let first_result: Vec<(Vec<String>, i32)> = self
-            .unknown1
-            .offers
-            .as_ref()?
+        let offers = self.offer_container.offers.as_ref()?;
+
+        let first_result: Vec<(Vec<String>, i32)> = offers
             .iter()
             .map(|f| {
                 let names: Vec<String> = f.partner.iter().map(|y| y.name.clone()).collect();
-                let price = &f.solution_price.as_ref().and_then(|f| f.trip_cost.clone());
-
-                (names.clone(), price.clone())
+                let price = f.solution_price.as_ref().and_then(|f| f.trip_cost.clone());
+                (names, price)
             })
             .filter_map(|f| f.1.map(|inner| (f.0, inner.price)))
             .collect();
 
-        let second_result: Option<Vec<(Vec<String>, i32)>> = self
-            .unknown1
-            .offers
-            .as_ref()?
+        let second_result: Option<Vec<(Vec<String>, i32)>> = offers
             .iter()
             .flat_map(|f| f.specific_ota_options.as_ref())
             .flatten()
             .map(|f| {
                 let names: Vec<String> = f.partner.iter().map(|y| y.name.clone()).collect();
-                let price = &f.solution_price.as_ref().and_then(|f| f.trip_cost.clone());
-
-                (names.clone(), price.clone())
+                let price = f.solution_price.as_ref().and_then(|f| f.trip_cost.clone());
+                (names, price)
             })
             .filter_map(|f| f.1.map(|inner| Some((f.0, inner.price))))
             .collect();
+
         let mut result: Vec<(Vec<String>, i32)> = Vec::new();
         result.extend(first_result);
-
         if let Some(x) = second_result {
             result.extend(x)
         }
-
         Some(result)
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct OfferContainer {
-    offers: Option<Vec<Offers>>,
-    maybe_flights_info: Option<Vec<Vec<FlightsInfo>>>,
-    maybe_other_flights_info: Option<Vec<Vec<Vec<Vec<FlightsInfo>>>>>, //WTF?
-    unknown3: Option<String>,
-    unknown4: Option<String>,
-    visited_locations: VisitedLocationContaner,
-    unknown6: Option<String>,
-    unknown7: Option<Vec<Vec<String>>>,
-    unknown8: Option<bool>,
-    costumer_support: Option<Vec<CostumerSupport>>,
-    ota_offers: Option<OtaOffers>,
-    unknown11: Option<String>,
-    price_graph: Option<PriceGraph>,
-    unknown13: Option<Vec<i32>>,
-    links: BackButtonLinks,
-    unknown15: Option<String>,
-    unknown16: Value,
-    unknown17: Vec<bool>,
-    unknown18: Option<String>,
-    unknown19: Option<Vec<i32>>,
-    unknown20: Option<String>,
-    unknown21: TravelProtobufed,
-    unknown22: TravelProtobufed,
+// ---------------------------------------------------------------------------
+// OfferContainer — Vec<Value> based, keep only offers (idx 0)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct OfferContainer {
+    pub offers: Option<Vec<Offers>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct BackButtonLinks {
-    unknown0: Option<String>,
-    // links visited in order. first is plain research, second is with first flight selected, ecc.
-    links_back: Vec<String>,
-    link_hidden_separate_tikets: String,
+impl<'de> Deserialize<'de> for OfferContainer {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let arr = Vec::<Value>::deserialize(d)?;
+        Ok(OfferContainer {
+            offers: get_idx(&arr, 0),
+        })
+    }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct OtaOffers {
-    unknown0: Option<i32>,
-    ota_offers_by: Vec<String>,
-    unknown2: bool,
+// ---------------------------------------------------------------------------
+// Offers — Vec<Value> based, keep useful booking fields
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Clone)]
+pub struct Offers {
+    pub offer_rank: i32,
+    pub partner: Vec<Partner>,
+    pub specific_ota_options: Option<Vec<Offers>>,
+    pub flight_numbers: Vec<FlightNumbers>,
+    pub tracking_url_info: Option<BookingLinkComponents>,
+    pub solution_price: Option<ItineraryCost>,
+    pub other_currency_prices: Option<Vec<TripCost>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct InsuranceOptions {
-    unknown0: i32,
-    #[serde(default)]
-    offered_by: String,
-    #[serde(default)]
-    info_link: String,
+impl<'de> Deserialize<'de> for Offers {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let arr = Vec::<Value>::deserialize(d)?;
+        Ok(Offers {
+            offer_rank: get_idx(&arr, 0).unwrap_or_default(),
+            partner: get_idx(&arr, 1).unwrap_or_default(),
+            specific_ota_options: get_idx(&arr, 2),
+            flight_numbers: get_idx(&arr, 3).unwrap_or_default(),
+            tracking_url_info: get_idx(&arr, 5),
+            solution_price: get_idx(&arr, 7),
+            other_currency_prices: get_idx(&arr, 8),
+        })
+    }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct VisitedLocationContaner {
-    unknown0: Vec<VisitedLocation>,
-    unknown1: i32,
-    unknown2: Vec<i32>,
-}
+// ---------------------------------------------------------------------------
+// Stable leaf types — left unchanged
+// ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize, Serialize)]
-struct Offers {
-    offer_rank: i32,
-    partner: Vec<Partner>,
-    //Recursive....
-    specific_ota_options: Option<Vec<Offers>>,
-    flight_numbers: Vec<FlightNumbers>,
-    unknown4: bool,
-    tracking_url_info: Option<BookingLinkComponents>,
-    unknown6: Value,
-    // Some companies do not show their prices
-    solution_price: Option<ItineraryCost>,
-    other_currency_prices: Option<Vec<TripCost>>,
-    unknown9: Option<InsuranceOptions>,
-    unknown10: Option<bool>,
-    unknown11: Value,
-    unknown12: Option<String>,
-    unknown13: Option<ConversionInfo>,
-    unknown14: Option<Value>,
-    unknown15: Option<String>,
-    unknown16: Option<String>,
-    unknown17: Option<Value>,
-    unknown18: Option<Value>,
-    unknown19: Option<String>,
-    unknown20: Option<String>,
-    unknown21: Option<FlightsInfo>,
-    unknown22: Option<FlightsOperator>,
-    #[serde(default)]
-    unknown23: Option<String>,
-    #[serde(default)]
-    unknown24: Option<bool>,
-    #[serde(default)]
-    unknown25: Option<GreenFareInfo>,
-    #[serde(default)]
-    unknown26: Option<String>,
-    #[serde(default)]
-    unknown27: Option<Vec<bool>>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct ConversionInfo {
-    unknown0: i32,
-    unknown1: Vec<TripCost>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct GreenFareInfo {
-    unknown0: Option<String>,
-    unknown1: i32,
-    unknown2: i32,
-    unknown3: i32,
-    unknown4: i32,
-    unknown5: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct FlightsInfo {
-    unknown0: Option<Vec<String>>,
-    unknown1: Option<Vec<Vec<i32>>>,
-    unknown2: Option<bool>,
-    unknown3: Option<String>,
-    unknown4: Option<Value>,
-    unknown5: Option<String>,
-    amenities: Vec<Amenties>,
-    unknown7: Option<Value>,
-    unknown8: Option<bool>,
-    unknown9: Option<String>,
-    unknown10: Option<String>,
-    unknown11: Vec<Value>,
-    unknown12: Option<Vec<VisitedLocation>>,
-    unknown13: Option<String>,
-    unknown14: i32,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct Amenties {
-    unknown0: Option<i32>,
-    amenities_array: Option<Value>,
-    unknown2: Option<i32>,
-    legroom_short: Option<String>,
-    unknown4: Option<String>,
-    legroom_long: Option<String>,
-    unknown6: Option<i32>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct FlightsOperator {
-    unknown0: Option<String>,
-    operator_short_code: Option<String>,
-    unknown2: i32,
-    unknown3: bool,
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Partner {
+    pub short_code: String,
+    pub name: String,
+    pub name_2: Option<String>,
+    pub is_airline: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-struct Currency {
-    unknown0: Option<String>,
-    unknown1: i32,
+pub struct FlightNumbers {
+    pub short_code: String,
+    pub number: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct Partner {
-    short_code: String,
-    name: String,
-    name_2: Option<String>,
-    is_airline: bool,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct FlightNumbers {
-    short_code: String,
-    number: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct BookingLinkComponents {
-    url_base: String,
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BookingLinkComponents {
+    pub url_base: String,
     unknown1: Option<String>,
     unknown2: LinkComponents,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct LinkComponents {
     url_base: String,
     unknown1: Vec<ClickInfoComponents>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct ClickInfoComponents {
     base_char: String,
     travel_protobuf: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct TravelProtobufed {
-    travel_protobuf: String,
-    number: i32,
-}
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -311,9 +208,9 @@ mod tests {
             .flat_map(|f| f.payload)
             .collect();
         let inner: String = inner_objects.into_iter().next().unwrap();
-        let restult: Result<OfferRawResponse> = decode_inner_object(inner.as_ref());
+        let result: Result<OfferRawResponse> = decode_inner_object(inner.as_ref());
 
-        assert!(restult.is_ok());
+        assert!(result.is_ok());
         Ok(())
     }
 }
