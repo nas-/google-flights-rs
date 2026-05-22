@@ -19,11 +19,15 @@ tokio = { version = "1.35.1", features = ["full"] }
 governor = "0.6.0"
 regex = "1.10.3"
 serde_repr = "0.1.18"
+tracing = "0.1"
 
 base64 = "0.21.7"
 prost = "0.12.3"
 prost-build = "0.12.3"
 prost-types = "0.12.3"
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [build-dependencies]
 prost-build = "0.12.3"
