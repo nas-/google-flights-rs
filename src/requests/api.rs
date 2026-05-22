@@ -250,6 +250,7 @@ impl ApiClient {
     /// Returns [`RateLimitedError`] (as an `anyhow::Error`) in two situations:
     /// - The flag is already set from a previous 429 on this client or any clone.
     /// - The server responds with HTTP 429 (the flag is then set for all clones).
+    #[tracing::instrument(skip_all)]
     async fn do_request(
         &self,
         options: &impl ToRequestBody,
