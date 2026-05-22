@@ -1,17 +1,29 @@
 //! Integration tests that call live Google Flights servers.
 //!
-//! These tests require internet access and are marked `#[ignore]` so they do
-//! not run in the default `cargo test` invocation.
+//! These tests are marked `#[ignore]` so they are skipped by default, and
+//! additionally gated behind the `RUN_LIVE_TESTS` environment variable so
+//! they are never accidentally executed on CI servers (which set neither
+//! that variable nor the explicit opt-in flag).
 //!
-//! # Running
+//! # Running locally
 //!
 //! ```sh
 //! # Run all live tests:
-//! cargo test --test live_api -- --include-ignored
+//! RUN_LIVE_TESTS=1 cargo test --test live_api -- --include-ignored
 //!
 //! # Run a single live test:
-//! cargo test --test live_api oneway_search_returns_flights -- --include-ignored
+//! RUN_LIVE_TESTS=1 cargo test --test live_api oneway_search_returns_flights -- --include-ignored
 //! ```
+//!
+//! # CI behaviour
+//!
+//! CI pipelines typically run `cargo test` or `cargo test -- --include-ignored`.
+//! Neither invocation executes these tests because:
+//!
+//! 1. `#[ignore]` keeps them out of the default run.
+//! 2. Even if `--include-ignored` is passed, the `require_live!()` guard at
+//!    the start of every test body returns `Ok(())` immediately unless the
+//!    `RUN_LIVE_TESTS` environment variable is set to a non-empty value.
 //!
 //! # What these tests do NOT assert
 //!
@@ -32,6 +44,25 @@
 use anyhow::Result;
 use chrono::{Duration, Months, Utc};
 use gflights::requests::{api::ApiClient, config::Config};
+
+/// Early-returns `Ok(())` from the enclosing async fn unless `RUN_LIVE_TESTS`
+/// is set to a non-empty value in the environment.
+///
+/// This is the second line of defence against live tests running on CI:
+/// the first is `#[ignore]`, but some CI pipelines pass `--include-ignored`.
+macro_rules! require_live {
+    () => {
+        match std::env::var("RUN_LIVE_TESTS") {
+            Ok(v) if !v.is_empty() => {}
+            _ => {
+                eprintln!(
+                    "[live_api] skipping — set RUN_LIVE_TESTS=1 to run live tests"
+                );
+                return Ok(());
+            }
+        }
+    };
+}
 
 /// Returns a `NaiveDate` that is `n` days from today (UTC).
 fn days_from_now(n: i64) -> chrono::NaiveDate {
@@ -59,6 +90,7 @@ fn assert_airport_code(code: &str, label: &str) {
 #[tokio::test]
 #[ignore = "requires live network"]
 async fn city_lookup_by_full_name() -> Result<()> {
+    require_live!();
     let client = ApiClient::new().await;
 
     let result = client.request_city("London").await?;
@@ -77,6 +109,7 @@ async fn city_lookup_by_full_name() -> Result<()> {
 #[tokio::test]
 #[ignore = "requires live network"]
 async fn city_lookup_several_cities() -> Result<()> {
+    require_live!();
     let client = ApiClient::new().await;
 
     for city in ["Madrid", "Paris", "Tokyo", "New York"] {
@@ -99,6 +132,7 @@ async fn city_lookup_several_cities() -> Result<()> {
 #[tokio::test]
 #[ignore = "requires live network"]
 async fn iata_code_sets_location_name_to_code() -> Result<()> {
+    require_live!();
     let client = ApiClient::new().await;
 
     let config = Config::builder()
@@ -133,6 +167,7 @@ async fn iata_code_sets_location_name_to_code() -> Result<()> {
 #[tokio::test]
 #[ignore = "requires live network"]
 async fn oneway_search_returns_flights() -> Result<()> {
+    require_live!();
     let client = ApiClient::new().await;
 
     let config = Config::builder()
@@ -167,6 +202,7 @@ async fn oneway_search_returns_flights() -> Result<()> {
 #[tokio::test]
 #[ignore = "requires live network"]
 async fn flight_results_have_valid_structure() -> Result<()> {
+    require_live!();
     let client = ApiClient::new().await;
 
     let config = Config::builder()
@@ -234,6 +270,7 @@ async fn flight_results_have_valid_structure() -> Result<()> {
 #[tokio::test]
 #[ignore = "requires live network"]
 async fn return_flight_two_leg_flow_produces_valid_url() -> Result<()> {
+    require_live!();
     let client = ApiClient::new().await;
 
     let config = Config::builder()
@@ -304,6 +341,7 @@ async fn return_flight_two_leg_flow_produces_valid_url() -> Result<()> {
 #[tokio::test]
 #[ignore = "requires live network"]
 async fn price_graph_returns_future_dates() -> Result<()> {
+    require_live!();
     let client = ApiClient::new().await;
     let today = Utc::now().date_naive();
 
@@ -352,6 +390,7 @@ async fn price_graph_returns_future_dates() -> Result<()> {
 #[tokio::test]
 #[ignore = "requires live network"]
 async fn cheaper_dates_suggestions_are_structurally_valid() -> Result<()> {
+    require_live!();
     let client = ApiClient::new().await;
     let today = Utc::now().date_naive();
 
@@ -405,6 +444,7 @@ async fn cheaper_dates_suggestions_are_structurally_valid() -> Result<()> {
 #[tokio::test]
 #[ignore = "requires live network"]
 async fn usual_price_bound_is_positive_when_present() -> Result<()> {
+    require_live!();
     let client = ApiClient::new().await;
 
     let config = Config::builder()
