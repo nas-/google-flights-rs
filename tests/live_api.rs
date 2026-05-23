@@ -143,15 +143,15 @@ async fn iata_code_sets_location_name_to_code() -> Result<()> {
         .departing_date(days_from_now(14))
         .build()?;
 
-    assert_eq!(config.departure.loc_identifier, "LHR");
-    assert_eq!(config.destination.loc_identifier, "JFK");
+    assert_eq!(config.departure[0].loc_identifier, "LHR");
+    assert_eq!(config.destination[0].loc_identifier, "JFK");
     assert_eq!(
-        config.departure.location_name.as_deref(),
+        config.departure[0].location_name.as_deref(),
         Some("LHR"),
         "IATA departure should use code as location_name"
     );
     assert_eq!(
-        config.destination.location_name.as_deref(),
+        config.destination[0].location_name.as_deref(),
         Some("JFK"),
         "IATA destination should use code as location_name"
     );
