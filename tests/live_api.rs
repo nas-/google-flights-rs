@@ -143,15 +143,15 @@ async fn iata_code_sets_location_name_to_code() -> Result<()> {
         .departing_date(days_from_now(14))
         .build()?;
 
-    assert_eq!(config.departure.loc_identifier, "LHR");
-    assert_eq!(config.destination.loc_identifier, "JFK");
+    assert_eq!(config.departure[0].loc_identifier, "LHR");
+    assert_eq!(config.destination[0].loc_identifier, "JFK");
     assert_eq!(
-        config.departure.location_name.as_deref(),
+        config.departure[0].location_name.as_deref(),
         Some("LHR"),
         "IATA departure should use code as location_name"
     );
     assert_eq!(
-        config.destination.location_name.as_deref(),
+        config.destination[0].location_name.as_deref(),
         Some("JFK"),
         "IATA destination should use code as location_name"
     );
@@ -461,6 +461,83 @@ async fn usual_price_bound_is_positive_when_present() -> Result<()> {
         assert!(bound > 0, "usual_price_bound should be a positive integer, got {bound}");
     }
     // None is also acceptable — not all routes/dates include this
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Multi-airport search
+// ---------------------------------------------------------------------------
+
+/// Searching from two London airports (LHR + LGW) to JFK returns at least one
+/// flight.  This exercises the multi-airport path end-to-end against the live
+/// API: both airport codes must appear in the serialised request body.
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn multi_airport_departure_returns_flights() -> Result<()> {
+    require_live!();
+    let client = ApiClient::new().await;
+
+    let config = Config::builder()
+        .departure("LHR", &client)
+        .await?
+        .add_departure("LGW", &client)
+        .await?
+        .destination("JFK", &client)
+        .await?
+        .departing_date(days_from_now(14))
+        .build()?;
+
+    assert_eq!(config.departure.len(), 2, "should have LHR and LGW as departure airports");
+
+    let response = client.request_flights(&config).await?;
+    let flights: Vec<_> = response
+        .responses
+        .iter()
+        .filter_map(|r| r.maybe_get_all_flights())
+        .flatten()
+        .collect();
+
+    assert!(
+        !flights.is_empty(),
+        "expected ≥1 flight for (LHR|LGW)→JFK"
+    );
+
+    Ok(())
+}
+
+/// Searching to two New York airports (JFK + EWR) from LHR returns at least
+/// one flight, verifying multi-airport destination support.
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn multi_airport_destination_returns_flights() -> Result<()> {
+    require_live!();
+    let client = ApiClient::new().await;
+
+    let config = Config::builder()
+        .departure("LHR", &client)
+        .await?
+        .destination("JFK", &client)
+        .await?
+        .add_destination("EWR", &client)
+        .await?
+        .departing_date(days_from_now(14))
+        .build()?;
+
+    assert_eq!(config.destination.len(), 2, "should have JFK and EWR as destination airports");
+
+    let response = client.request_flights(&config).await?;
+    let flights: Vec<_> = response
+        .responses
+        .iter()
+        .filter_map(|r| r.maybe_get_all_flights())
+        .flatten()
+        .collect();
+
+    assert!(
+        !flights.is_empty(),
+        "expected ≥1 flight for LHR→(JFK|EWR)"
+    );
 
     Ok(())
 }
