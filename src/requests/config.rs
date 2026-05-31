@@ -9,8 +9,8 @@ use anyhow::Result;
 use chrono::{Months, NaiveDate};
 use clap::ValueEnum;
 use parsers::common::{
-    FlightTimes, Location, PlaceType, StopOptions, StopoverDuration, TotalDuration, TravelClass,
-    Travelers,
+    FlightTimes, Location, PlaceType, SortOrder, StopOptions, StopoverDuration, TotalDuration,
+    TravelClass, Travelers,
 };
 
 use protos::urls::{ItineraryUrl, Leg};
@@ -30,7 +30,7 @@ pub enum TripType {
 /// `departure` and `destination` each hold 1–4 airports.  When multiple
 /// airports are supplied Google Flights treats them as "any of these" for
 /// that end of the journey (e.g. all London-area airports as the origin).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub departing_date: NaiveDate,
     /// One to four departure airports / city identifiers.
@@ -48,6 +48,36 @@ pub struct Config {
     pub trip_type: TripType,
     pub currency: Currency,
     pub fixed_flights: FixedFlights,
+    /// BCP-47 language subtag for the Google Flights UI, e.g. `"en"`, `"fr"`.
+    pub language: String,
+    /// ISO 3166-1 alpha-2 country code for locale, e.g. `"GB"`, `"FR"`.
+    pub country: String,
+    /// Sort order applied to the search results.
+    pub sort_order: SortOrder,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            departing_date: NaiveDate::default(),
+            departure: Vec::new(),
+            destination: Vec::new(),
+            stop_options: StopOptions::default(),
+            travel_class: TravelClass::default(),
+            return_date: None,
+            travellers: Travelers::default(),
+            departing_times: FlightTimes::default(),
+            return_times: FlightTimes::default(),
+            stopover_max: StopoverDuration::default(),
+            duration_max: TotalDuration::default(),
+            trip_type: TripType::default(),
+            currency: Currency::default(),
+            fixed_flights: FixedFlights::default(),
+            language: "en".to_string(),
+            country: "GB".to_string(),
+            sort_order: SortOrder::default(),
+        }
+    }
 }
 
 impl Config {
@@ -97,6 +127,9 @@ impl Config {
             trip_type,
             currency: currency.unwrap_or_default(),
             fixed_flights,
+            language: "en".to_string(),
+            country: "GB".to_string(),
+            sort_order: SortOrder::default(),
         }
     }
     /// Calculates the number of days between the departing and return dates, if this is a return trip.
@@ -125,7 +158,6 @@ impl Config {
     }
 }
 
-#[derive(Default)]
 pub struct ConfigBuilder {
     departing_date: Option<NaiveDate>,
     departure: Vec<Location>,
@@ -139,6 +171,34 @@ pub struct ConfigBuilder {
     stopover_max: StopoverDuration,
     duration_max: TotalDuration,
     currency: Option<Currency>,
+    /// BCP-47 language subtag, e.g. `"en"`, `"fr"`. Default: `"en"`.
+    language: String,
+    /// ISO 3166-1 alpha-2 country code, e.g. `"GB"`, `"FR"`. Default: `"GB"`.
+    country: String,
+    /// Sort order for search results. Default: [`SortOrder::Best`].
+    sort_order: SortOrder,
+}
+
+impl Default for ConfigBuilder {
+    fn default() -> Self {
+        Self {
+            departing_date: None,
+            departure: Vec::new(),
+            destination: Vec::new(),
+            stop_options: StopOptions::default(),
+            travel_class: TravelClass::default(),
+            return_date: None,
+            travelers: Travelers::default(),
+            departing_times: FlightTimes::default(),
+            return_times: FlightTimes::default(),
+            stopover_max: StopoverDuration::default(),
+            duration_max: TotalDuration::default(),
+            currency: None,
+            language: "en".to_string(),
+            country: "GB".to_string(),
+            sort_order: SortOrder::default(),
+        }
+    }
 }
 
 impl ConfigBuilder {
@@ -230,6 +290,33 @@ impl ConfigBuilder {
         self
     }
 
+    /// Set the language for the Google Flights UI.
+    ///
+    /// Accepts a BCP-47 language subtag such as `"en"`, `"fr"`, `"de"`.
+    /// Defaults to `"en"`.
+    pub fn language(mut self, language: impl Into<String>) -> Self {
+        self.language = language.into();
+        self
+    }
+
+    /// Set the country for the Google Flights locale.
+    ///
+    /// Accepts an ISO 3166-1 alpha-2 code such as `"GB"`, `"FR"`, `"US"`.
+    /// Case-insensitive — stored as-supplied, uppercased in requests.
+    /// Defaults to `"GB"`.
+    pub fn country(mut self, country: impl Into<String>) -> Self {
+        self.country = country.into();
+        self
+    }
+
+    /// Set the sort order for flight search results.
+    ///
+    /// Defaults to [`SortOrder::Best`] (Google's composite ranking).
+    pub fn sort_order(mut self, sort_order: SortOrder) -> Self {
+        self.sort_order = sort_order;
+        self
+    }
+
     pub fn build(self) -> Result<Config> {
         let departing_date = self
             .departing_date
@@ -265,6 +352,9 @@ impl ConfigBuilder {
                     return Err(anyhow!("Multi-city trips are not yet implemented"));
                 }
             },
+            language: self.language,
+            country: self.country,
+            sort_order: self.sort_order,
         })
     }
 }

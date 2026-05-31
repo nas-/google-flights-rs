@@ -113,7 +113,11 @@ impl ApiClient {
             city: city.to_owned(),
             frontend_version: self.frontend_version.clone(),
         };
-        let city_response: &str = &self.do_request(&options, None).await?.text().await?;
+        let city_response: &str = &self
+            .do_request(&options, None, "en", "GB")
+            .await?
+            .text()
+            .await?;
         let cities_res = ResponseInnerBodyParsed::try_from(city_response)?;
         Ok(cities_res)
     }
@@ -152,9 +156,17 @@ impl ApiClient {
             stopover_max: &args.stopover_max,
             duration_max: &args.duration_max,
             frontend_version: &self.frontend_version,
+            language: &args.language,
+            country: &args.country,
+            sort_order: &args.sort_order,
         };
         let body = self
-            .do_request(&req_options, Some(args.currency.clone()))
+            .do_request(
+                &req_options,
+                Some(args.currency.clone()),
+                &args.language,
+                &args.country,
+            )
             .await?
             .text()
             .await?;
@@ -228,9 +240,17 @@ impl ApiClient {
             duration_max: &args.duration_max,
             frontend_version: &self.frontend_version,
             fixed_flights: &args.fixed_flights,
+            language: &args.language,
+            country: &args.country,
+            sort_order: &args.sort_order,
         };
         Ok(self
-            .do_request(&req_options, Some(args.currency.clone()))
+            .do_request(
+                &req_options,
+                Some(args.currency.clone()),
+                &args.language,
+                &args.country,
+            )
             .await?
             .text()
             .await?)
@@ -267,7 +287,7 @@ impl ApiClient {
             .client
             .post(&url)
             .body(body)
-            .headers(get_headers(None)?)
+            .headers(get_headers(None, "en", "GB")?)
             .send()
             .await?
             .text()
@@ -296,6 +316,8 @@ impl ApiClient {
         &self,
         options: &impl ToRequestBody,
         currency: Option<Currency>,
+        language: &str,
+        country: &str,
     ) -> Result<Response> {
         // Refuse immediately if a previous request already received a 429.
         if self.rate_limited.load(Ordering::SeqCst) {
@@ -303,7 +325,7 @@ impl ApiClient {
         }
 
         let req_payload = options.to_request_body()?;
-        let headers = get_headers(currency)?;
+        let headers = get_headers(currency, language, country)?;
 
         let decoded_body = percent_encoding::percent_decode_str(&req_payload.body)
             .decode_utf8_lossy()
@@ -385,17 +407,18 @@ fn base_headers() -> HeaderMap {
     headers
 }
 
-/// Returns request headers, optionally inserting the currency preference header.
+/// Returns request headers, optionally inserting the currency/locale preference header.
 ///
 /// # Errors
-/// Returns an error if the formatted currency string contains characters that
+/// Returns an error if the formatted header string contains characters that
 /// are not valid as an HTTP header value (in practice this never occurs since
-/// all [`Currency`] codes are plain ASCII).
-fn get_headers(currency: Option<Currency>) -> Result<HeaderMap> {
+/// all [`Currency`] codes and locale tags are plain ASCII).
+fn get_headers(currency: Option<Currency>, language: &str, country: &str) -> Result<HeaderMap> {
     let mut headers = base_headers();
     if let Some(currency) = currency {
+        let country_upper = country.to_uppercase();
         let currency_header = format!(
-            r#"["en-GB","GB","{}",1,null,[-120],null,[[72534415,72446893,97456553,72399613]],1,[]]"#,
+            r#"["{language}-{country_upper}","{country_upper}","{}",1,null,[-120],null,[[72534415,72446893,97456553,72399613]],1,[]]"#,
             currency
         );
         let header_value = reqwest::header::HeaderValue::from_str(&currency_header)

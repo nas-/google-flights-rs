@@ -11,8 +11,8 @@ use crate::{
 };
 
 use super::common::{
-    Location, RequestBody, SerializeToWeb, StopOptions, ToRequestBody, TravelClass, Travelers,
-    CHARACTERS_TO_ENCODE,
+    Location, RequestBody, SerializeToWeb, SortOrder, StopOptions, ToRequestBody, TravelClass,
+    Travelers, CHARACTERS_TO_ENCODE,
 };
 use crate::parsers::constants::{BOOKING_REQUEST, FLIGHT_REQUEST};
 use anyhow::Result;
@@ -31,6 +31,12 @@ pub struct FlightRequestOptions<'a> {
     pub duration_max: &'a TotalDuration,
     pub frontend_version: &'a String,
     pub fixed_flights: &'a FixedFlights,
+    /// BCP-47 language subtag, e.g. `"en"`, `"fr"`, `"de"`.
+    pub language: &'a str,
+    /// ISO 3166-1 alpha-2 country code (upper-case), e.g. `"GB"`, `"FR"`.
+    pub country: &'a str,
+    /// Result sort order sent to Google Flights.
+    pub sort_order: &'a SortOrder,
 }
 
 impl ToRequestBody for FlightRequestOptions<'_> {
@@ -79,6 +85,7 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
             travel_class: options.travel_class,
             travelers: &options.travellers,
             is_graph: false,
+            sort_order: *options.sort_order,
         };
 
         // logic: If return is defined, choose token of return, else choose the one of the way there, else none.
@@ -95,7 +102,12 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
         } else {
             FLIGHT_REQUEST
         };
-        let url = format!("{endpoint}?f.sid=6921237406276106431&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c", options.frontend_version);
+        let url = format!(
+            "{endpoint}?f.sid=6921237406276106431&bl={}&hl={}-{}&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c",
+            options.frontend_version,
+            options.language,
+            options.country.to_uppercase()
+        );
         let encoded = utf8_percent_encode(&body, CHARACTERS_TO_ENCODE).to_string();
         Ok(Self { url, body: encoded })
     }
@@ -140,15 +152,17 @@ impl SerializeToWeb for SingleLegStruct<'_> {
 }
 
 pub struct ItineraryRequest<'a> {
-    // [null,null,2,null,[],{7},[{3},{4},{5},{6}],null,null,null,null,null,null,
+    // [null,null,{sort},null,[],{travel_class},[{travelers}],null,null,null,null,null,null,
     // [
     // [[[[\"{0}\",0]]],[[[\"{1}\",0]]],null,{8},null,null,\"{2}\",null,null,null,null,null,null,null,3]
     // ]
-    // ,null,null,null,{7}]
+    // ,null,null,null,1]
     pub legs: Vec<SingleLegStruct<'a>>,
     pub travel_class: &'a TravelClass,
     pub travelers: &'a Travelers,
     pub is_graph: bool,
+    /// Sort order sent to Google Flights (position 2 in the outer request array).
+    pub sort_order: SortOrder,
 }
 
 impl<'a> ItineraryRequest<'a> {
@@ -166,6 +180,7 @@ impl<'a> ItineraryRequest<'a> {
         stopover_max: &'a StopoverDuration,
         duration_max: &'a TotalDuration,
         is_graph: bool,
+        sort_order: SortOrder,
     ) -> Self {
         let mut legs = vec![];
         let first = SingleLegStruct {
@@ -196,6 +211,7 @@ impl<'a> ItineraryRequest<'a> {
             travel_class,
             travelers,
             is_graph,
+            sort_order,
         }
     }
 }
@@ -203,19 +219,10 @@ impl<'a> ItineraryRequest<'a> {
 impl SerializeToWeb for ItineraryRequest<'_> {
     fn serialize_to_web(&self) -> Result<String> {
         let graph = if self.is_graph { ",1" } else { "" };
-        // number seems to be 1 for requests after the first, else 2
-        let number = match self.legs.first() {
-            Some(x) => match x.chosen_itinerary {
-                Some(_) => "1",
-                None => "2",
-            },
-            None => "2",
-        };
         Ok(format!(
-            // travel,travelers,legs,graph
-            // [null,null,2,null,[],{0},{1},null,null,null,null,null,null,{2},null,null,null,1,1] Graph request has 1 more 1 at the end
+            // [null,null,{sort},null,[],{travel_class},{travelers},null×6,{legs},null×3,1{,1 graph}]
             r#"[null,null,{0},null,[],{1},{2},null,null,null,null,null,null,{3},null,null,null,1{4}]"#,
-            number,
+            self.sort_order as i32,
             &self.travel_class.serialize_to_web()?,
             &self.travelers.serialize_to_web()?,
             &self.legs.serialize_to_web()?,
@@ -303,10 +310,13 @@ mod tests {
             duration_max: &duration_max,
             frontend_version: &frontend_version,
             fixed_flights: &fixed_flights,
+            language: "en",
+            country: "GB",
+            sort_order: &SortOrder::Best,
         };
 
         let req: RequestBody = (&search_settings).try_into()?;
-        let expected = "f.req=%5Bnull%2C%22%5B%5B%5D%2C%5Bnull%2Cnull%2C2%2Cnull%2C%5B%5D%2C1%2C%5B1%2C0%2C0%2C0%5D%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-02-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%5D%2Cnull%2Cnull%2Cnull%2C1%5D%2C1%2C0%2C0%5D%22%5D&";
+        let expected = "f.req=%5Bnull%2C%22%5B%5B%5D%2C%5Bnull%2Cnull%2C1%2Cnull%2C%5B%5D%2C1%2C%5B1%2C0%2C0%2C0%5D%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-02-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%5D%2Cnull%2Cnull%2Cnull%2C1%5D%2C1%2C0%2C0%5D%22%5D&";
         assert!(req.body.starts_with(expected));
 
         assert!(req.url.contains(&frontend_version));
@@ -345,10 +355,13 @@ mod tests {
             duration_max: &duration_max,
             frontend_version: &frontend_version,
             fixed_flights: &fixed_flights,
+            language: "en",
+            country: "GB",
+            sort_order: &SortOrder::Best,
         };
 
         let req: RequestBody = (&search_settings).try_into()?;
-        let expected = "f.req=%5Bnull%2C%22%5B%5B%5D%2C%5Bnull%2Cnull%2C2%2Cnull%2C%5B%5D%2C1%2C%5B1%2C0%2C0%2C0%5D%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-02-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%2C%5B%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-03-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%5D%2Cnull%2Cnull%2Cnull%2C1%5D%2C1%2C0%2C0%5D%22%5D";
+        let expected = "f.req=%5Bnull%2C%22%5B%5B%5D%2C%5Bnull%2Cnull%2C1%2Cnull%2C%5B%5D%2C1%2C%5B1%2C0%2C0%2C0%5D%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-02-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%2C%5B%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-03-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%5D%2Cnull%2Cnull%2Cnull%2C1%5D%2C1%2C0%2C0%5D%22%5D";
         assert!(req.body.starts_with(expected));
         Ok(())
     }
@@ -534,16 +547,18 @@ mod tests {
             travel_class: &TravelClass::Economy,
             travelers: &travelers,
             is_graph: false,
+            sort_order: SortOrder::Best,
         };
 
-        let expected_single_leg = r#"[null,null,2,null,[],1,[1,0,0,0],null,null,null,null,null,null,[[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-10-20\",null,null,null,null,null,null,null,3]],null,null,null,1]"#;
+        let expected_single_leg = r#"[null,null,1,null,[],1,[1,0,0,0],null,null,null,null,null,null,[[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-10-20\",null,null,null,null,null,null,null,3]],null,null,null,1]"#;
         assert_eq!(itinerary.serialize_to_web()?, expected_single_leg);
-        let expected_two_legs = r#"[null,null,2,null,[],1,[1,0,0,0],null,null,null,null,null,null,[[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-10-20\",null,null,null,null,null,null,null,3],[[[[\"CDG\",0]]],[[[\"MXP\",0]]],null,0,null,null,\"2022-10-30\",null,null,null,null,null,null,null,3]],null,null,null,1]"#;
+        let expected_two_legs = r#"[null,null,1,null,[],1,[1,0,0,0],null,null,null,null,null,null,[[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-10-20\",null,null,null,null,null,null,null,3],[[[[\"CDG\",0]]],[[[\"MXP\",0]]],null,0,null,null,\"2022-10-30\",null,null,null,null,null,null,null,3]],null,null,null,1]"#;
         let itinerary_return = ItineraryRequest {
             legs: vec![first, second],
             travel_class: &TravelClass::Economy,
             travelers: &travelers,
             is_graph: false,
+            sort_order: SortOrder::Best,
         };
         assert_eq!(itinerary_return.serialize_to_web()?, expected_two_legs);
         Ok(())
@@ -553,7 +568,7 @@ mod tests {
     fn test_complete_flight_request() -> Result<()> {
         let travelers = Travelers::new([1, 0, 0, 0].to_vec())?;
 
-        let expected_two_legs = r#"f.req=[null,"[[],[null,null,2,null,[],4,[1,0,0,0],null,null,null,null,null,null,[[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-10-20\",null,null,null,null,null,null,null,3],[[[[\"CDG\",0]]],[[[\"MXP\",0]]],null,0,null,null,\"2022-10-30\",null,null,null,null,null,null,null,3]],null,null,null,1],1,0,0]"]&at=AAuQa1qiXfSThbBOCdcDUAVTopoc:"#;
+        let expected_two_legs = r#"f.req=[null,"[[],[null,null,1,null,[],4,[1,0,0,0],null,null,null,null,null,null,[[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-10-20\",null,null,null,null,null,null,null,3],[[[[\"CDG\",0]]],[[[\"MXP\",0]]],null,0,null,null,\"2022-10-30\",null,null,null,null,null,null,null,3]],null,null,null,1],1,0,0]"]&at=AAuQa1qiXfSThbBOCdcDUAVTopoc:"#;
 
         let departure = Location {
             loc_identifier: "MXP".to_owned(),
@@ -581,6 +596,7 @@ mod tests {
             &stopover_max,
             &duration_max,
             false,
+            SortOrder::Best,
         );
 
         let complete_req = CompleteFlightRequest {
@@ -775,6 +791,9 @@ mod tests {
             duration_max: &duration_max,
             frontend_version: &frontend_version,
             fixed_flights: &fixed_flights,
+            language: "en",
+            country: "GB",
+            sort_order: &SortOrder::Best,
         };
         let req: RequestBody = (&opts).try_into()?;
         // Both LHR and LGW must appear in the body; JFK as the single arrival.

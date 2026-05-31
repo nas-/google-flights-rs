@@ -282,6 +282,22 @@ impl From<i32> for TravelClass {
     }
 }
 
+/// Sort order for flight search results.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, ValueEnum, Default)]
+pub enum SortOrder {
+    /// Google's default: best combination of price, duration, and convenience.
+    #[default]
+    Best = 1,
+    /// Sort by total price, cheapest first.
+    Price = 2,
+    /// Sort by total journey duration, shortest first.
+    Duration = 3,
+    /// Sort by departure time, earliest first.
+    DepartureTime = 4,
+    /// Sort by arrival time, earliest first.
+    ArrivalTime = 5,
+}
+
 /// Stop options. It can be all, no stop, one or less, two or less.
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, ValueEnum, Default)]
 pub enum StopOptions {
