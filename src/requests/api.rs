@@ -288,10 +288,14 @@ impl ApiClient {
         // Response is: <meta content="0;url='https://...'" http-equiv="refresh">
         // Handle both single-quoted and double-quoted url values.
         let re = Regex::new(r#"(?i)url=['"]([^'"]+)['"]"#).unwrap();
-        re.captures(&html)
+        let raw = re
+            .captures(&html)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string())
-            .ok_or_else(|| anyhow::anyhow!("no redirect URL found in clk/f response"))
+            .ok_or_else(|| anyhow::anyhow!("no redirect URL found in clk/f response"))?;
+
+        // The URL is embedded in HTML, so & is encoded as &amp; — decode it.
+        Ok(raw.replace("&amp;", "&"))
     }
 
     /// Sends a single HTTP request, enforcing the shared rate-limit flag.

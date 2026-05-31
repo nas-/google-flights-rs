@@ -117,21 +117,46 @@ async fn main() -> Result<()> {
         .with_context(|| "Failed to request offers")?;
 
     
-    let mut offers: Vec<(Vec<String>, i32)> = offers_response
+    // Collect all offer groups that have a price, sort cheapest first.
+    let mut offer_groups: Vec<_> = offers_response
         .response
         .iter()
-        .filter_map(|resp| resp.get_offer_prices())
-        .flatten()
+        .flat_map(|r| &r.offers)
+        .filter(|o| o.price.is_some())
         .collect();
 
-    offers.sort_by(|a, b| a.1.cmp(&b.1));
+    offer_groups.sort_by_key(|o| o.price.unwrap_or(i32::MAX));
 
-    if offers.is_empty() {
+    if offer_groups.is_empty() {
         println!("No offers found");
         return Ok(());
     }
-    for (offer, price) in offers {
-        println!("Offer: {:?}, Price: {} {:?}", offer, price, config.currency);
+
+    for offer in &offer_groups {
+        let price = offer.price.unwrap();
+        print!(
+            "Offer: {:?}  Price: {} {:?}",
+            offer.airline_names, price, config.currency
+        );
+
+        // Find the best click token: prefer the group's own token, fall back
+        // to the cheapest sub-option (used for multi-airline combined groups).
+        let token = offer.click_token.as_deref().or_else(|| {
+            offer
+                .sub_options
+                .iter()
+                .filter(|s| s.click_token.is_some())
+                .min_by_key(|s| s.price.unwrap_or(i32::MAX))
+                .and_then(|s| s.click_token.as_deref())
+        });
+
+        match token {
+            Some(t) => match client.resolve_booking_url(t).await {
+                Ok(url) => println!("  ->  {url}"),
+                Err(e) => println!("  (could not resolve URL: {e})"),
+            },
+            None => println!("  (no booking link available)"),
+        }
     }
 
     Ok(())
