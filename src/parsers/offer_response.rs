@@ -132,17 +132,26 @@ impl<'de> Deserialize<'de> for OfferGroup {
             .map(|s| s.to_string())
             .collect();
 
-        // group[4] = [[null, price], booking_token]
-        let price_arr: Vec<Value> = get_idx(&arr, 4).unwrap_or_default();
-        let price: Option<i32> = price_arr
-            .get(0)
-            .and_then(|v| v.get(1))
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32);
-        let booking_token: Option<String> = price_arr
-            .get(1)
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        // Price/token location varies by route type:
+        //   - Multi-airline combined offers:   group[4] = [[null, price], token]
+        //   - Single-airline / OTA sub-options: group[7] = [[null, price], token]
+        // Try index 4 first; fall back to index 7.
+        let (price, booking_token) = [4usize, 7usize]
+            .into_iter()
+            .find_map(|idx| {
+                let price_arr: Vec<Value> = get_idx(&arr, idx).unwrap_or_default();
+                let price = price_arr
+                    .get(0)
+                    .and_then(|v| v.get(1))
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v as i32)?;
+                let token = price_arr
+                    .get(1)
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                Some((Some(price), token))
+            })
+            .unwrap_or((None, None));
 
         // group[2] = list of per-OTA sub-options
         let sub_options: Vec<BookingSubOption> = get_idx(&arr, 2).unwrap_or_default();
