@@ -6,13 +6,16 @@ use gflights::requests::{api::ApiClient, config::Config};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialise tracing. Set RUST_LOG=gflights=debug (or =trace) to see
-    // detailed library logs; defaults to INFO if the env var is absent.
+    // Log level is controlled by RUST_LOG (e.g. RUST_LOG=gflights=info).
+    // Defaults to TRACE so request details are visible without any env-var
+    // setup — useful on Windows where inline env-var syntax is awkward.
+    // On PowerShell you can override it with:
+    //   $env:RUST_LOG="gflights=info"; cargo run --example flights
     tracing_subscriber::fmt()
         .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("gflights=info")),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("gflights=trace")),
         )
         .init();
 
@@ -113,6 +116,8 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| "Failed to request offers")?;
 
+    println!("Offers response: {:?}", offers_response);
+    
     let mut offers: Vec<(Vec<String>, i32)> = offers_response
         .response
         .iter()

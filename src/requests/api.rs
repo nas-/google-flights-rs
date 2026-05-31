@@ -265,9 +265,12 @@ impl ApiClient {
         let req_payload = options.to_request_body()?;
         let headers = get_headers(currency);
 
+        let decoded_body = percent_encoding::percent_decode_str(&req_payload.body)
+            .decode_utf8_lossy()
+            .into_owned();
         tracing::trace!(
             url = %req_payload.url,
-            body = %req_payload.body,
+            body = %decoded_body,
             ?headers,
             "Outgoing POST request"
         );
