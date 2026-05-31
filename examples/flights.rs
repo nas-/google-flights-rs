@@ -116,7 +116,6 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| "Failed to request offers")?;
 
-    println!("Offers response: {:?}", offers_response);
     
     let mut offers: Vec<(Vec<String>, i32)> = offers_response
         .response
