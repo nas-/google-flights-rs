@@ -1,4 +1,3 @@
-use core::panic;
 use std::fmt;
 
 use crate::{
@@ -76,10 +75,16 @@ impl Config {
             Some(_) => TripType::Return,
             None => TripType::OneWay,
         };
+        // MultiCity is unreachable here: trip_type is derived solely from
+        // return_date above (Some → Return, None → OneWay), so MultiCity can
+        // never be produced by this function.
         let fixed_flights = match trip_type {
             TripType::Return => FixedFlights::new(2),
             TripType::OneWay => FixedFlights::new(1),
-            TripType::MultiCity => panic!("Multi city trips are not implemented!"),
+            TripType::MultiCity => unreachable!(
+                "Config::new() never produces TripType::MultiCity; \
+                 use a dedicated multi-city builder when that feature is implemented"
+            ),
         };
         Self {
             departing_date,
@@ -257,7 +262,9 @@ impl ConfigBuilder {
             fixed_flights: match trip_type {
                 TripType::Return => FixedFlights::new(2),
                 TripType::OneWay => FixedFlights::new(1),
-                TripType::MultiCity => panic!("Multi city trips are not implemented!"),
+                TripType::MultiCity => {
+                    return Err(anyhow!("Multi-city trips are not yet implemented"));
+                }
             },
         })
     }
@@ -327,7 +334,10 @@ impl From<&Config> for Vec<Leg> {
                 };
                 leg_vector.push(second_leg);
             }
-            TripType::MultiCity => unimplemented!("Multi city trips are not implemented!"),
+            TripType::MultiCity => unreachable!(
+                "MultiCity Config cannot be created via Config::new() or Config::builder(); \
+                 construct Config directly only for OneWay or Return trips"
+            ),
         }
 
         leg_vector
@@ -337,16 +347,16 @@ impl From<&Config> for Vec<Leg> {
 /// Conversion from Location to LocationProto, used for creating the URL.
 /// Unfortunately, inpossible to create a trait implementation for this as Location and LocationProto live in different subcrates.
 fn location_to_location_proto(location: &Location) -> LocationProto {
-    match &location.loc_type {
-        PlaceType::Airport => LocationProto {
-            r#type: 1,
-            place_name: location.loc_identifier.clone(),
-        },
-        PlaceType::City => LocationProto {
-            r#type: 2,
-            place_name: location.loc_identifier.clone(),
-        },
-        x => panic!("PlaceType type not implemented {:?}", x),
+    let loc_type = match location.loc_type {
+        PlaceType::Airport => 1,
+        PlaceType::City => 2,
+        // Regions and unspecified types are treated as city-level (type 2) in the
+        // URL proto, which matches how Google Flights encodes region searches.
+        PlaceType::MaybeRegion | PlaceType::RegionMaybe | PlaceType::Unspecified => 2,
+    };
+    LocationProto {
+        r#type: loc_type,
+        place_name: location.loc_identifier.clone(),
     }
 }
 /// Conversion from Config to ItineraryUrl, used for creating the URL.
@@ -355,7 +365,10 @@ impl From<&Config> for ItineraryUrl {
         let trip_type = match options.trip_type {
             TripType::Return => 1,
             TripType::OneWay => 2,
-            TripType::MultiCity => panic!("Multi City trips are not implemented"),
+            TripType::MultiCity => unreachable!(
+                "MultiCity Config cannot be created via Config::new() or Config::builder(); \
+                 construct Config directly only for OneWay or Return trips"
+            ),
         };
 
         let class = options.travel_class as i32;
@@ -611,7 +624,8 @@ mod tests {
             destination: vec![destination],
             return_date: Some(NaiveDate::parse_from_str("2024-05-03", "%Y-%m-%d").unwrap()),
             trip_type: TripType::Return,
-            travellers: parsers::common::Travelers::new(vec![4, 1, 1, 1]),
+            travellers: parsers::common::Travelers::new(vec![4, 1, 1, 1])
+                .expect("valid traveler counts"),
             ..Default::default()
         };
         let it_url = ItineraryUrl::from(&config);

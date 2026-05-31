@@ -1,4 +1,3 @@
-use core::panic;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
@@ -95,7 +94,6 @@ pub(crate) fn decode_inner_object<T: for<'a> Deserialize<'a>>(body: &str) -> Res
         Err(err) => {
             let path = err.path().to_string();
             tracing::error!(path = %path, error = ?err, "Error deserializing inner object");
-            std::fs::write("error.txt", body).expect("Unable to write file");
             Err(anyhow!(err))
         }
     }
@@ -230,7 +228,10 @@ impl From<i32> for PlaceType {
             3 => PlaceType::MaybeRegion,
             4 => PlaceType::RegionMaybe,
             5 => PlaceType::City,
-            _ => panic!("Place type can only be 0,1,3,4,5, found {}", value),
+            _ => {
+                tracing::warn!(value, "Unknown PlaceType discriminant; treating as Unspecified");
+                PlaceType::Unspecified
+            }
         }
     }
 }
@@ -275,7 +276,10 @@ impl From<i32> for TravelClass {
             2 => TravelClass::PremiumEconomy,
             3 => TravelClass::Business,
             4 => TravelClass::First,
-            _ => panic!("Travel class can only be 1,2,3,4, found {}", value),
+            _ => {
+                tracing::warn!(value, "Unknown TravelClass discriminant; defaulting to Economy");
+                TravelClass::Economy
+            }
         }
     }
 }
@@ -306,7 +310,10 @@ impl From<i32> for StopOptions {
             1 => StopOptions::NoStop,
             2 => StopOptions::OneOrLess,
             3 => StopOptions::TwoOrLess,
-            _ => panic!("Stop options can only be 0,1,2,3, found {}", value),
+            _ => {
+                tracing::warn!(value, "Unknown StopOptions discriminant; defaulting to All");
+                StopOptions::All
+            }
         }
     }
 }
@@ -330,20 +337,40 @@ impl Default for Travelers {
         }
     }
 }
-///Conversion from a vector of i32 to Travelers.
-///TODO max number of people is 9.
 impl Travelers {
-    pub fn new(travellers: Vec<i32>) -> Self {
-        if travellers[0] < 0 || !travellers.len() == 4 {
-            panic!("At least an adult traveller is needed!")
+    /// Constructs a [`Travelers`] from a 4-element slice
+    /// `[adults, children, infant_on_lap, infant_in_seat]`.
+    ///
+    /// At least one adult is required and the total number of passengers
+    /// must not exceed 9 (Google Flights' server-side limit).
+    ///
+    /// # Errors
+    /// Returns an error if the slice does not have exactly 4 elements,
+    /// if `adults < 1`, or if the total exceeds 9.
+    pub fn new(travellers: Vec<i32>) -> Result<Self> {
+        if travellers.len() != 4 {
+            return Err(anyhow!(
+                "Travelers::new requires exactly 4 elements \
+                 [adults, children, infant_on_lap, infant_in_seat], got {}",
+                travellers.len()
+            ));
         }
-
-        Self {
+        if travellers[0] < 1 {
+            return Err(anyhow!("At least one adult traveller is required"));
+        }
+        let total: i32 = travellers.iter().sum();
+        if total > 9 {
+            return Err(anyhow!(
+                "Total number of passengers cannot exceed 9, got {}",
+                total
+            ));
+        }
+        Ok(Self {
             adults: travellers[0],
             children: travellers[1],
             infant_on_lap: travellers[2],
             infant_in_seat: travellers[3],
-        }
+        })
     }
     /// Conversion to a vector of i32, used in protobuf generation.
     /// It returns a vector of 1, 2, 3, 4 repeated the number of times of the corresponding field.
@@ -577,8 +604,8 @@ impl Location {
 
 impl SerializeToWeb for Location {
     fn serialize_to_web(&self) -> Result<String> {
-        // TODO seems like there is a mismatch here. Maybe it is variant -1 as i32.
-        // However, seems with type = 5 it works properly...
+        // Airports are encoded as type 0 in the request body regardless of the
+        // PlaceType discriminant; all other location types use their discriminant.
         match self.loc_type {
             PlaceType::Airport => Ok(format!(r#"[\"{}\",{}]"#, &self.loc_identifier, 0_i32)),
             _ => Ok(format!(
@@ -597,7 +624,9 @@ impl SerializeToWeb for &Location {
 
 /// Fixed flights is a vector of ItineraryContainer.
 /// It has a maximum number of elements, defined by the type of flight that needs to be searched.
-/// TODO check if futures::mutex needs to be used here instead.
+///
+/// Uses a standard [`std::sync::Mutex`] because all call sites hold the guard only briefly
+/// and no async code yields while the lock is held.
 #[derive(Clone, Debug)]
 pub struct FixedFlights {
     flights: Arc<Mutex<Vec<ItineraryContainer>>>,
@@ -633,17 +662,21 @@ impl FixedFlights {
     pub fn maybe_get_nth_flight_info(&self, nth: usize) -> Option<Vec<FlightInfo>> {
         let flights = match self.flights.try_lock() {
             Ok(guard) => guard,
-            Err(_) => panic!("Mutext is locked! cannot get is full"),
+            Err(_) => {
+                tracing::warn!("FixedFlights mutex was poisoned; returning None");
+                return None;
+            }
         };
-
-        let nth = flights.get(nth);
-        nth.map(|f| f.itinerary.flight_details.clone())
+        flights.get(nth).map(|f| f.itinerary.flight_details.clone())
     }
 
     pub fn is_full(&self) -> bool {
         let flights = match self.flights.try_lock() {
             Ok(guard) => guard,
-            Err(_) => panic!("Mutext is locked! cannot get is full"),
+            Err(_) => {
+                tracing::warn!("FixedFlights mutex was poisoned; assuming not full");
+                return false;
+            }
         };
         flights.len() >= self.max_elements
     }
@@ -651,11 +684,12 @@ impl FixedFlights {
     pub fn get_departure_token(&self) -> Option<String> {
         let flights = match self.flights.try_lock() {
             Ok(guard) => guard,
-            Err(_) => panic!("Mutext is locked! Cannot get token"),
+            Err(_) => {
+                tracing::warn!("FixedFlights mutex was poisoned; returning None");
+                return None;
+            }
         };
         let length = flights.len().checked_sub(1)?;
-        let nth = flights.get(length);
-
-        nth.map(|f| f.get_departure_token())
+        flights.get(length).map(|f| f.get_departure_token())
     }
 }

@@ -172,8 +172,9 @@ impl<'a> SingleLegStruct<'a> {
 impl SerializeToWeb for SingleLegStruct<'_> {
     fn serialize_to_web(&self) -> Result<String> {
         // [[[[\\"/m/0fq8f\\",4]]],[[[\\"/m/0947l\\",5]]],[0,8,0,23],0,null,null,\\"2024-02-06\\",null,null,null,null,null,null,null,3]
-        //TODO magic number
-        let flight_to_show = 3; //All flights. 1= only some
+        // Display mode for flight options: 3 = return all available flights,
+        // 1 = return a limited/curated selection only.
+        let flight_to_show: i32 = 3;
 
         let chosen_itinerary = match self.chosen_itinerary {
             Some(x) => x.clone().serialize_to_web()?,
@@ -327,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_produce_correct_body() -> Result<()> {
-        let travellers = Travelers::new(vec![1, 0, 0, 0]);
+        let travellers = Travelers::new(vec![1, 0, 0, 0])?;
         let departure = Location::new("MXP", 0, None);
         let arrival = Location::new("SYD", 0, None);
         let stopover_max = StopoverDuration::UNLIMITED;
@@ -361,7 +362,7 @@ mod tests {
 
     #[test]
     fn test_produce_correct_body_return() -> Result<()> {
-        let travellers = Travelers::new(vec![1, 0, 0, 0]);
+        let travellers = Travelers::new(vec![1, 0, 0, 0])?;
         let departure = Location::new("MXP", 0, None);
         let arrival = Location::new("SYD", 0, None);
         let stopover_max = StopoverDuration::UNLIMITED;
@@ -521,7 +522,7 @@ mod tests {
             &duration_max,
             None,
         );
-        let travelers = Travelers::new([1, 0, 0, 0].to_vec());
+        let travelers = Travelers::new([1, 0, 0, 0].to_vec())?;
 
         let itinerary = ItineraryRequest {
             legs: vec![first.clone()],
@@ -545,7 +546,7 @@ mod tests {
 
     #[test]
     fn test_complete_flight_request() -> Result<()> {
-        let travelers = Travelers::new([1, 0, 0, 0].to_vec());
+        let travelers = Travelers::new([1, 0, 0, 0].to_vec())?;
 
         let expected_two_legs = r#"f.req=[null,"[[],[null,null,2,null,[],4,[1,0,0,0],null,null,null,null,null,null,[[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-10-20\",null,null,null,null,null,null,null,3],[[[[\"CDG\",0]]],[[[\"MXP\",0]]],null,0,null,null,\"2022-10-30\",null,null,null,null,null,null,null,3]],null,null,null,1],1,0,0]"]&at=AAuQa1qiXfSThbBOCdcDUAVTopoc:"#;
 
@@ -704,7 +705,7 @@ mod tests {
             core::slice::from_ref(&jfk),
             &date,
             None,
-            Travelers::new(vec![1, 0, 0, 0]),
+            Travelers::new(vec![1, 0, 0, 0]).expect("valid traveler counts"),
             &TravelClass::Economy,
             &StopOptions::All,
             &flight_times,

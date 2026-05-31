@@ -13,7 +13,6 @@ use crate::parsers::constants::CALENDAR_GRAPH;
 
 use anyhow::Result;
 
-// TODO remove this in favour of the other struct?
 pub struct GraphRequestOptions<'a> {
     departing_city: &'a [Location],
     arriving_city: &'a [Location],
@@ -151,7 +150,7 @@ mod tests {
 
     #[test]
     fn test_produce_correct_body() -> Result<()> {
-        let travellers = Travelers::new(vec![1, 0, 0, 0]);
+        let travellers = Travelers::new(vec![1, 0, 0, 0]).unwrap();
         let departure = Location::new("MXP", 0, None);
         let arrival = Location::new("SYD", 0, None);
         let binding: FlightTimes = FlightTimes::default();
@@ -183,7 +182,7 @@ mod tests {
 
     #[test]
     fn test_produce_correct_parser() -> Result<()> {
-        let travelers = Travelers::new([1, 0, 0, 0].to_vec());
+        let travelers = Travelers::new([1, 0, 0, 0].to_vec()).unwrap();
         let departure = Location::new("MXP", 0, None);
         let arrival = Location::new("SYD", 0, None);
         let stopover_max = StopoverDuration::UNLIMITED;
