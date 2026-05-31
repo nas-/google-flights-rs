@@ -3,6 +3,7 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fmt;
 
 use super::{
     common::{decode_inner_object, decode_outer_object, get_idx},
@@ -49,6 +50,56 @@ impl DateGridResponse {
                 .insert(e.return_date, e.price);
         }
         map
+    }
+}
+
+/// Renders the date grid as an ASCII price table.
+///
+/// Rows are departure dates, columns are return dates, cells are prices.
+/// Missing combinations show `-`.
+///
+/// ```text
+/// dep \ ret      06-15   06-16   06-17   06-18
+/// 06-07            84      51      46      31
+/// 06-08            82      50      44      30
+/// ```
+impl fmt::Display for DateGridResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let grid = self.grid();
+
+        let mut dep_dates: Vec<NaiveDate> = grid.keys().copied().collect();
+        dep_dates.sort();
+
+        let mut ret_dates: Vec<NaiveDate> = grid
+            .values()
+            .flat_map(|m| m.keys().copied())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        ret_dates.sort();
+
+        // Header
+        write!(f, "{:<12}", "dep \\ ret")?;
+        for r in &ret_dates {
+            write!(f, "{:>8}", r.format("%m-%d").to_string())?;
+        }
+        writeln!(f)?;
+
+        // Rows
+        for dep in &dep_dates {
+            write!(f, "{:<12}", dep.format("%m-%d").to_string())?;
+            for ret in &ret_dates {
+                let cell = grid
+                    .get(dep)
+                    .and_then(|m| m.get(ret))
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "-".to_string());
+                write!(f, "{:>8}", cell)?;
+            }
+            writeln!(f)?;
+        }
+
+        Ok(())
     }
 }
 
