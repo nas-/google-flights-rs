@@ -241,6 +241,7 @@ impl ApiClient {
             .await?
             .text()
             .await?;
+        println!("Raw offer response body: {}", body);
         let inner = offer_response::create_raw_response_offer_vec(body)?;
         Ok(inner)
     }
@@ -264,6 +265,13 @@ impl ApiClient {
         let req_payload = options.to_request_body()?;
         let headers = get_headers(currency);
 
+        tracing::trace!(
+            url = %req_payload.url,
+            body = %req_payload.body,
+            ?headers,
+            "Outgoing POST request"
+        );
+
         let _permit = self
             .rate_limiter
             .until_n_ready(NonZeroU32::new(1).unwrap())
@@ -275,6 +283,12 @@ impl ApiClient {
             .headers(headers)
             .send()
             .await?;
+
+        tracing::trace!(
+            status = %res.status(),
+            http_version = ?res.version(),
+            "Response received"
+        );
 
         match res.status() {
             StatusCode::OK => {}
