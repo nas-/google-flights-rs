@@ -356,7 +356,20 @@ async fn get_frontend_version() -> Option<String> {
     let client = Client::new();
     let headers = get_headers(None);
     let url = FLIGHTS_MAIN_PAGE.to_string();
-    let res = client.get(url).headers(headers).send().await.ok()?;
+    let res = client.get(&url).headers(headers).send().await.ok()?;
+
+    let status = res.status();
+    let final_url = res.url().to_string();
+    if final_url != url {
+        tracing::warn!(
+            original_url = %url,
+            final_url = %final_url,
+            status = %status,
+            "main page request was redirected"
+        );
+    } else {
+        tracing::info!(url = %final_url, status = %status, "main page response");
+    }
 
     let response_body = res.text().await.ok()?;
 
