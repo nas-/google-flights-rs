@@ -90,7 +90,11 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
             is_booking,
         };
         let body = complete_flight_request.serialize_to_web()?;
-        let endpoint = if is_booking { BOOKING_REQUEST } else { FLIGHT_REQUEST };
+        let endpoint = if is_booking {
+            BOOKING_REQUEST
+        } else {
+            FLIGHT_REQUEST
+        };
         let url = format!("{endpoint}?f.sid=6921237406276106431&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c", options.frontend_version);
         let encoded = utf8_percent_encode(&body, CHARACTERS_TO_ENCODE).to_string();
         Ok(Self { url, body: encoded })

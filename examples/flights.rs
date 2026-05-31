@@ -116,7 +116,6 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| "Failed to request offers")?;
 
-
     // Collect all offer groups that have a price, sort cheapest first.
     let mut offer_groups: Vec<_> = offers_response
         .response

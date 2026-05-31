@@ -254,9 +254,7 @@ impl ApiClient {
     pub async fn resolve_booking_url(&self, click_token: &str) -> Result<String> {
         use std::time::{SystemTime, UNIX_EPOCH};
 
-        let t = SystemTime::now()
-            .duration_since(UNIX_EPOCH)?
-            .as_millis();
+        let t = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
 
         let url = format!("{CLK_URL}?t={t}");
         // The token is URL-safe base64 so no extra percent-encoding is needed,
@@ -269,7 +267,7 @@ impl ApiClient {
             .client
             .post(&url)
             .body(body)
-            .headers(get_headers(None))
+            .headers(get_headers(None)?)
             .send()
             .await?
             .text()

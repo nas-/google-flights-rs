@@ -266,8 +266,8 @@ mod tests {
 
     #[test]
     fn test_parse_offer() -> Result<()> {
-        let mystr = fs::read_to_string("test_files/offers_single_line.txt")
-            .expect("Cannot read from file");
+        let mystr =
+            fs::read_to_string("test_files/offers_single_line.txt").expect("Cannot read from file");
         let outer: RawResponseContainerVec = serde_json::from_str(mystr.as_ref())?;
         // Just verify the pipeline doesn't crash on old-format data.
         let _inner: Result<OfferRawResponse> =
