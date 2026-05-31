@@ -1,6 +1,11 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::NaiveDate;
+
+/// Maximum number of (departure_date × return_date) cells per single
+/// `GetCalendarGrid` request.  The backend returns an error when the product
+/// of the two date-window lengths exceeds this value.
+pub const DATE_GRID_MAX_CELLS: usize = 200;
 use percent_encoding::utf8_percent_encode;
 
 use crate::parsers::common::{FlightTimes, StopoverDuration, TotalDuration};
