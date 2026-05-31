@@ -134,28 +134,39 @@ async fn main() -> Result<()> {
 
     for offer in &offer_groups {
         let price = offer.price.unwrap();
-        print!(
+        println!(
             "Offer: {:?}  Price: {} {:?}",
             offer.airline_names, price, config.currency
         );
 
-        // Find the best click token: prefer the group's own token, fall back
-        // to the cheapest sub-option (used for multi-airline combined groups).
-        let token = offer.click_token.as_deref().or_else(|| {
-            offer
-                .sub_options
-                .iter()
-                .filter(|s| s.click_token.is_some())
-                .min_by_key(|s| s.price.unwrap_or(i32::MAX))
-                .and_then(|s| s.click_token.as_deref())
-        });
-
-        match token {
-            Some(t) => match client.resolve_booking_url(t).await {
+        if let Some(token) = offer.click_token.as_deref() {
+            // Single-airline / OTA group: one URL covers the whole round trip.
+            match client.resolve_booking_url(token).await {
                 Ok(url) => println!("  ->  {url}"),
                 Err(e) => println!("  (could not resolve URL: {e})"),
-            },
-            None => println!("  (no booking link available)"),
+            }
+        } else if !offer.sub_options.is_empty() {
+            // Multi-airline combined group: each leg is booked separately with
+            // its own airline.  Resolve every sub-option that has a click token.
+            for sub in &offer.sub_options {
+                if let Some(token) = sub.click_token.as_deref() {
+                    let label = if sub.partner_names.is_empty() {
+                        "unknown".to_string()
+                    } else {
+                        sub.partner_names.join(", ")
+                    };
+                    let price_str = sub
+                        .price
+                        .map(|p| format!("{} {:?}", p, config.currency))
+                        .unwrap_or_default();
+                    match client.resolve_booking_url(token).await {
+                        Ok(url) => println!("  [{label}  {price_str}]  ->  {url}"),
+                        Err(e) => println!("  [{label}] (could not resolve URL: {e})"),
+                    }
+                }
+            }
+        } else {
+            println!("  (no booking link available)");
         }
     }
 
