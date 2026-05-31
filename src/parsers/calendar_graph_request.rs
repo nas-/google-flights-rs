@@ -14,54 +14,19 @@ use crate::parsers::constants::CALENDAR_GRAPH;
 use anyhow::Result;
 
 pub struct GraphRequestOptions<'a> {
-    departing_city: &'a [Location],
-    arriving_city: &'a [Location],
-    date_start: &'a NaiveDate,
-    date_return: Option<&'a NaiveDate>,
-    date_end_graph: &'a str,
-    travellers: Travelers,
-    travel_class: &'a TravelClass,
-    stop_option: &'a StopOptions,
-    departing_times: &'a FlightTimes,
-    return_times: &'a FlightTimes,
-    stopover_max: &'a StopoverDuration,
-    duration_max: &'a TotalDuration,
-    frontend_version: &'a String,
-}
-
-impl<'a> GraphRequestOptions<'a> {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        departing_city: &'a [Location],
-        arriving_city: &'a [Location],
-        date_start: &'a NaiveDate,
-        date_return: Option<&'a NaiveDate>,
-        date_end_graph: &'a str,
-        travellers: Travelers,
-        travel_class: &'a TravelClass,
-        stop_option: &'a StopOptions,
-        departing_times: &'a FlightTimes,
-        return_times: &'a FlightTimes,
-        stopover_max: &'a StopoverDuration,
-        duration_max: &'a TotalDuration,
-        frontend_version: &'a String,
-    ) -> Self {
-        Self {
-            departing_city,
-            arriving_city,
-            date_start,
-            date_return,
-            date_end_graph,
-            travellers,
-            travel_class,
-            stop_option,
-            departing_times,
-            return_times,
-            stopover_max,
-            duration_max,
-            frontend_version,
-        }
-    }
+    pub departing_city: &'a [Location],
+    pub arriving_city: &'a [Location],
+    pub date_start: &'a NaiveDate,
+    pub date_return: Option<&'a NaiveDate>,
+    pub date_end_graph: &'a str,
+    pub travellers: Travelers,
+    pub travel_class: &'a TravelClass,
+    pub stop_option: &'a StopOptions,
+    pub departing_times: &'a FlightTimes,
+    pub return_times: &'a FlightTimes,
+    pub stopover_max: &'a StopoverDuration,
+    pub duration_max: &'a TotalDuration,
+    pub frontend_version: &'a String,
 }
 
 impl ToRequestBody for GraphRequestOptions<'_> {
@@ -144,6 +109,7 @@ mod tests {
 
     use std::vec;
 
+    use crate::parsers::common::PlaceType;
     use anyhow::Ok;
 
     use super::*;
@@ -151,28 +117,36 @@ mod tests {
     #[test]
     fn test_produce_correct_body() -> Result<()> {
         let travellers = Travelers::new(vec![1, 0, 0, 0]).unwrap();
-        let departure = Location::new("MXP", 0, None);
-        let arrival = Location::new("SYD", 0, None);
+        let departure = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "SYD".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let binding: FlightTimes = FlightTimes::default();
         let stopover_max = StopoverDuration::UNLIMITED;
         let duration_max = TotalDuration::UNLIMITED;
         let date_start = NaiveDate::parse_from_str("2024-02-02", "%Y-%m-%d").unwrap();
         let frontend_version = "boq_travel-frontend-ui_20240110.02_p0".to_string();
-        let search_settings = GraphRequestOptions::new(
-            core::slice::from_ref(&departure),
-            core::slice::from_ref(&arrival),
-            &date_start,
-            None,
-            "2024-05-02",
+        let search_settings = GraphRequestOptions {
+            departing_city: core::slice::from_ref(&departure),
+            arriving_city: core::slice::from_ref(&arrival),
+            date_start: &date_start,
+            date_return: None,
+            date_end_graph: "2024-05-02",
             travellers,
-            &TravelClass::Economy,
-            &StopOptions::All,
-            &binding,
-            &binding,
-            &stopover_max,
-            &duration_max,
-            &frontend_version,
-        );
+            travel_class: &TravelClass::Economy,
+            stop_option: &StopOptions::All,
+            departing_times: &binding,
+            return_times: &binding,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            frontend_version: &frontend_version,
+        };
 
         let req: RequestBody = (&search_settings).try_into()?;
         let expected = "f.req=%5Bnull%2C%22%5Bnull%2C%5Bnull%2Cnull%2C2%2Cnull%2C%5B%5D%2C1%2C%5B1%2C0%2C0%2C0%5D%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-02-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%5D%2Cnull%2Cnull%2Cnull%2C1%2C1%5D%2C%5B%5C%222024-02-02%5C%22%2C%5C%222024-05-02%5C%22%5D%5D%22%5D&";
@@ -183,8 +157,16 @@ mod tests {
     #[test]
     fn test_produce_correct_parser() -> Result<()> {
         let travelers = Travelers::new([1, 0, 0, 0].to_vec()).unwrap();
-        let departure = Location::new("MXP", 0, None);
-        let arrival = Location::new("SYD", 0, None);
+        let departure = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "SYD".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let stopover_max = StopoverDuration::UNLIMITED;
         let duration_max = TotalDuration::UNLIMITED;
         let flight_times = FlightTimes::default();

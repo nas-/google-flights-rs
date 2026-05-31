@@ -8,17 +8,8 @@ use anyhow::Result;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CityRequestOptions {
-    city: String,
-    frontend_version: String,
-}
-
-impl CityRequestOptions {
-    pub fn new(city: &str, frontend_version: &str) -> Self {
-        Self {
-            city: city.into(),
-            frontend_version: frontend_version.into(),
-        }
-    }
+    pub city: String,
+    pub frontend_version: String,
 }
 
 impl ToRequestBody for CityRequestOptions {

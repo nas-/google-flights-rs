@@ -18,16 +18,12 @@ use protos::urls::{ItineraryUrl, Leg};
 use super::api::ApiClient;
 
 /// The `TripType` enum is used to specify the type of trip.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum TripType {
+    #[default]
     OneWay,
     Return,
     MultiCity,
-}
-impl Default for TripType {
-    fn default() -> Self {
-        Self::OneWay
-    }
 }
 /// The `Config` struct is used to specify the options for a flight search.
 ///
@@ -275,7 +271,11 @@ impl ConfigBuilder {
 
 async fn get_location(location: &str, client: &ApiClient) -> Result<Location, anyhow::Error> {
     let departure = if location.len() == 3 && location.chars().all(char::is_uppercase) {
-        Location::new(location, 1, Some(location.to_string()))
+        Location {
+            loc_identifier: location.to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: Some(location.to_string()),
+        }
     } else {
         client.request_city(location).await?.to_city_list()
     };
@@ -294,8 +294,11 @@ impl From<&Config> for Vec<Leg> {
 
         let departure: Vec<LocationProto> =
             options.departure.iter().map(LocationProto::from).collect();
-        let destination: Vec<LocationProto> =
-            options.destination.iter().map(LocationProto::from).collect();
+        let destination: Vec<LocationProto> = options
+            .destination
+            .iter()
+            .map(LocationProto::from)
+            .collect();
 
         let first_leg = Leg {
             date: options.departing_date.to_string(),
@@ -317,7 +320,8 @@ impl From<&Config> for Vec<Leg> {
             TripType::OneWay => {} //already done
             TripType::Return => {
                 let second_leg = Leg {
-                    date: options.return_date
+                    date: options
+                        .return_date
                         .expect("return_date is always Some when TripType is Return")
                         .to_string(),
                     departure: destination.clone(),
@@ -665,11 +669,31 @@ mod tests {
     /// subsequent `add_departure()` calls accumulate up to 4.
     #[test]
     fn builder_accumulates_airports_up_to_four() {
-        let lhr = Location::new("LHR", 0, None);
-        let lgw = Location::new("LGW", 0, None);
-        let stn = Location::new("STN", 0, None);
-        let ltn = Location::new("LTN", 0, None);
-        let jfk = Location::new("JFK", 0, None);
+        let lhr = Location {
+            loc_identifier: "LHR".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let lgw = Location {
+            loc_identifier: "LGW".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let stn = Location {
+            loc_identifier: "STN".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let ltn = Location {
+            loc_identifier: "LTN".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let jfk = Location {
+            loc_identifier: "JFK".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
 
         let config = Config {
             departing_date: future_date(30),
@@ -685,9 +709,7 @@ mod tests {
     /// `build()` returns an error when no departure airport was set.
     #[test]
     fn build_fails_without_departure() {
-        let result = Config::builder()
-            .departing_date(future_date(30))
-            .build();
+        let result = Config::builder().departing_date(future_date(30)).build();
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("departure"), "error should mention departure");
@@ -698,9 +720,7 @@ mod tests {
     #[test]
     fn build_fails_without_both_airports() {
         // Neither departure nor destination is set — the first missing check fires.
-        let result = Config::builder()
-            .departing_date(future_date(30))
-            .build();
+        let result = Config::builder().departing_date(future_date(30)).build();
         assert!(result.is_err());
         // The validation checks departure first, then destination.
         let msg = result.unwrap_err().to_string();
@@ -717,10 +737,22 @@ mod tests {
         let config = Config {
             departing_date: future_date(30),
             departure: vec![
-                Location::new("LHR", 1, None), // 1 = Airport
-                Location::new("LGW", 1, None),
+                Location {
+                    loc_identifier: "LHR".to_owned(),
+                    loc_type: PlaceType::Airport,
+                    location_name: None,
+                },
+                Location {
+                    loc_identifier: "LGW".to_owned(),
+                    loc_type: PlaceType::Airport,
+                    location_name: None,
+                },
             ],
-            destination: vec![Location::new("JFK", 1, None)],
+            destination: vec![Location {
+                loc_identifier: "JFK".to_owned(),
+                loc_type: PlaceType::Airport,
+                location_name: None,
+            }],
             trip_type: TripType::OneWay,
             ..Default::default()
         };
@@ -731,7 +763,11 @@ mod tests {
             2,
             "both LHR and LGW should appear as separate proto entries"
         );
-        let codes: Vec<&str> = legs[0].departure.iter().map(|l| l.place_name.as_str()).collect();
+        let codes: Vec<&str> = legs[0]
+            .departure
+            .iter()
+            .map(|l| l.place_name.as_str())
+            .collect();
         assert!(codes.contains(&"LHR"));
         assert!(codes.contains(&"LGW"));
     }
@@ -743,10 +779,22 @@ mod tests {
         let config = Config {
             departing_date: future_date(30),
             departure: vec![
-                Location::new("LHR", 1, None), // 1 = Airport
-                Location::new("LGW", 1, None),
+                Location {
+                    loc_identifier: "LHR".to_owned(),
+                    loc_type: PlaceType::Airport,
+                    location_name: None,
+                },
+                Location {
+                    loc_identifier: "LGW".to_owned(),
+                    loc_type: PlaceType::Airport,
+                    location_name: None,
+                },
             ],
-            destination: vec![Location::new("JFK", 1, None)],
+            destination: vec![Location {
+                loc_identifier: "JFK".to_owned(),
+                loc_type: PlaceType::Airport,
+                location_name: None,
+            }],
             return_date: Some(future_date(37)),
             trip_type: TripType::Return,
             ..Default::default()

@@ -55,9 +55,7 @@ macro_rules! require_live {
         match std::env::var("RUN_LIVE_TESTS") {
             Ok(v) if !v.is_empty() => {}
             _ => {
-                eprintln!(
-                    "[live_api] skipping — set RUN_LIVE_TESTS=1 to run live tests"
-                );
+                eprintln!("[live_api] skipping — set RUN_LIVE_TESTS=1 to run live tests");
                 return Ok(());
             }
         }
@@ -96,9 +94,15 @@ async fn city_lookup_by_full_name() -> Result<()> {
     let result = client.request_city("London").await?;
     let loc = result.to_city_list();
 
-    assert!(!loc.loc_identifier.is_empty(), "loc_identifier should not be empty");
     assert!(
-        loc.location_name.as_deref().map(|s| !s.is_empty()).unwrap_or(false),
+        !loc.loc_identifier.is_empty(),
+        "loc_identifier should not be empty"
+    );
+    assert!(
+        loc.location_name
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false),
         "location_name should be set and non-empty"
     );
 
@@ -222,7 +226,10 @@ async fn flight_results_have_valid_structure() -> Result<()> {
         .flatten()
         .collect();
 
-    assert!(!flights.is_empty(), "need at least one flight to validate structure");
+    assert!(
+        !flights.is_empty(),
+        "need at least one flight to validate structure"
+    );
 
     for (i, itinerary_container) in flights.iter().enumerate() {
         let itin = &itinerary_container.itinerary;
@@ -237,7 +244,10 @@ async fn flight_results_have_valid_structure() -> Result<()> {
         );
 
         for (j, leg) in itin.flight_details.iter().enumerate() {
-            assert_airport_code(&leg.departure_airport_code, &format!("flight[{i}] leg[{j}] dep"));
+            assert_airport_code(
+                &leg.departure_airport_code,
+                &format!("flight[{i}] leg[{j}] dep"),
+            );
             assert_airport_code(
                 &leg.destination_airport_code,
                 &format!("flight[{i}] leg[{j}] arr"),
@@ -249,7 +259,10 @@ async fn flight_results_have_valid_structure() -> Result<()> {
         }
 
         assert!(
-            !itinerary_container.itinerary_cost.departure_token.is_empty(),
+            !itinerary_container
+                .itinerary_cost
+                .departure_token
+                .is_empty(),
             "flight[{i}]: departure_token must be non-empty (needed for follow-up requests)"
         );
     }
@@ -314,7 +327,10 @@ async fn return_flight_two_leg_flow_produces_valid_url() -> Result<()> {
 
     // Last leg of the return should land at LHR or a London airport
     let last_leg = return_flight.itinerary.flight_details.last().unwrap();
-    assert_airport_code(&last_leg.destination_airport_code, "return last leg destination");
+    assert_airport_code(
+        &last_leg.destination_airport_code,
+        "return last leg destination",
+    );
 
     config
         .fixed_flights
@@ -417,7 +433,10 @@ async fn cheaper_dates_suggestions_are_structurally_valid() -> Result<()> {
                     s.proposed_departure_date
                 );
                 if let Some(ref cost) = s.proposed_trip_cost {
-                    assert!(cost.trip_cost.price > 0, "cheaper-date suggestion price should be positive");
+                    assert!(
+                        cost.trip_cost.price > 0,
+                        "cheaper-date suggestion price should be positive"
+                    );
                 }
             }
             if let Some(ref places) = container.different_airport_or_dates {
@@ -458,7 +477,10 @@ async fn usual_price_bound_is_positive_when_present() -> Result<()> {
     let response = client.request_flights(&config).await?;
 
     if let Some(bound) = response.get_usual_price_bound() {
-        assert!(bound > 0, "usual_price_bound should be a positive integer, got {bound}");
+        assert!(
+            bound > 0,
+            "usual_price_bound should be a positive integer, got {bound}"
+        );
     }
     // None is also acceptable — not all routes/dates include this
 
@@ -488,7 +510,11 @@ async fn multi_airport_departure_returns_flights() -> Result<()> {
         .departing_date(days_from_now(14))
         .build()?;
 
-    assert_eq!(config.departure.len(), 2, "should have LHR and LGW as departure airports");
+    assert_eq!(
+        config.departure.len(),
+        2,
+        "should have LHR and LGW as departure airports"
+    );
 
     let response = client.request_flights(&config).await?;
     let flights: Vec<_> = response
@@ -498,10 +524,7 @@ async fn multi_airport_departure_returns_flights() -> Result<()> {
         .flatten()
         .collect();
 
-    assert!(
-        !flights.is_empty(),
-        "expected ≥1 flight for (LHR|LGW)→JFK"
-    );
+    assert!(!flights.is_empty(), "expected ≥1 flight for (LHR|LGW)→JFK");
 
     Ok(())
 }
@@ -524,7 +547,11 @@ async fn multi_airport_destination_returns_flights() -> Result<()> {
         .departing_date(days_from_now(14))
         .build()?;
 
-    assert_eq!(config.destination.len(), 2, "should have JFK and EWR as destination airports");
+    assert_eq!(
+        config.destination.len(),
+        2,
+        "should have JFK and EWR as destination airports"
+    );
 
     let response = client.request_flights(&config).await?;
     let flights: Vec<_> = response
@@ -534,10 +561,7 @@ async fn multi_airport_destination_returns_flights() -> Result<()> {
         .flatten()
         .collect();
 
-    assert!(
-        !flights.is_empty(),
-        "expected ≥1 flight for LHR→(JFK|EWR)"
-    );
+    assert!(!flights.is_empty(), "expected ≥1 flight for LHR→(JFK|EWR)");
 
     Ok(())
 }

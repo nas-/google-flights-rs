@@ -66,10 +66,17 @@ impl ResponseInnerBodyParsed {
     pub fn to_city_list(&self) -> Location {
         let bulk = &self.result_container[0];
         if let Some(airport_code) = &bulk.city.airport_code {
-            // Location type 1 or 0 should make little difference
-            Location::new(airport_code, 1, Some(bulk.city.city_name.clone()))
+            Location {
+                loc_identifier: airport_code.clone(),
+                loc_type: PlaceType::Airport,
+                location_name: Some(bulk.city.city_name.clone()),
+            }
         } else {
-            Location::new(&bulk.city.identifier, 5, Some(bulk.city.city_name.clone()))
+            Location {
+                loc_identifier: bulk.city.identifier.clone(),
+                loc_type: PlaceType::City,
+                location_name: Some(bulk.city.city_name.clone()),
+            }
         }
     }
 }
@@ -132,7 +139,11 @@ a
         let cities: Location = parsed.unwrap().to_city_list();
         assert_eq!(
             cities,
-            Location::new(r"/m/05b0wjm", 5, Some("Bedřichov".to_string()))
+            Location {
+                loc_identifier: r"/m/05b0wjm".to_owned(),
+                loc_type: PlaceType::City,
+                location_name: Some("Bedřichov".to_string())
+            }
         )
     }
 
@@ -157,7 +168,11 @@ a
         let cities = parsed.unwrap().to_city_list();
         assert_eq!(
             cities,
-            Location::new(r"/m/0cw5k", 5, Some("Pyongyang".to_string()))
+            Location {
+                loc_identifier: r"/m/0cw5k".to_owned(),
+                loc_type: PlaceType::City,
+                location_name: Some("Pyongyang".to_string())
+            }
         )
     }
 }

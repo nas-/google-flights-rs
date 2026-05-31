@@ -13,7 +13,9 @@ pub fn create_raw_response_offer_vec(raw_inputs: String) -> Result<OfferRawRespo
         .flat_map(|f: &RawResponseContainer| f.payload.clone())
         .filter_map(|payload| decode_inner_object(&payload).ok())
         .collect();
-    Ok(OfferRawResponseContainer::new(inner_objects))
+    Ok(OfferRawResponseContainer {
+        response: inner_objects,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -23,12 +25,6 @@ pub fn create_raw_response_offer_vec(raw_inputs: String) -> Result<OfferRawRespo
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OfferRawResponseContainer {
     pub response: Vec<OfferRawResponse>,
-}
-
-impl OfferRawResponseContainer {
-    pub fn new(response: Vec<OfferRawResponse>) -> Self {
-        Self { response }
-    }
 }
 
 // ---------------------------------------------------------------------------

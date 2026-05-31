@@ -109,7 +109,10 @@ impl ApiClient {
     /// This will contains both the airport associated and the city.
     #[tracing::instrument(skip(self))]
     pub async fn request_city(&self, city: &str) -> Result<ResponseInnerBodyParsed> {
-        let options = CityRequestOptions::new(city, &self.frontend_version);
+        let options = CityRequestOptions {
+            city: city.to_owned(),
+            frontend_version: self.frontend_version.clone(),
+        };
         let city_response: &str = &self.do_request(&options, None).await?.text().await?;
         let cities_res = ResponseInnerBodyParsed::try_from(city_response)?;
         Ok(cities_res)
@@ -135,21 +138,21 @@ impl ApiClient {
             .get_end_graph(months)
             .ok_or_else(|| anyhow::anyhow!("date overflow when computing graph end date"))?
             .to_string();
-        let req_options = GraphRequestOptions::new(
-            &args.departure,
-            &args.destination,
-            &args.departing_date,
-            args.return_date.as_ref(),
-            &date_end_graph,
-            args.travellers.clone(),
-            &args.travel_class,
-            &args.stop_options,
-            &args.departing_times,
-            &args.return_times,
-            &args.stopover_max,
-            &args.duration_max,
-            &self.frontend_version,
-        );
+        let req_options = GraphRequestOptions {
+            departing_city: &args.departure,
+            arriving_city: &args.destination,
+            date_start: &args.departing_date,
+            date_return: args.return_date.as_ref(),
+            date_end_graph: &date_end_graph,
+            travellers: args.travellers.clone(),
+            travel_class: &args.travel_class,
+            stop_option: &args.stop_options,
+            departing_times: &args.departing_times,
+            return_times: &args.return_times,
+            stopover_max: &args.stopover_max,
+            duration_max: &args.duration_max,
+            frontend_version: &self.frontend_version,
+        };
         let body = self
             .do_request(&req_options, Some(args.currency.clone()))
             .await?
@@ -211,21 +214,21 @@ impl ApiClient {
     async fn fetch_flight_body(&self, args: &Config) -> Result<String> {
         let date_start = args.departing_date.to_string();
         let date_return = args.return_date.map(|f| f.to_string());
-        let req_options = FlightRequestOptions::new(
-            &args.departure,
-            &args.destination,
-            &date_start,
-            date_return.as_deref(),
-            args.travellers.clone(),
-            &args.travel_class,
-            &args.stop_options,
-            &args.departing_times,
-            &args.return_times,
-            &args.stopover_max,
-            &args.duration_max,
-            &self.frontend_version,
-            &args.fixed_flights,
-        );
+        let req_options = FlightRequestOptions {
+            departing_city: &args.departure,
+            arriving_city: &args.destination,
+            date_start: &date_start,
+            date_return: date_return.as_deref(),
+            travellers: args.travellers.clone(),
+            travel_class: &args.travel_class,
+            stop_option: &args.stop_options,
+            departing_times: &args.departing_times,
+            return_times: &args.return_times,
+            stopover_max: &args.stopover_max,
+            duration_max: &args.duration_max,
+            frontend_version: &self.frontend_version,
+            fixed_flights: &args.fixed_flights,
+        };
         Ok(self
             .do_request(&req_options, Some(args.currency.clone()))
             .await?
@@ -366,8 +369,14 @@ fn base_headers() -> HeaderMap {
         reqwest::header::CONTENT_TYPE,
         HeaderValue::from_static("application/x-www-form-urlencoded;charset=UTF-8"),
     );
-    headers.insert(reqwest::header::PRAGMA, HeaderValue::from_static("no-cache"));
-    headers.insert(reqwest::header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    headers.insert(
+        reqwest::header::PRAGMA,
+        HeaderValue::from_static("no-cache"),
+    );
+    headers.insert(
+        reqwest::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-cache"),
+    );
     headers.insert(
         reqwest::header::USER_AGENT,
         HeaderValue::from_static(
@@ -400,7 +409,6 @@ fn get_headers(currency: Option<Currency>) -> Result<HeaderMap> {
     }
     Ok(headers)
 }
-
 
 /// Retrieves the frontend version from the Google Flights website.
 async fn get_frontend_version() -> Option<String> {
@@ -503,5 +511,3 @@ mod tests {
         assert!(err.downcast_ref::<RateLimitedError>().is_some());
     }
 }
-
-

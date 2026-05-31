@@ -204,20 +204,16 @@ where
 }
 
 /// This is the type of place. It can be an airport, a city, a region, etc.
-#[derive(Serialize_repr, Deserialize_repr, PartialEq, Debug, Clone, Copy)]
+#[derive(Serialize_repr, Deserialize_repr, PartialEq, Debug, Clone, Copy, Default)]
 #[repr(i32)]
 #[serde(untagged)]
 pub enum PlaceType {
+    #[default]
     Unspecified = 0,
     Airport = 1,
     MaybeRegion = 3,
     RegionMaybe = 4,
     City = 5,
-}
-impl Default for PlaceType {
-    fn default() -> Self {
-        Self::Unspecified
-    }
 }
 
 impl From<i32> for PlaceType {
@@ -229,7 +225,10 @@ impl From<i32> for PlaceType {
             4 => PlaceType::RegionMaybe,
             5 => PlaceType::City,
             _ => {
-                tracing::warn!(value, "Unknown PlaceType discriminant; treating as Unspecified");
+                tracing::warn!(
+                    value,
+                    "Unknown PlaceType discriminant; treating as Unspecified"
+                );
                 PlaceType::Unspecified
             }
         }
@@ -250,17 +249,13 @@ pub struct RequestBody {
 }
 
 /// Travel class. It can be economy, premium economy, business or first class.
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, ValueEnum)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, ValueEnum, Default)]
 pub enum TravelClass {
+    #[default]
     Economy = 1,
     PremiumEconomy = 2,
     Business = 3,
     First = 4,
-}
-impl Default for TravelClass {
-    fn default() -> Self {
-        Self::Economy
-    }
 }
 
 impl SerializeToWeb for TravelClass {
@@ -277,7 +272,10 @@ impl From<i32> for TravelClass {
             3 => TravelClass::Business,
             4 => TravelClass::First,
             _ => {
-                tracing::warn!(value, "Unknown TravelClass discriminant; defaulting to Economy");
+                tracing::warn!(
+                    value,
+                    "Unknown TravelClass discriminant; defaulting to Economy"
+                );
                 TravelClass::Economy
             }
         }
@@ -285,17 +283,13 @@ impl From<i32> for TravelClass {
 }
 
 /// Stop options. It can be all, no stop, one or less, two or less.
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, ValueEnum)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, ValueEnum, Default)]
 pub enum StopOptions {
+    #[default]
     All = 0,
     NoStop = 1,
     OneOrLess = 2,
     TwoOrLess = 3,
-}
-impl Default for StopOptions {
-    fn default() -> Self {
-        Self::All
-    }
 }
 
 impl SerializeToWeb for StopOptions {
@@ -394,16 +388,11 @@ impl SerializeToWeb for Travelers {
     }
 }
 ///Stop over duration. It can be a number of minutes or unlimited, with default unlimited.
-#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, Default)]
 pub enum StopoverDuration {
     Minutes(u32),
+    #[default]
     UNLIMITED,
-}
-
-impl Default for StopoverDuration {
-    fn default() -> Self {
-        Self::UNLIMITED
-    }
 }
 
 impl StopoverDuration {
@@ -437,16 +426,11 @@ impl SerializeToWeb for StopoverDuration {
 }
 
 ///Total duration. It can be a number of minutes or unlimited, with default unlimited.
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub enum TotalDuration {
     Minutes(u32),
+    #[default]
     UNLIMITED,
-}
-
-impl Default for TotalDuration {
-    fn default() -> Self {
-        Self::UNLIMITED
-    }
 }
 
 impl TotalDuration {
@@ -590,16 +574,6 @@ pub struct Location {
     // This field is not present in flight response. Just add it so to have a name for the locations.
     #[serde(default)]
     pub location_name: Option<String>,
-}
-
-impl Location {
-    pub fn new(loc_identifier: &str, loc_type: i32, location_name: Option<String>) -> Self {
-        Self {
-            loc_identifier: loc_identifier.to_owned(),
-            loc_type: loc_type.into(),
-            location_name,
-        }
-    }
 }
 
 impl SerializeToWeb for Location {

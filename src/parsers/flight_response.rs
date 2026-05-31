@@ -26,34 +26,13 @@ pub struct AirplaneInfo {
     pub name: String,
 }
 
-impl AirplaneInfo {
-    pub fn new(
-        code: String,
-        flight_number: String,
-        plane_crew_by: Option<String>,
-        name: String,
-    ) -> Self {
-        Self {
-            code,
-            flight_number,
-            plane_crew_by,
-            name,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Date {
-    year: i32,
-    month: i32,
-    day: i32,
+    pub year: i32,
+    pub month: i32,
+    pub day: i32,
 }
 
-impl Date {
-    pub fn new(year: i32, month: i32, day: i32) -> Self {
-        Self { year, month, day }
-    }
-}
 impl SerializeToWeb for Date {
     fn serialize_to_web(&self) -> Result<String> {
         let date = NaiveDate::from_ymd_opt(self.year, self.month as u32, self.day as u32)
@@ -66,15 +45,9 @@ impl SerializeToWeb for Date {
 #[serde(default)]
 pub struct Hour {
     #[serde(default)]
-    hour: Option<i32>,
+    pub hour: Option<i32>,
     #[serde(default)]
-    minute: i32,
-}
-
-impl Hour {
-    pub fn new(hour: Option<i32>, minute: i32) -> Self {
-        Self { hour, minute }
-    }
+    pub minute: i32,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -236,29 +209,6 @@ impl<'de> Deserialize<'de> for FlightInfo {
             arrival_date: get_idx(&arr, 21).unwrap_or_default(),
             airplane_info: get_idx(&arr, 22).unwrap_or_default(),
         })
-    }
-}
-
-impl FlightInfo {
-    pub fn new(
-        departure_airport_code: String,
-        destination_airport_code: String,
-        departure_time: Hour,
-        arrival_time: Hour,
-        departure_date: Date,
-        arrival_date: Date,
-        airplane_info: AirplaneInfo,
-    ) -> Self {
-        Self {
-            departure_airport_code,
-            destination_airport_code,
-            departure_time,
-            arrival_time,
-            leg_duration_minutes: None,
-            departure_date,
-            arrival_date,
-            airplane_info,
-        }
     }
 }
 
@@ -512,10 +462,6 @@ pub struct FlightResponseContainer {
 }
 
 impl FlightResponseContainer {
-    pub fn new(responses: Vec<RawResponse>) -> Self {
-        Self { responses }
-    }
-
     pub fn get_usual_price_bound(&self) -> Option<i32> {
         let mut res: Vec<i32> = self
             .responses
@@ -539,7 +485,7 @@ pub fn create_raw_response_vec(raw_inputs: String) -> Result<FlightResponseConta
         .map(|f| decode_inner_object(&f))
         .filter_map(|f| f.ok())
         .collect();
-    let response = FlightResponseContainer::new(inner);
+    let response = FlightResponseContainer { responses: inner };
     Ok(response)
 }
 

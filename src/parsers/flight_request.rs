@@ -18,54 +18,19 @@ use crate::parsers::constants::{BOOKING_REQUEST, FLIGHT_REQUEST};
 use anyhow::Result;
 
 pub struct FlightRequestOptions<'a> {
-    departing_city: &'a [Location],
-    arriving_city: &'a [Location],
-    date_start: &'a str,
-    date_return: Option<&'a str>,
-    travellers: Travelers,
-    travel_class: &'a TravelClass,
-    stop_option: &'a StopOptions,
-    departing_times: &'a FlightTimes,
-    return_times: &'a FlightTimes,
-    stopover_max: &'a StopoverDuration,
-    duration_max: &'a TotalDuration,
-    frontend_version: &'a String,
-    fixed_flights: &'a FixedFlights,
-}
-
-impl<'a> FlightRequestOptions<'a> {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        departing_city: &'a [Location],
-        arriving_city: &'a [Location],
-        date_start: &'a str,
-        date_return: Option<&'a str>,
-        travellers: Travelers,
-        travel_class: &'a TravelClass,
-        stop_option: &'a StopOptions,
-        departing_times: &'a FlightTimes,
-        return_times: &'a FlightTimes,
-        stopover_max: &'a StopoverDuration,
-        duration_max: &'a TotalDuration,
-        frontend_version: &'a String,
-        fixed_flights: &'a FixedFlights,
-    ) -> Self {
-        Self {
-            departing_city,
-            arriving_city,
-            date_start,
-            date_return,
-            travellers,
-            travel_class,
-            stop_option,
-            departing_times,
-            return_times,
-            stopover_max,
-            duration_max,
-            frontend_version,
-            fixed_flights,
-        }
-    }
+    pub departing_city: &'a [Location],
+    pub arriving_city: &'a [Location],
+    pub date_start: &'a str,
+    pub date_return: Option<&'a str>,
+    pub travellers: Travelers,
+    pub travel_class: &'a TravelClass,
+    pub stop_option: &'a StopOptions,
+    pub departing_times: &'a FlightTimes,
+    pub return_times: &'a FlightTimes,
+    pub stopover_max: &'a StopoverDuration,
+    pub duration_max: &'a TotalDuration,
+    pub frontend_version: &'a String,
+    pub fixed_flights: &'a FixedFlights,
 }
 
 impl ToRequestBody for FlightRequestOptions<'_> {
@@ -138,35 +103,10 @@ pub struct SingleLegStruct<'a> {
     pub arrival: Vec<Vec<&'a Location>>,
     pub stop_options: &'a StopOptions,
     pub date: &'a str,
-    times: &'a FlightTimes,
-    stopover_max: &'a StopoverDuration,
-    duration_max: &'a TotalDuration,
-    chosen_itinerary: Option<&'a Vec<FlightInfo>>,
-}
-
-impl<'a> SingleLegStruct<'a> {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        departure: Vec<Vec<&'a Location>>,
-        arrival: Vec<Vec<&'a Location>>,
-        stop_options: &'a StopOptions,
-        date: &'a str,
-        times: &'a FlightTimes,
-        stopover_max: &'a StopoverDuration,
-        duration_max: &'a TotalDuration,
-        chosen_itinerary: Option<&'a Vec<FlightInfo>>,
-    ) -> Self {
-        Self {
-            departure,
-            arrival,
-            stop_options,
-            date,
-            times,
-            stopover_max,
-            duration_max,
-            chosen_itinerary,
-        }
-    }
+    pub times: &'a FlightTimes,
+    pub stopover_max: &'a StopoverDuration,
+    pub duration_max: &'a TotalDuration,
+    pub chosen_itinerary: Option<&'a Vec<FlightInfo>>,
 }
 
 impl SerializeToWeb for SingleLegStruct<'_> {
@@ -318,6 +258,7 @@ mod tests {
     use anyhow::Ok;
     use chrono::{Duration, Utc};
 
+    use crate::parsers::common::PlaceType;
     use crate::parsers::flight_response::{AirplaneInfo, Date, Hour};
 
     fn future_date(days: i64) -> String {
@@ -329,28 +270,36 @@ mod tests {
     #[test]
     fn test_produce_correct_body() -> Result<()> {
         let travellers = Travelers::new(vec![1, 0, 0, 0])?;
-        let departure = Location::new("MXP", 0, None);
-        let arrival = Location::new("SYD", 0, None);
+        let departure = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "SYD".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let stopover_max = StopoverDuration::UNLIMITED;
         let duration_max = TotalDuration::UNLIMITED;
         let flight_times = FlightTimes::default();
         let frontend_version = "boq_travel-frontend-ui_20240110.02_p0".to_string();
         let fixed_flights = FixedFlights::new(1_usize);
-        let search_settings: FlightRequestOptions = FlightRequestOptions::new(
-            core::slice::from_ref(&departure),
-            core::slice::from_ref(&arrival),
-            "2024-02-02",
-            None,
+        let search_settings = FlightRequestOptions {
+            departing_city: core::slice::from_ref(&departure),
+            arriving_city: core::slice::from_ref(&arrival),
+            date_start: "2024-02-02",
+            date_return: None,
             travellers,
-            &TravelClass::Economy,
-            &StopOptions::All,
-            &flight_times,
-            &flight_times,
-            &stopover_max,
-            &duration_max,
-            &frontend_version,
-            &fixed_flights,
-        );
+            travel_class: &TravelClass::Economy,
+            stop_option: &StopOptions::All,
+            departing_times: &flight_times,
+            return_times: &flight_times,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            frontend_version: &frontend_version,
+            fixed_flights: &fixed_flights,
+        };
 
         let req: RequestBody = (&search_settings).try_into()?;
         let expected = "f.req=%5Bnull%2C%22%5B%5B%5D%2C%5Bnull%2Cnull%2C2%2Cnull%2C%5B%5D%2C1%2C%5B1%2C0%2C0%2C0%5D%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-02-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%5D%2Cnull%2Cnull%2Cnull%2C1%5D%2C1%2C0%2C0%5D%22%5D&";
@@ -363,28 +312,36 @@ mod tests {
     #[test]
     fn test_produce_correct_body_return() -> Result<()> {
         let travellers = Travelers::new(vec![1, 0, 0, 0])?;
-        let departure = Location::new("MXP", 0, None);
-        let arrival = Location::new("SYD", 0, None);
+        let departure = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "SYD".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let stopover_max = StopoverDuration::UNLIMITED;
         let duration_max = TotalDuration::UNLIMITED;
         let flight_times = FlightTimes::default();
         let frontend_version = "boq_travel-frontend-ui_20240110.02_p0".to_string();
         let fixed_flights = FixedFlights::new(2_usize);
-        let search_settings: FlightRequestOptions = FlightRequestOptions::new(
-            core::slice::from_ref(&departure),
-            core::slice::from_ref(&arrival),
-            "2024-02-02",
-            Some("2024-03-02"),
+        let search_settings = FlightRequestOptions {
+            departing_city: core::slice::from_ref(&departure),
+            arriving_city: core::slice::from_ref(&arrival),
+            date_start: "2024-02-02",
+            date_return: Some("2024-03-02"),
             travellers,
-            &TravelClass::Economy,
-            &StopOptions::All,
-            &flight_times,
-            &flight_times,
-            &stopover_max,
-            &duration_max,
-            &frontend_version,
-            &fixed_flights,
-        );
+            travel_class: &TravelClass::Economy,
+            stop_option: &StopOptions::All,
+            departing_times: &flight_times,
+            return_times: &flight_times,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            frontend_version: &frontend_version,
+            fixed_flights: &fixed_flights,
+        };
 
         let req: RequestBody = (&search_settings).try_into()?;
         let expected = "f.req=%5Bnull%2C%22%5B%5B%5D%2C%5Bnull%2Cnull%2C2%2Cnull%2C%5B%5D%2C1%2C%5B1%2C0%2C0%2C0%5D%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-02-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%2C%5B%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-03-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%5D%2Cnull%2Cnull%2Cnull%2C1%5D%2C1%2C0%2C0%5D%22%5D";
@@ -394,28 +351,40 @@ mod tests {
 
     #[test]
     fn test_result() -> Result<()> {
-        let a = Location::new("MXP", 0, None);
+        let a = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         assert_eq!(a.serialize_to_web()?, r#"[\"MXP\",0]"#);
         Ok(())
     }
 
     #[test]
     fn test_result_comp() -> Result<()> {
-        let departure = Location::new("MXP", 0, None);
-        let arrival = Location::new("CDG", 0, None);
+        let departure = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "CDG".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let stopover_max = StopoverDuration::UNLIMITED;
         let duration_max = TotalDuration::UNLIMITED;
         let binding = FlightTimes::default();
-        let a = SingleLegStruct::new(
-            vec![vec![&departure]],
-            vec![vec![&arrival]],
-            &StopOptions::All,
-            "2022-11-20",
-            &binding,
-            &stopover_max,
-            &duration_max,
-            None,
-        );
+        let a = SingleLegStruct {
+            departure: vec![vec![&departure]],
+            arrival: vec![vec![&arrival]],
+            stop_options: &StopOptions::All,
+            date: "2022-11-20",
+            times: &binding,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            chosen_itinerary: None,
+        };
         assert_eq!(
             a.serialize_to_web()?,
             r#"[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-11-20\",null,null,null,null,null,null,null,3]"#
@@ -425,21 +394,29 @@ mod tests {
 
     #[test]
     fn test_result_filter_departure() -> Result<()> {
-        let departure = Location::new("MXP", 0, None);
-        let arrival = Location::new("CDG", 0, None);
+        let departure = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "CDG".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let binding = FlightTimes::new(8, 23, 0, 23);
         let stopover_max = StopoverDuration::UNLIMITED;
         let duration_max = TotalDuration::UNLIMITED;
-        let a = SingleLegStruct::new(
-            vec![vec![&departure]],
-            vec![vec![&arrival]],
-            &StopOptions::All,
-            "2022-11-20",
-            &binding,
-            &stopover_max,
-            &duration_max,
-            None,
-        );
+        let a = SingleLegStruct {
+            departure: vec![vec![&departure]],
+            arrival: vec![vec![&arrival]],
+            stop_options: &StopOptions::All,
+            date: "2022-11-20",
+            times: &binding,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            chosen_itinerary: None,
+        };
         assert_eq!(
             a.serialize_to_web()?,
             r#"[[[[\"MXP\",0]]],[[[\"CDG\",0]]],[8,23,0,23],0,null,null,\"2022-11-20\",null,null,null,null,null,null,null,3]"#
@@ -449,21 +426,29 @@ mod tests {
 
     #[test]
     fn test_stopover_duration() -> Result<()> {
-        let departure = Location::new("MXP", 0, None);
-        let arrival = Location::new("CDG", 0, None);
+        let departure = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "CDG".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let stopover_max = StopoverDuration::Minutes(250);
         let duration_max = TotalDuration::Minutes(600);
         let binding = FlightTimes::default();
-        let a = SingleLegStruct::new(
-            vec![vec![&departure]],
-            vec![vec![&arrival]],
-            &StopOptions::All,
-            "2022-11-20",
-            &binding,
-            &stopover_max,
-            &duration_max,
-            None,
-        );
+        let a = SingleLegStruct {
+            departure: vec![vec![&departure]],
+            arrival: vec![vec![&arrival]],
+            stop_options: &StopOptions::All,
+            date: "2022-11-20",
+            times: &binding,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            chosen_itinerary: None,
+        };
         assert_eq!(
             a.serialize_to_web()?,
             r#"[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-11-20\",[600],null,null,null,null,270,null,3]"#
@@ -473,21 +458,29 @@ mod tests {
 
     #[test]
     fn test_result_filter_arrival() -> Result<()> {
-        let departure = Location::new("MXP", 0, None);
-        let arrival = Location::new("CDG", 0, None);
+        let departure = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "CDG".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let stopover_max = StopoverDuration::UNLIMITED;
         let duration_max = TotalDuration::UNLIMITED;
         let binding = FlightTimes::new(0, 23, 8, 11);
-        let a = SingleLegStruct::new(
-            vec![vec![&departure]],
-            vec![vec![&arrival]],
-            &StopOptions::All,
-            "2022-11-20",
-            &binding,
-            &stopover_max,
-            &duration_max,
-            None,
-        );
+        let a = SingleLegStruct {
+            departure: vec![vec![&departure]],
+            arrival: vec![vec![&arrival]],
+            stop_options: &StopOptions::All,
+            date: "2022-11-20",
+            times: &binding,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            chosen_itinerary: None,
+        };
         assert_eq!(
             a.serialize_to_web()?,
             r#"[[[[\"MXP\",0]]],[[[\"CDG\",0]]],[0,23,8,11],0,null,null,\"2022-11-20\",null,null,null,null,null,null,null,3]"#
@@ -497,31 +490,39 @@ mod tests {
 
     #[test]
     fn test_serialize_itinerary_request() -> Result<()> {
-        let departure = Location::new("MXP", 0, None);
-        let arrival = Location::new("CDG", 0, None);
+        let departure = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "CDG".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let binding = FlightTimes::default();
         let stopover_max = StopoverDuration::UNLIMITED;
         let duration_max = TotalDuration::UNLIMITED;
-        let first = SingleLegStruct::new(
-            vec![vec![&departure]],
-            vec![vec![&arrival]],
-            &StopOptions::All,
-            "2022-10-20",
-            &binding,
-            &stopover_max,
-            &duration_max,
-            None,
-        );
-        let second = SingleLegStruct::new(
-            vec![vec![&arrival]],
-            vec![vec![&departure]],
-            &StopOptions::All,
-            "2022-10-30",
-            &binding,
-            &stopover_max,
-            &duration_max,
-            None,
-        );
+        let first = SingleLegStruct {
+            departure: vec![vec![&departure]],
+            arrival: vec![vec![&arrival]],
+            stop_options: &StopOptions::All,
+            date: "2022-10-20",
+            times: &binding,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            chosen_itinerary: None,
+        };
+        let second = SingleLegStruct {
+            departure: vec![vec![&arrival]],
+            arrival: vec![vec![&departure]],
+            stop_options: &StopOptions::All,
+            date: "2022-10-30",
+            times: &binding,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            chosen_itinerary: None,
+        };
         let travelers = Travelers::new([1, 0, 0, 0].to_vec())?;
 
         let itinerary = ItineraryRequest {
@@ -550,8 +551,16 @@ mod tests {
 
         let expected_two_legs = r#"f.req=[null,"[[],[null,null,2,null,[],4,[1,0,0,0],null,null,null,null,null,null,[[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-10-20\",null,null,null,null,null,null,null,3],[[[[\"CDG\",0]]],[[[\"MXP\",0]]],null,0,null,null,\"2022-10-30\",null,null,null,null,null,null,null,3]],null,null,null,1],1,0,0]"]&at=AAuQa1qiXfSThbBOCdcDUAVTopoc:"#;
 
-        let departure = Location::new("MXP", 0, None);
-        let arrival = Location::new("CDG", 0, None);
+        let departure = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "CDG".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let stopover_max = StopoverDuration::UNLIMITED;
         let duration_max = TotalDuration::UNLIMITED;
         let binding = FlightTimes::default();
@@ -583,22 +592,30 @@ mod tests {
 
     #[test]
     fn test_with_choosen_leg() -> Result<()> {
-        let departure = Location::new("MXP", 0, None);
-        let arrival = Location::new("CDG", 0, None);
+        let departure = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "CDG".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let stopover_max = StopoverDuration::UNLIMITED;
         let duration_max = TotalDuration::UNLIMITED;
         let binding = FlightTimes::default();
         let choosen_itinerary = generate_itinerary_data();
-        let a = SingleLegStruct::new(
-            vec![vec![&departure]],
-            vec![vec![&arrival]],
-            &StopOptions::All,
-            "2022-11-20",
-            &binding,
-            &stopover_max,
-            &duration_max,
-            Some(&choosen_itinerary),
-        );
+        let a = SingleLegStruct {
+            departure: vec![vec![&departure]],
+            arrival: vec![vec![&arrival]],
+            stop_options: &StopOptions::All,
+            date: "2022-11-20",
+            times: &binding,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            chosen_itinerary: Some(&choosen_itinerary),
+        };
         assert_eq!(
             a.serialize_to_web()?,
             r#"[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-11-20\",null,[[\"MXP\",\"2024-02-01\",\"LHR\",null,\"BA\",\"420\"],[\"LHR\",\"2024-02-01\",\"CDG\",null,\"AF\",\"350\"]],null,null,null,null,null,3]"#
@@ -608,22 +625,30 @@ mod tests {
 
     #[test]
     fn test_with_chosen_leg_stopover_airports() -> Result<()> {
-        let departure = Location::new("/m/0947l", 5, None);
-        let arrival = Location::new("/m/05qtj", 5, None);
+        let departure = Location {
+            loc_identifier: "/m/0947l".to_owned(),
+            loc_type: PlaceType::City,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "/m/05qtj".to_owned(),
+            loc_type: PlaceType::City,
+            location_name: None,
+        };
         let stopover_max = StopoverDuration::Minutes(420_u32);
         let duration_max = TotalDuration::UNLIMITED;
         let binding = FlightTimes::default();
         let choosen_itinerary = generate_itinerary_data();
-        let a = SingleLegStruct::new(
-            vec![vec![&departure]],
-            vec![vec![&arrival]],
-            &StopOptions::All,
-            "2022-11-20",
-            &binding,
-            &stopover_max,
-            &duration_max,
-            Some(&choosen_itinerary),
-        );
+        let a = SingleLegStruct {
+            departure: vec![vec![&departure]],
+            arrival: vec![vec![&arrival]],
+            stop_options: &StopOptions::All,
+            date: "2022-11-20",
+            times: &binding,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            chosen_itinerary: Some(&choosen_itinerary),
+        };
         assert_eq!(
             a.serialize_to_web()?,
             r#"[[[[\"/m/0947l\",5]]],[[[\"/m/05qtj\",5]]],null,0,null,null,\"2022-11-20\",null,[[\"MXP\",\"2024-02-01\",\"LHR\",null,\"BA\",\"420\"],[\"LHR\",\"2024-02-01\",\"CDG\",null,\"AF\",\"350\"]],null,null,null,420,null,3]"#
@@ -633,22 +658,30 @@ mod tests {
 
     #[test]
     fn test_with_chosen_leg_stopover_cities() -> Result<()> {
-        let departure = Location::new("MXP", 0, None);
-        let arrival = Location::new("CDG", 0, None);
+        let departure = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "CDG".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let stopover_max = StopoverDuration::Minutes(420_u32);
         let duration_max = TotalDuration::UNLIMITED;
         let binding = FlightTimes::default();
         let choosen_itinerary = generate_itinerary_data();
-        let a = SingleLegStruct::new(
-            vec![vec![&departure]],
-            vec![vec![&arrival]],
-            &StopOptions::All,
-            "2022-11-20",
-            &binding,
-            &stopover_max,
-            &duration_max,
-            Some(&choosen_itinerary),
-        );
+        let a = SingleLegStruct {
+            departure: vec![vec![&departure]],
+            arrival: vec![vec![&arrival]],
+            stop_options: &StopOptions::All,
+            date: "2022-11-20",
+            times: &binding,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            chosen_itinerary: Some(&choosen_itinerary),
+        };
         assert_eq!(
             a.serialize_to_web()?,
             r#"[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-11-20\",null,[[\"MXP\",\"2024-02-01\",\"LHR\",null,\"BA\",\"420\"],[\"LHR\",\"2024-02-01\",\"CDG\",null,\"AF\",\"350\"]],null,null,null,420,null,3]"#
@@ -660,24 +693,36 @@ mod tests {
     /// innermost array: `[[["LHR",0],["LGW",0]]]`.
     #[test]
     fn test_multi_airport_departure_serializes_correctly() -> Result<()> {
-        let lhr = Location::new("LHR", 0, None);
-        let lgw = Location::new("LGW", 0, None);
-        let jfk = Location::new("JFK", 0, None);
+        let lhr = Location {
+            loc_identifier: "LHR".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let lgw = Location {
+            loc_identifier: "LGW".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let jfk = Location {
+            loc_identifier: "JFK".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let stopover_max = StopoverDuration::UNLIMITED;
         let duration_max = TotalDuration::UNLIMITED;
         let binding = FlightTimes::default();
         let date = future_date(30);
 
-        let leg = SingleLegStruct::new(
-            vec![vec![&lhr, &lgw]],
-            vec![vec![&jfk]],
-            &StopOptions::All,
-            &date,
-            &binding,
-            &stopover_max,
-            &duration_max,
-            None,
-        );
+        let leg = SingleLegStruct {
+            departure: vec![vec![&lhr, &lgw]],
+            arrival: vec![vec![&jfk]],
+            stop_options: &StopOptions::All,
+            date: &date,
+            times: &binding,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            chosen_itinerary: None,
+        };
         let expected = format!(
             r#"[[[[\"LHR\",0],[\"LGW\",0]]],[[[\"JFK\",0]]],null,0,null,null,\"{date}\",null,null,null,null,null,null,null,3]"#
         );
@@ -689,9 +734,21 @@ mod tests {
     /// request body that contains all airport codes.
     #[test]
     fn test_flight_request_options_multi_departure() -> Result<()> {
-        let lhr = Location::new("LHR", 0, None);
-        let lgw = Location::new("LGW", 0, None);
-        let jfk = Location::new("JFK", 0, None);
+        let lhr = Location {
+            loc_identifier: "LHR".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let lgw = Location {
+            loc_identifier: "LGW".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let jfk = Location {
+            loc_identifier: "JFK".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
         let departures = [lhr, lgw];
         let stopover_max = StopoverDuration::UNLIMITED;
         let duration_max = TotalDuration::UNLIMITED;
@@ -700,21 +757,21 @@ mod tests {
         let fixed_flights = FixedFlights::new(1_usize);
         let date = future_date(30);
 
-        let opts = FlightRequestOptions::new(
-            &departures,
-            core::slice::from_ref(&jfk),
-            &date,
-            None,
-            Travelers::new(vec![1, 0, 0, 0]).expect("valid traveler counts"),
-            &TravelClass::Economy,
-            &StopOptions::All,
-            &flight_times,
-            &flight_times,
-            &stopover_max,
-            &duration_max,
-            &frontend_version,
-            &fixed_flights,
-        );
+        let opts = FlightRequestOptions {
+            departing_city: &departures,
+            arriving_city: core::slice::from_ref(&jfk),
+            date_start: &date,
+            date_return: None,
+            travellers: Travelers::new(vec![1, 0, 0, 0]).expect("valid traveler counts"),
+            travel_class: &TravelClass::Economy,
+            stop_option: &StopOptions::All,
+            departing_times: &flight_times,
+            return_times: &flight_times,
+            stopover_max: &stopover_max,
+            duration_max: &duration_max,
+            frontend_version: &frontend_version,
+            fixed_flights: &fixed_flights,
+        };
         let req: RequestBody = (&opts).try_into()?;
         // Both LHR and LGW must appear in the body; JFK as the single arrival.
         assert!(req.body.contains("LHR"), "body should contain LHR");
@@ -724,24 +781,64 @@ mod tests {
     }
 
     fn generate_itinerary_data() -> Vec<FlightInfo> {
-        let choosen_itinerary_1 = FlightInfo::new(
-            "MXP".to_owned(),
-            "LHR".to_owned(),
-            Hour::new(Some(10), 0),
-            Hour::new(Some(12), 0),
-            Date::new(2024, 2, 1),
-            Date::new(2024, 2, 1),
-            AirplaneInfo::new("BA".to_string(), "420".to_owned(), None, "777".to_string()),
-        );
-        let choosen_itinerary_2 = FlightInfo::new(
-            "LHR".to_owned(),
-            "CDG".to_owned(),
-            Hour::new(Some(13), 0),
-            Hour::new(Some(14), 0),
-            Date::new(2024, 2, 1),
-            Date::new(2024, 2, 1),
-            AirplaneInfo::new("AF".to_string(), "350".to_owned(), None, "777".to_string()),
-        );
+        let choosen_itinerary_1 = FlightInfo {
+            departure_airport_code: "MXP".to_owned(),
+            destination_airport_code: "LHR".to_owned(),
+            departure_time: Hour {
+                hour: Some(10),
+                minute: 0,
+            },
+            arrival_time: Hour {
+                hour: Some(12),
+                minute: 0,
+            },
+            leg_duration_minutes: None,
+            departure_date: Date {
+                year: 2024,
+                month: 2,
+                day: 1,
+            },
+            arrival_date: Date {
+                year: 2024,
+                month: 2,
+                day: 1,
+            },
+            airplane_info: AirplaneInfo {
+                code: "BA".to_string(),
+                flight_number: "420".to_owned(),
+                plane_crew_by: None,
+                name: "777".to_string(),
+            },
+        };
+        let choosen_itinerary_2 = FlightInfo {
+            departure_airport_code: "LHR".to_owned(),
+            destination_airport_code: "CDG".to_owned(),
+            departure_time: Hour {
+                hour: Some(13),
+                minute: 0,
+            },
+            arrival_time: Hour {
+                hour: Some(14),
+                minute: 0,
+            },
+            leg_duration_minutes: None,
+            departure_date: Date {
+                year: 2024,
+                month: 2,
+                day: 1,
+            },
+            arrival_date: Date {
+                year: 2024,
+                month: 2,
+                day: 1,
+            },
+            airplane_info: AirplaneInfo {
+                code: "AF".to_string(),
+                flight_number: "350".to_owned(),
+                plane_crew_by: None,
+                name: "777".to_string(),
+            },
+        };
 
         [choosen_itinerary_1, choosen_itinerary_2].to_vec()
     }
