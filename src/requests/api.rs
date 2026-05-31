@@ -3,13 +3,15 @@ use crate::parsers;
 use crate::parsers::constants::{CLK_URL, FLIGHTS_MAIN_PAGE};
 use crate::requests::config::Config;
 use anyhow::Result;
-use chrono::Months;
+use chrono::{Months, NaiveDate};
 use governor::{DefaultDirectRateLimiter, Quota};
 use parsers::calendar_graph_request::GraphRequestOptions;
 use parsers::calendar_graph_response::GraphRawResponseContainer;
 use parsers::city_request::CityRequestOptions;
 use parsers::city_response::ResponseInnerBodyParsed;
 use parsers::common::ToRequestBody;
+use parsers::date_grid_request::DateGridRequestOptions;
+use parsers::date_grid_response::{parse_date_grid_response, DateGridResponse};
 use parsers::flight_request::FlightRequestOptions;
 use parsers::flight_response::{create_raw_response_vec, FlightResponseContainer};
 use parsers::offer_response::{self, OfferRawResponseContainer};
@@ -154,6 +156,61 @@ impl ApiClient {
             .await?;
         let parsed = GraphRawResponseContainer::try_from(body.as_ref())?;
         Ok(parsed)
+    }
+
+    /// Sends a request to retrieve the date-grid price matrix.
+    ///
+    /// Returns a price for every (departure_date, return_date) combination
+    /// that falls within the two supplied date windows.  Typically the windows
+    /// each span a week, producing a 7 × 7 grid.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - Config supplying route, travellers, cabin class, etc.
+    ///   `args.departing_date` and `args.return_date` are used as reference
+    ///   dates inside the itinerary body; they should fall within the
+    ///   respective windows.
+    /// * `dep_start` / `dep_end` — window of candidate departure dates.
+    /// * `ret_start` / `ret_end` — window of candidate return dates.
+    #[tracing::instrument(skip_all)]
+    pub async fn request_date_grid(
+        &self,
+        args: &Config,
+        dep_start: NaiveDate,
+        dep_end: NaiveDate,
+        ret_start: NaiveDate,
+        ret_end: NaiveDate,
+    ) -> Result<DateGridResponse> {
+        let ret_date = args
+            .return_date
+            .ok_or_else(|| anyhow::anyhow!("date grid requires a return date in Config"))?;
+
+        let req_options = DateGridRequestOptions::new(
+            &args.departure,
+            &args.destination,
+            &args.departing_date,
+            &ret_date,
+            &dep_start,
+            &dep_end,
+            &ret_start,
+            &ret_end,
+            args.travellers.clone(),
+            &args.travel_class,
+            &args.stop_options,
+            &args.departing_times,
+            &args.return_times,
+            &args.stopover_max,
+            &args.duration_max,
+            &self.frontend_version,
+        );
+
+        tracing::info!("Requesting date grid");
+        let body = self
+            .do_request(&req_options, Some(args.currency.clone()))
+            .await?
+            .text()
+            .await?;
+        parse_date_grid_response(&body)
     }
 
     /// Sends a request to retrieve flight data.
