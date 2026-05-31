@@ -1,6 +1,6 @@
 use super::config::Currency;
 use crate::parsers;
-use crate::parsers::constants::FLIGHTS_MAIN_PAGE;
+use crate::parsers::constants::{CLK_URL, FLIGHTS_MAIN_PAGE};
 use crate::requests::config::Config;
 use anyhow::Result;
 use chrono::Months;
@@ -244,6 +244,54 @@ impl ApiClient {
         tracing::trace!(body = %body, "raw offer response body");
         let inner = offer_response::create_raw_response_offer_vec(body)?;
         Ok(inner)
+    }
+
+    /// Resolves a `click_token` from an [`OfferGroup`] or [`BookingSubOption`]
+    /// into the final airline / OTA booking URL.
+    ///
+    /// Internally this POSTs the token to Google's click-tracker endpoint
+    /// (`/travel/clk/f`) and extracts the redirect URL from the HTML
+    /// `<meta http-equiv="refresh">` response.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example(client: gflights::requests::api::ApiClient, token: &str) {
+    /// let url = client.resolve_booking_url(token).await.unwrap();
+    /// println!("Book here: {url}");
+    /// # }
+    /// ```
+    #[tracing::instrument(skip_all)]
+    pub async fn resolve_booking_url(&self, click_token: &str) -> Result<String> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let t = SystemTime::now()
+            .duration_since(UNIX_EPOCH)?
+            .as_millis();
+
+        let url = format!("{CLK_URL}?t={t}");
+        // The token is URL-safe base64 so no extra percent-encoding is needed,
+        // but we send it as a form body value.
+        let body = format!("u={click_token}");
+
+        tracing::debug!(%url, "resolving booking URL");
+
+        let html = self
+            .client
+            .post(&url)
+            .body(body)
+            .headers(get_headers(None))
+            .send()
+            .await?
+            .text()
+            .await?;
+
+        // Response is: <meta content="0;url='https://...'" http-equiv="refresh">
+        // Handle both single-quoted and double-quoted url values.
+        let re = Regex::new(r#"(?i)url=['"]([^'"]+)['"]"#).unwrap();
+        re.captures(&html)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str().to_string())
+            .ok_or_else(|| anyhow::anyhow!("no redirect URL found in clk/f response"))
     }
 
     /// Sends a single HTTP request, enforcing the shared rate-limit flag.

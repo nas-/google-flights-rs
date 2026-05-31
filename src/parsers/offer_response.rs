@@ -105,7 +105,9 @@ impl OfferRawResponse {
 /// |-------|---------|
 /// | 1     | `[["AV","Avianca",…], ["AA","American",…]]` — airline entries |
 /// | 2     | per-OTA sub-options (each with its own price / token) |
-/// | 4     | `[[null, total_price], booking_token]` |
+/// | 4     | `[[null, total_price], booking_token]` — multi-airline combined offers |
+/// | 5     | `["direct_url", null, ["https://…clk/f", [["u", click_token]]]]` |
+/// | 7     | `[[null, total_price], booking_token]` — single-airline / OTA entries |
 #[derive(Debug, Serialize, Clone)]
 pub struct OfferGroup {
     /// Airline display names involved in this booking option.
@@ -117,6 +119,11 @@ pub struct OfferGroup {
     /// Per-OTA booking sub-options (useful when a single-airline trip is sold
     /// through multiple booking channels at different prices).
     pub sub_options: Vec<BookingSubOption>,
+    /// Click-tracking token (`u=` parameter) for `POST /travel/clk/f`.
+    /// Pass to [`ApiClient::resolve_booking_url`] to get the final booking URL.
+    /// Present for single-airline / OTA-style entries; `None` for multi-airline
+    /// combined groups (use sub-options in that case).
+    pub click_token: Option<String>,
 }
 
 impl<'de> Deserialize<'de> for OfferGroup {
@@ -156,11 +163,25 @@ impl<'de> Deserialize<'de> for OfferGroup {
         // group[2] = list of per-OTA sub-options
         let sub_options: Vec<BookingSubOption> = get_idx(&arr, 2).unwrap_or_default();
 
+        // group[5] = ["direct_url", null, ["https://…clk/f", [["u", click_token]]]]
+        let url_arr: Vec<Value> = get_idx(&arr, 5).unwrap_or_default();
+        let click_token: Option<String> = url_arr
+            .get(2)
+            .and_then(|v| v.as_array())
+            .and_then(|clk| clk.get(1))
+            .and_then(|v| v.as_array())
+            .and_then(|params| params.first())
+            .and_then(|v| v.as_array())
+            .and_then(|kv| kv.get(1))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
         Ok(OfferGroup {
             airline_names,
             price,
             booking_token,
             sub_options,
+            click_token,
         })
     }
 }
@@ -171,11 +192,12 @@ impl<'de> Deserialize<'de> for OfferGroup {
 
 /// A single booking channel inside an [`OfferGroup`].
 ///
-/// Structure: `[rank, partner_entries, null, flight_numbers, …, null, [[null, price], token], …]`
+/// Structure: `[rank, partner_entries, null, flight_numbers, false, url_info, null, [[null, price], token], …]`
 ///
 /// | Index | Content |
 /// |-------|---------|
 /// | 1     | `[["LH","Lufthansa",…]]` or `[["Booking.com",…]]` — partner |
+/// | 5     | `["direct_url", null, ["https://…clk/f", [["u", click_token]]]]` |
 /// | 7     | `[[null, price], booking_token]` |
 #[derive(Debug, Serialize, Clone)]
 pub struct BookingSubOption {
@@ -185,6 +207,9 @@ pub struct BookingSubOption {
     pub price: Option<i32>,
     /// Opaque booking token for this channel.
     pub booking_token: Option<String>,
+    /// Click-tracking token (`u=` parameter) for `POST /travel/clk/f`.
+    /// Pass to [`ApiClient::resolve_booking_url`] to get the final booking URL.
+    pub click_token: Option<String>,
 }
 
 impl<'de> Deserialize<'de> for BookingSubOption {
@@ -199,6 +224,19 @@ impl<'de> Deserialize<'de> for BookingSubOption {
             .filter_map(|v| v.as_str())
             .map(|s| s.to_string())
             .collect();
+
+        // sub[5] = ["direct_url", null, ["https://…clk/f", [["u", click_token]]]]
+        let url_arr: Vec<Value> = get_idx(&arr, 5).unwrap_or_default();
+        let click_token: Option<String> = url_arr
+            .get(2)
+            .and_then(|v| v.as_array())
+            .and_then(|clk| clk.get(1))
+            .and_then(|v| v.as_array())
+            .and_then(|params| params.first())
+            .and_then(|v| v.as_array())
+            .and_then(|kv| kv.get(1))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         // sub[7] = [[null, price], booking_token]
         let price_arr: Vec<Value> = get_idx(&arr, 7).unwrap_or_default();
@@ -216,6 +254,7 @@ impl<'de> Deserialize<'de> for BookingSubOption {
             partner_names,
             price,
             booking_token,
+            click_token,
         })
     }
 }
