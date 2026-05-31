@@ -561,7 +561,6 @@ mod tests {
 
         let it_url = ItineraryUrl::from(&config);
 
-        println!("{}", it_url.to_flight_url());
         let expected = "Gh4SCjIwMjQtMDUtMDFqBwgBEgNNWFByBwgBEgNDREdCAQFIAZgBAg";
         assert_eq!(it_url.to_encoded(), expected);
     }
@@ -589,7 +588,6 @@ mod tests {
 
         let it_url = ItineraryUrl::from(&config);
 
-        println!("{}", it_url.to_flight_url());
         let expected = "GikSCjIwMjQtMDUtMDFqDQgCEgkvbS8wMl8yODZyDAgCEggvbS8wNGpwbBopEgoyMDI0LTA1LTAzagwIAhIIL20vMDRqcGxyDQgCEgkvbS8wMl8yODZCAQFIAZgBAQ";
         assert_eq!(it_url.to_encoded(), expected);
     }
@@ -618,7 +616,6 @@ mod tests {
         };
         let it_url = ItineraryUrl::from(&config);
 
-        println!("{}", it_url.to_flight_url());
         let expected = "GikSCjIwMjQtMDUtMDFqDQgCEgkvbS8wMl8yODZyDAgCEggvbS8wNGpwbBopEgoyMDI0LTA1LTAzagwIAhIIL20vMDRqcGxyDQgCEgkvbS8wMl8yODZCBwEBAQECAwRIAZgBAQ";
         assert_eq!(it_url.to_encoded(), expected);
     }

@@ -104,7 +104,6 @@ mod tests {
 
         let base64_encoded_message = x.to_encoded();
 
-        println!("{}", x.to_flight_url());
         let expected = "Gh4SCjIwMjQtMTEtMDZqBwgBEgNDREdyBwgBEgNNWFAaHhIKMjAyNC0xMS0xM2oHCAESA01YUHIHCAESA0NER0IBAUgBmAEB";
         assert_eq!(base64_encoded_message, expected);
     }
@@ -165,8 +164,6 @@ mod tests {
 
         let base64_encoded_message = x.to_encoded();
 
-        println!("{}", x.to_flight_url());
-
         let expected = "GisSCjIwMjQtMTEtMDYoAGoNCAISCS9tLzAyXzI4NnIMCAISCC9tLzA0anBsGisSCjIwMjQtMTEtMTMoAGoMCAISCC9tLzA0anBscg0IAhIJL20vMDJfMjg2QgUBAQIDBEgEmAEB";
         assert_eq!(base64_encoded_message, expected);
     }
@@ -218,8 +215,6 @@ mod tests {
             trip_type: TripType::RoundTrip.into(),
         };
         let base64_encoded_message = x.to_encoded();
-        println!("{}", x.to_flight_url());
-
         let expected = "Gi0SCjIwMjQtMTEtMDZAB0gXUABYF2DYBGoHCAESA0NER3IHCAESA01YUJAB2AQaLRIKMjAyNC0xMS0xM0ATSBdQAFgXYNgEagcIARIDTVhQcgcIARIDQ0RHkAHYBEIBAUgBmAEB";
         assert_eq!(base64_encoded_message, expected);
     }

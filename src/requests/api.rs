@@ -76,7 +76,7 @@ impl ApiClient {
             rate_limiter,
             client: Arc::new(Client::new()),
             frontend_version: frontend_version
-                .unwrap_or("boq_travel-frontend-ui_20240110.02_p0".into()),
+                .unwrap_or("boq_travel-frontend-flights-ui_20260527.01_p0".into()),
             rate_limited: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -241,6 +241,7 @@ impl ApiClient {
             .await?
             .text()
             .await?;
+        tracing::trace!(body = %body, "raw offer response body");
         let inner = offer_response::create_raw_response_offer_vec(body)?;
         Ok(inner)
     }
@@ -264,6 +265,16 @@ impl ApiClient {
         let req_payload = options.to_request_body()?;
         let headers = get_headers(currency);
 
+        let decoded_body = percent_encoding::percent_decode_str(&req_payload.body)
+            .decode_utf8_lossy()
+            .into_owned();
+        tracing::trace!(
+            url = %req_payload.url,
+            body = %decoded_body,
+            ?headers,
+            "Outgoing POST request"
+        );
+
         let _permit = self
             .rate_limiter
             .until_n_ready(NonZeroU32::new(1).unwrap())
@@ -275,6 +286,12 @@ impl ApiClient {
             .headers(headers)
             .send()
             .await?;
+
+        tracing::trace!(
+            status = %res.status(),
+            http_version = ?res.version(),
+            "Response received"
+        );
 
         match res.status() {
             StatusCode::OK => {}
@@ -333,6 +350,53 @@ fn get_headers(currency: Option<Currency>) -> HeaderMap {
     headers
 }
 
+
+/// Retrieves the frontend version from the Google Flights website.
+async fn get_frontend_version() -> Option<String> {
+    let client = Client::new();
+    let headers = get_headers(None);
+    let url = FLIGHTS_MAIN_PAGE.to_string();
+    let res = client.get(&url).headers(headers).send().await.ok()?;
+
+    let status = res.status();
+    let final_url = res.url().to_string();
+    if final_url != url {
+        tracing::warn!(
+            original_url = %url,
+            final_url = %final_url,
+            status = %status,
+            "main page request was redirected"
+        );
+    } else {
+        tracing::debug!(url = %final_url, status = %status, "main page response");
+    }
+
+    let response_body = res.text().await.ok()?;
+
+    // Matches both:
+    //   boq_travel-frontend-ui_20260527.01_p0  (old)
+    //   boq_travel-frontend-flights-ui_20260527.01_p0  (new)
+    let regex = Regex::new(
+        r"(boq_travel-frontend-[\w-]*ui_202[456789](01|02|03|04|05|06|07|08|09|10|11|12)\d{2}.\w{5,})",
+    )
+    .unwrap();
+
+    let result = regex
+        .captures_iter(&response_body)
+        .map(|f| f.extract::<2>())
+        .next();
+
+    match &result {
+        Some((version, _)) => tracing::debug!(version, "frontend version extracted"),
+        None => tracing::warn!(
+            response_len = response_body.len(),
+            "frontend version not found in main page response; using hardcoded fallback"
+        ),
+    }
+
+    Some(result?.0.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,25 +448,4 @@ mod tests {
     }
 }
 
-/// Retrieves the frontend version from the Google Flights website.
-async fn get_frontend_version() -> Option<String> {
-    let client = Client::new();
-    let headers = get_headers(None);
-    let url = FLIGHTS_MAIN_PAGE.to_string();
-    let res = client.get(url).headers(headers).send().await.ok()?;
 
-    let response_body = res.text().await.ok()?;
-    let regex = Regex::new(
-        r"(boq_travel-frontend-ui_202[456](01|02|03|04|05|06|07|08|09|10|11|12)\d{2}.\w{5,})",
-    )
-    .unwrap();
-
-    let result = regex
-        .captures_iter(&response_body)
-        .map(|f| f.extract::<2>())
-        .next()?;
-
-    let a = result.0.to_string();
-
-    Some(a)
-}
