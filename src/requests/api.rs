@@ -76,7 +76,7 @@ impl ApiClient {
             rate_limiter,
             client: Arc::new(Client::new()),
             frontend_version: frontend_version
-                .unwrap_or("boq_travel-frontend-ui_20240110.02_p0".into()),
+                .unwrap_or("boq_travel-frontend-flights-ui_20260527.01_p0".into()),
             rate_limited: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -241,7 +241,7 @@ impl ApiClient {
             .await?
             .text()
             .await?;
-        println!("Raw offer response body: {}", body);
+        tracing::trace!(body = %body, "raw offer response body");
         let inner = offer_response::create_raw_response_offer_vec(body)?;
         Ok(inner)
     }
@@ -368,23 +368,16 @@ async fn get_frontend_version() -> Option<String> {
             "main page request was redirected"
         );
     } else {
-        tracing::info!(url = %final_url, status = %status, "main page response");
+        tracing::debug!(url = %final_url, status = %status, "main page response");
     }
 
     let response_body = res.text().await.ok()?;
 
-    let needle = "boq_travel-frontend-ui";
-    if response_body.contains(needle) {
-        tracing::info!("'boq_travel-frontend-ui' IS present in main page response");
-    } else {
-        tracing::warn!(
-            response_len = response_body.len(),
-            "'boq_travel-frontend-ui' is NOT present in main page response"
-        );
-    }
-
+    // Matches both:
+    //   boq_travel-frontend-ui_20260527.01_p0  (old)
+    //   boq_travel-frontend-flights-ui_20260527.01_p0  (new)
     let regex = Regex::new(
-        r"(boq_travel-frontend-ui_202[456789](01|02|03|04|05|06|07|08|09|10|11|12)\d{2}.\w{5,})",
+        r"(boq_travel-frontend-[\w-]*ui_202[456789](01|02|03|04|05|06|07|08|09|10|11|12)\d{2}.\w{5,})",
     )
     .unwrap();
 
@@ -394,8 +387,11 @@ async fn get_frontend_version() -> Option<String> {
         .next();
 
     match &result {
-        Some((version, _)) => tracing::info!(version, "frontend version extracted by regex"),
-        None => tracing::warn!("regex did not match; will use hardcoded fallback version"),
+        Some((version, _)) => tracing::debug!(version, "frontend version extracted"),
+        None => tracing::warn!(
+            response_len = response_body.len(),
+            "frontend version not found in main page response; using hardcoded fallback"
+        ),
     }
 
     Some(result?.0.to_string())

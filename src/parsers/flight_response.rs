@@ -604,9 +604,7 @@ mod tests {
         match result {
             Ok(_) => assert!(result.is_ok()),
             Err(err) => {
-                let path = err.path().to_string();
-                println!("{}", path);
-                assert!(false)
+                panic!("{}", err.path())
             }
         }
     }
@@ -621,9 +619,7 @@ mod tests {
         match result {
             Ok(_) => assert!(result.is_ok()),
             Err(err) => {
-                let path = err.path().to_string();
-                println!("{}", path);
-                assert!(false)
+                panic!("{}", err.path())
             }
         }
     }
@@ -642,10 +638,7 @@ mod tests {
         match result {
             Ok(_) => assert!(result.is_ok()),
             Err(err) => {
-                println!("{}", err);
-                let path = err.path().to_string();
-                println!("{}", path);
-                assert!(false)
+                panic!("{} at {}", err, err.path())
             }
         }
     }
@@ -669,10 +662,7 @@ mod tests {
             match result {
                 Ok(_) => assert!(result.is_ok()),
                 Err(err) => {
-                    println!("{}", err);
-                    let path = err.path().to_string();
-                    println!("Path to error {}, datafile {}", path, itinerary);
-                    assert!(false)
+                    panic!("{} at {} (file: {})", err, err.path(), itinerary)
                 }
             }
         }
@@ -776,9 +766,8 @@ mod tests {
             let other: Result<RawResponse, _> = decode_inner_object(&mystr);
             match other {
                 Ok(_) => assert!(other.is_ok()),
-                Err(_err) => {
-                    println!("datafile {:?}", datafile);
-                    assert!(false)
+                Err(err) => {
+                    panic!("{} (file: {:?})", err, datafile)
                 }
             }
         }
