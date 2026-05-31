@@ -360,6 +360,16 @@ async fn get_frontend_version() -> Option<String> {
 
     let response_body = res.text().await.ok()?;
 
+    let needle = "boq_travel-frontend-ui";
+    if response_body.contains(needle) {
+        tracing::info!("'boq_travel-frontend-ui' IS present in main page response");
+    } else {
+        tracing::warn!(
+            response_len = response_body.len(),
+            "'boq_travel-frontend-ui' is NOT present in main page response"
+        );
+    }
+
     let regex = Regex::new(
         r"(boq_travel-frontend-ui_202[456789](01|02|03|04|05|06|07|08|09|10|11|12)\d{2}.\w{5,})",
     )
@@ -371,8 +381,8 @@ async fn get_frontend_version() -> Option<String> {
         .next();
 
     match &result {
-        Some((version, _)) => tracing::info!(version, "frontend version found"),
-        None => tracing::warn!("frontend version not found in main page response; using fallback"),
+        Some((version, _)) => tracing::info!(version, "frontend version extracted by regex"),
+        None => tracing::warn!("regex did not match; will use hardcoded fallback version"),
     }
 
     Some(result?.0.to_string())
