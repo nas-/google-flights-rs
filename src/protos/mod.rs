@@ -38,9 +38,8 @@ impl Leg {
 impl ItineraryUrl {
     /// implementation for ItineraryUrl to encode the message, and return the tfs part of the gflights url.
     pub fn to_encoded(&self) -> String {
-        let mut encoded_message = Vec::new();
-        self.encode(&mut encoded_message).unwrap();
-        CUSTOM_ENGINE.encode(encoded_message)
+        // encode_to_vec() is infallible — encoding into a Vec<u8> always succeeds.
+        CUSTOM_ENGINE.encode(self.encode_to_vec())
     }
     /// implementation for ItineraryUrl to create the complete gflights url from the Itinerary.
     pub fn to_flight_url(&self) -> String {

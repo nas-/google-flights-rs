@@ -108,9 +108,12 @@ impl Config {
         self.return_date
             .map(|x| x.signed_duration_since(self.departing_date).num_days())
     }
-    /// Calculates the end date of the graph, given the number of months in the future to include, starting from the departing date.
-    pub fn get_end_graph(&self, months: Months) -> NaiveDate {
-        self.departing_date.checked_add_months(months).unwrap()
+    /// Calculates the end date of the graph given the number of months to add to the departing date.
+    ///
+    /// Returns `None` if the resulting date would overflow `NaiveDate`'s range
+    /// (only reachable for dates within a few years of the maximum representable date).
+    pub fn get_end_graph(&self, months: Months) -> Option<NaiveDate> {
+        self.departing_date.checked_add_months(months)
     }
     /// Returns the Google flight URL for this flight search.
     pub fn to_flight_url(&self) -> String {
@@ -321,7 +324,9 @@ impl From<&Config> for Vec<Leg> {
             TripType::OneWay => {} //already done
             TripType::Return => {
                 let second_leg = Leg {
-                    date: options.return_date.unwrap().to_string(),
+                    date: options.return_date
+                        .expect("return_date is always Some when TripType is Return")
+                        .to_string(),
                     departure: destination.clone(),
                     arrival: departure.clone(),
                     min_hour_departure: options.return_times.get_departure_hour_min(),

@@ -14,7 +14,7 @@ use parsers::flight_request::FlightRequestOptions;
 use parsers::flight_response::{create_raw_response_vec, FlightResponseContainer};
 use parsers::offer_response::{self, OfferRawResponseContainer};
 use regex::Regex;
-use reqwest::header::HeaderMap;
+use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, Response, StatusCode};
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,7 +62,8 @@ pub struct ApiClient {
 impl ApiClient {
     /// Creates a new instance of `ApiClient` with a default rate limiter of 10 requests per second.
     pub async fn new() -> Self {
-        let rate_limiter_quota = Quota::per_second(NonZeroU32::new(10).unwrap());
+        // NonZeroU32::MIN is 1; saturating_add(9) gives 10 with no possibility of panic.
+        let rate_limiter_quota = Quota::per_second(NonZeroU32::MIN.saturating_add(9));
         Self::new_with_ratelimit(rate_limiter_quota).await
     }
 
@@ -130,7 +131,11 @@ impl ApiClient {
         args: &Config,
         months: Months,
     ) -> Result<GraphRawResponseContainer> {
-        let date_end_graph = &args.get_end_graph(months).to_string();
+        let date_end_graph = args
+            .get_end_graph(months)
+            .ok_or_else(|| anyhow::anyhow!("date overflow when computing graph end date"))?
+            .to_string();
+        let date_end_graph = date_end_graph.as_str();
         let req_options = GraphRequestOptions::new(
             &args.departure,
             &args.destination,
@@ -315,7 +320,7 @@ impl ApiClient {
         }
 
         let req_payload = options.to_request_body()?;
-        let headers = get_headers(currency);
+        let headers = get_headers(currency)?;
 
         let decoded_body = percent_encoding::percent_decode_str(&req_payload.body)
             .decode_utf8_lossy()
@@ -329,7 +334,7 @@ impl ApiClient {
 
         let _permit = self
             .rate_limiter
-            .until_n_ready(NonZeroU32::new(1).unwrap())
+            .until_n_ready(NonZeroU32::MIN) // MIN == 1: consume one slot per request
             .await;
         let res = self
             .client
@@ -364,49 +369,61 @@ impl ApiClient {
     }
 }
 
-/// Default headers for the requests.
-/// Note that the header x-googl-batchexecute-bgr is not included as it is very hard to reverse the logic behind it.
-/// This means that the the responses by the server are not always 100% accurate.
-fn get_headers(currency: Option<Currency>) -> HeaderMap {
+/// Static base headers shared by all requests.
+///
+/// Note: `x-goog-batchexecute-bgr` is intentionally omitted — its value is
+/// difficult to reverse-engineer and its absence only slightly reduces result
+/// accuracy.
+fn base_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(
         reqwest::header::ACCEPT_LANGUAGE,
-        "en-US,en;q=0.9".parse().unwrap(),
+        HeaderValue::from_static("en-US,en;q=0.9"),
     );
     headers.insert(
         reqwest::header::CONTENT_TYPE,
-        "application/x-www-form-urlencoded;charset=UTF-8"
-            .parse()
-            .unwrap(),
+        HeaderValue::from_static("application/x-www-form-urlencoded;charset=UTF-8"),
     );
-    headers.insert(reqwest::header::PRAGMA, "no-cache".parse().unwrap());
-    headers.insert(reqwest::header::CACHE_CONTROL, "no-cache".parse().unwrap());
+    headers.insert(reqwest::header::PRAGMA, HeaderValue::from_static("no-cache"));
+    headers.insert(reqwest::header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     headers.insert(
         reqwest::header::USER_AGENT,
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
-            .parse()
-            .unwrap(),
+        HeaderValue::from_static(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        ),
     );
-    headers.insert(reqwest::header::ACCEPT, "*/*".parse().unwrap());
+    headers.insert(reqwest::header::ACCEPT, HeaderValue::from_static("*/*"));
+    headers
+}
 
+/// Returns request headers, optionally inserting the currency preference header.
+///
+/// # Errors
+/// Returns an error if the formatted currency string contains characters that
+/// are not valid as an HTTP header value (in practice this never occurs since
+/// all [`Currency`] codes are plain ASCII).
+fn get_headers(currency: Option<Currency>) -> Result<HeaderMap> {
+    let mut headers = base_headers();
     if let Some(currency) = currency {
         let currency_header = format!(
             r#"["en-GB","GB","{}",1,null,[-120],null,[[72534415,72446893,97456553,72399613]],1,[]]"#,
             currency
         );
+        let header_value = reqwest::header::HeaderValue::from_str(&currency_header)
+            .map_err(|e| anyhow::anyhow!("invalid currency header value: {e}"))?;
         headers.insert(
             reqwest::header::HeaderName::from_static("x-goog-ext-259736195-jspb"),
-            reqwest::header::HeaderValue::from_str(&currency_header).unwrap(),
+            header_value,
         );
     }
-    headers
+    Ok(headers)
 }
 
 
 /// Retrieves the frontend version from the Google Flights website.
 async fn get_frontend_version() -> Option<String> {
     let client = Client::new();
-    let headers = get_headers(None);
+    let headers = base_headers(); // no currency header needed for the version fetch
     let url = FLIGHTS_MAIN_PAGE.to_string();
     let res = client.get(&url).headers(headers).send().await.ok()?;
 
@@ -428,10 +445,15 @@ async fn get_frontend_version() -> Option<String> {
     // Matches both:
     //   boq_travel-frontend-ui_20260527.01_p0  (old)
     //   boq_travel-frontend-flights-ui_20260527.01_p0  (new)
-    let regex = Regex::new(
+    let regex = match Regex::new(
         r"(boq_travel-frontend-[\w-]*ui_202[456789](01|02|03|04|05|06|07|08|09|10|11|12)\d{2}.\w{5,})",
-    )
-    .unwrap();
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to compile version regex; using fallback version");
+            return None;
+        }
+    };
 
     let result = regex
         .captures_iter(&response_body)
