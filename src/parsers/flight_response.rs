@@ -139,6 +139,74 @@ struct PricePoint {
 }
 
 // ---------------------------------------------------------------------------
+// ConnectionInfo — one layover hop (index 13 of raw Itinerary array)
+// ---------------------------------------------------------------------------
+
+/// Details about a single layover / connection within an itinerary.
+#[derive(Debug, Serialize, Clone)]
+pub struct ConnectionInfo {
+    /// Minutes spent at the connecting airport.
+    pub connection_time_minutes: i32,
+    /// IATA code of the airport the inbound leg lands at.
+    pub arrival_airport: String,
+    /// IATA code of the airport the outbound leg departs from (same building, usually).
+    pub departure_airport: String,
+    /// Warning codes, e.g. `1` = overnight layover.
+    pub connection_warnings: Option<Vec<i32>>,
+    pub arriving_airport_name: Option<String>,
+    pub arriving_city: Option<String>,
+    pub departure_airport_name: Option<String>,
+    pub departure_city: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for ConnectionInfo {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let arr = Vec::<Value>::deserialize(d)?;
+        Ok(ConnectionInfo {
+            connection_time_minutes: get_idx(&arr, 0).unwrap_or(0),
+            arrival_airport: get_idx(&arr, 1).unwrap_or_default(),
+            departure_airport: get_idx(&arr, 2).unwrap_or_default(),
+            connection_warnings: get_idx(&arr, 3),
+            arriving_airport_name: get_idx(&arr, 4),
+            arriving_city: get_idx(&arr, 5),
+            departure_airport_name: get_idx(&arr, 6),
+            departure_city: get_idx(&arr, 7),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Emissions — CO2 data (index 22 of raw Itinerary array)
+// ---------------------------------------------------------------------------
+
+/// CO2 / emissions data for an itinerary.
+/// All values are in grams.
+#[derive(Debug, Serialize, Clone)]
+pub struct Emissions {
+    /// How much more or less CO2 this itinerary emits vs. the typical route,
+    /// expressed as a percentage (negative = greener than average).
+    pub emission_vs_average_percent: Option<i64>,
+    /// Estimated CO2 for this specific flight, in grams.
+    pub co2_this_flight_g: Option<i64>,
+    /// Typical CO2 for this route, in grams.
+    pub co2_typical_route_g: Option<i64>,
+    /// Lowest CO2 found for this route, in grams.
+    pub co2_lowest_route_g: Option<i64>,
+}
+
+impl<'de> Deserialize<'de> for Emissions {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let arr = Vec::<Value>::deserialize(d)?;
+        Ok(Emissions {
+            emission_vs_average_percent: get_idx(&arr, 3),
+            co2_this_flight_g: get_idx(&arr, 7),
+            co2_typical_route_g: get_idx(&arr, 8),
+            co2_lowest_route_g: get_idx(&arr, 10),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // FlightInfo — Vec<Value> based, extract only fields used by SerializeToWeb
 // ---------------------------------------------------------------------------
 
@@ -148,6 +216,8 @@ pub struct FlightInfo {
     pub destination_airport_code: String,
     pub departure_time: Hour,
     pub arrival_time: Hour,
+    /// Duration of this individual leg in minutes.
+    pub leg_duration_minutes: Option<i32>,
     pub departure_date: Date,
     pub arrival_date: Date,
     pub airplane_info: AirplaneInfo,
@@ -161,6 +231,7 @@ impl<'de> Deserialize<'de> for FlightInfo {
             destination_airport_code: get_idx(&arr, 6).unwrap_or_default(),
             departure_time: get_idx(&arr, 8).unwrap_or_default(),
             arrival_time: get_idx(&arr, 10).unwrap_or_default(),
+            leg_duration_minutes: get_idx(&arr, 11),
             departure_date: get_idx(&arr, 20).unwrap_or_default(),
             arrival_date: get_idx(&arr, 21).unwrap_or_default(),
             airplane_info: get_idx(&arr, 22).unwrap_or_default(),
@@ -183,6 +254,7 @@ impl FlightInfo {
             destination_airport_code,
             departure_time,
             arrival_time,
+            leg_duration_minutes: None,
             departure_date,
             arrival_date,
             airplane_info,
@@ -209,8 +281,16 @@ impl SerializeToWeb for FlightInfo {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Itinerary {
+    /// Primary operating carrier code (e.g. `"LX"` or `"multi"`).
     pub flight_by: String,
+    /// One entry per leg.
     pub flight_details: Vec<FlightInfo>,
+    /// Total door-to-door duration including layovers, in minutes.
+    pub total_time_minutes: i64,
+    /// One entry per layover; empty / None for non-stop flights.
+    pub connection_info: Option<Vec<ConnectionInfo>>,
+    /// CO2 emissions data for this itinerary.
+    pub emissions: Option<Emissions>,
 }
 
 impl<'de> Deserialize<'de> for Itinerary {
@@ -219,7 +299,17 @@ impl<'de> Deserialize<'de> for Itinerary {
         Ok(Itinerary {
             flight_by: get_idx(&arr, 0).unwrap_or_default(),
             flight_details: get_idx(&arr, 2).unwrap_or_default(),
+            total_time_minutes: get_idx(&arr, 9).unwrap_or(0),
+            connection_info: get_idx(&arr, 13),
+            emissions: get_idx(&arr, 22),
         })
+    }
+}
+
+impl Itinerary {
+    /// Number of layover stops (0 = non-stop, 1 = one stop, etc.).
+    pub fn stop_count(&self) -> usize {
+        self.connection_info.as_ref().map_or(0, |v| v.len())
     }
 }
 
@@ -579,19 +669,36 @@ mod tests {
     }
 
     #[test]
-    fn test_weird_thing() {
+    fn test_parse_itinerary_one_stop_lux_mxp_via_zrh() {
+        // LUX→ZRH→MXP, 2 legs, 1 layover at ZRH (75 min), total 195 min, CO2 data present
         let mystr = r#"["LX", ["SWISS"], [[null, null, null, "LUX", "Luxembourg Airport", "Zurich Airport", "ZRH", null, [10, 50], null, [11, 55], 65, [], 1, "76 cm", null, 1, "Airbus A220-100 Passenger", null, false, [2024, 1, 27], [2024, 1, 27], ["LX", "751", null, "SWISS"], null, null, 1, null, null, null, null, "76 centimetres", 40497], [null, null, "Helvetic", "ZRH", "Zurich Airport", "Milan Malpensa Airport", "MXP", null, [13, 10], null, [14, 5], 55, [null, null, null, null, null, true], 2, "74 cm", null, 1, "Embraer 195 E2", [null, true], false, [2024, 1, 27], [2024, 1, 27], ["LX", "1628", null, "SWISS"], null, null, 1, null, null, null, null, "74 centimetres", 37467]], "LUX", [2024, 1, 27], [10, 50], "MXP", [2024, 1, 27], [14, 5], 195, null, null, false, [[75, "ZRH", "ZRH", null, "Zurich Airport", "ZÃ¼rich", "Zurich Airport", "ZÃ¼rich"]], null, null, null, "G3nUPe", [[1705070296848121, 139803069, 858572], null, null, null, null, [[2]]], 1, null, null, [null, null, 1, -9, null, true, true, 78000, 86000, null, 119000, 1, false], [1], [["LX", "SWISS", "https://www.swiss.com/gb/en/prepare/special-care"]]]"#;
 
         let result: Result<Itinerary, serde_json::Error> = serde_json::from_str(mystr);
         assert!(result.is_ok());
+        let it = result.unwrap();
+        assert_eq!(it.flight_by, "LX");
+        assert_eq!(it.total_time_minutes, 195);
+        assert_eq!(it.stop_count(), 1);
+        let conn = it.connection_info.as_ref().unwrap();
+        assert_eq!(conn[0].arrival_airport, "ZRH");
+        assert_eq!(conn[0].connection_time_minutes, 75);
+        let em = it.emissions.as_ref().unwrap();
+        assert_eq!(em.co2_this_flight_g, Some(78000));
+        assert_eq!(em.co2_typical_route_g, Some(86000));
+        // individual leg durations
+        assert_eq!(it.flight_details[0].leg_duration_minutes, Some(65));
+        assert_eq!(it.flight_details[1].leg_duration_minutes, Some(55));
     }
 
     #[test]
-    fn test_other_weird_thing() {
+    fn test_parse_itinerary_container_with_booking_token() {
         let mystr = r#"[["LX", ["SWISS"], [[null, null, null, "LUX", "Luxembourg Airport", "Zurich Airport", "ZRH", null, [10, 50], null, [11, 55], 65, [], 1, "76 cm", null, 1, "Airbus A220-100 Passenger", null, false, [2024, 1, 27], [2024, 1, 27], ["LX", "751", null, "SWISS"], null, null, 1, null, null, null, null, "76 centimetres", 40497], [null, null, "Helvetic", "ZRH", "Zurich Airport", "Milan Malpensa Airport", "MXP", null, [13, 10], null, [14, 5], 55, [null, null, null, null, null, true], 2, "74 cm", null, 1, "Embraer 195 E2", [null, true], false, [2024, 1, 27], [2024, 1, 27], ["LX", "1628", null, "SWISS"], null, null, 1, null, null, null, null, "74 centimetres", 37467]], "LUX", [2024, 1, 27], [10, 50], "MXP", [2024, 1, 27], [14, 5], 195, null, null, false, [[75, "ZRH", "ZRH", null, "Zurich Airport", "ZÃ¼rich", "Zurich Airport", "ZÃ¼rich"]], null, null, null, "G3nUPe", [[1705070296848121, 139803069, 858572], null, null, null, null, [[2]]], 1, null, null, [null, null, 1, -9, null, true, true, 78000, 86000, null, 119000, 1, false], [1], [["LX", "SWISS", "https://www.swiss.com/gb/en/prepare/special-care"]]], [[null, 138], "CjRISnlhWXVsbHpfclVBSEhWcVFCRy0tLS0tLS0td2VicXIxMkFBQUFBR1doVHRnTTFpVHVBEgxMWDc1MXxMWDE2MjgaCgihaxACGgNFVVI4HHDDdQ=="], null, true, [], [false, false, false], false, [], "[\"CAISA0VVUhoDCKFrIs4BCrgBClkKA0xVWBIZMjAyNC0wMS0yN1QxMDo1MDowMCswMTowMBoDWlJIIhkyMDI0LTAxLTI3VDExOjU1OjAwKzAxOjAwKgJMWDIDNzUxOgJMWEIDNzUxSAFSAzIyMQpbCgNaUkgSGTIwMjQtMDEtMjdUMTM6MTA6MDArMDE6MDAaA01YUCIZMjAyNC0wMS0yN1QxNDowNTowMCswMTowMCoCTFgyBDE2Mjg6AkxYQgQxNjI4SAFSAzI5NRIECAMQARgBKAAyBwoFU1dJU1M\\u003d\"]", [[1]], false]"#;
 
         let result: Result<ItineraryContainer, serde_json::Error> = serde_json::from_str(mystr);
         assert!(result.is_ok());
+        let container = result.unwrap();
+        assert!(!container.itinerary_cost.departure_token.is_empty());
+        assert_eq!(container.itinerary.total_time_minutes, 195);
     }
 
     #[test]
@@ -739,6 +846,17 @@ mod tests {
         let parsed = serde_json::to_string(&hour.unwrap()).unwrap();
         let res = r#"{"hour":null,"minute":0}"#.to_string();
         assert_eq!(parsed, res);
+    }
+
+    #[test]
+    fn test_parse_itinerary_nonstop_has_zero_stop_count() {
+        // Direct LUX→MXP on Luxair: no connection_info (null at index 13)
+        let mystr = r#"["LG", ["Luxair"], [[null, null, null, "LUX", "Luxembourg Airport", "Milan Malpensa Airport", "MXP", null, [11, 10], null, [12, 25], 75, [], 1, "76 cm", [["AZ", "7879", null, "ITA"]], 1, "De Havilland-Bombardier Dash-8", null, false, [2024, 1, 27], [2024, 1, 27], ["LG", "6993", null, "Luxair"], null, null, 1, null, null, null, null, "76 centimetres", 35968]], "LUX", [2024, 1, 27], [11, 10], "MXP", [2024, 1, 27], [12, 25], 75, null, null, false, null, null, null, ["ITA"], "VDOwRb", [[1705070296848121, 139803069, 858572], null, null, null, null, [[6]]], 1, null, null, [null, null, 1, -58, null, true, true, 36000, 86000, [true], 119000, 1, false], [1], [["LG", "Luxair", "https://www.luxair.lu/en/information/passenger-assistance"]]]"#;
+        let it: Itinerary = serde_json::from_str(mystr).expect("parse failed");
+        assert_eq!(it.stop_count(), 0);
+        assert_eq!(it.total_time_minutes, 75);
+        assert_eq!(it.flight_by, "LG");
+        assert_eq!(it.flight_details[0].leg_duration_minutes, Some(75));
     }
 
     #[test]

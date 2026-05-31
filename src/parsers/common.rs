@@ -693,3 +693,36 @@ impl FixedFlights {
         flights.get(length).map(|f| f.get_departure_token())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn travelers_new_valid() {
+        let t = Travelers::new(vec![1, 0, 0, 0]).unwrap();
+        assert_eq!(t.adults, 1);
+    }
+
+    #[test]
+    fn travelers_new_wrong_length_errors() {
+        assert!(Travelers::new(vec![1, 0, 0]).is_err());
+        assert!(Travelers::new(vec![1, 0, 0, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn travelers_new_no_adults_errors() {
+        assert!(Travelers::new(vec![0, 1, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn travelers_new_too_many_passengers_errors() {
+        // 10 total exceeds server limit of 9
+        assert!(Travelers::new(vec![5, 5, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn travelers_new_exactly_nine_passes() {
+        assert!(Travelers::new(vec![9, 0, 0, 0]).is_ok());
+    }
+}
