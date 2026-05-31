@@ -36,6 +36,8 @@ async fn main() -> Result<()> {
         .build()
         .with_context(|| "Failed to build the configuration")?;
 
+    // --- Outbound leg --------------------------------------------------------
+
     let flight_response = client
         .request_flights(&config)
         .await
@@ -44,80 +46,48 @@ async fn main() -> Result<()> {
     let first_flight = flight_response
         .responses
         .iter()
-        .filter_map(|response| response.maybe_get_all_flights())
+        .filter_map(|r| r.maybe_get_all_flights())
         .flatten()
         .next()
-        .with_context(|| "No flights found for this request")?;
+        .with_context(|| "No flights found")?;
 
-    println!("Itinerary {:?}", first_flight.itinerary);
-    println!(
-        "Price {:?} {:?}",
-        first_flight.itinerary_cost.trip_cost, config.currency
-    );
+    println!("Outbound: {:?}", first_flight.itinerary);
+    println!("Price: {:?} {:?}", first_flight.itinerary_cost.trip_cost, config.currency);
     config.fixed_flights.add_element(first_flight)?;
 
-    // Check the trip type.
+    // --- Return leg (round-trip only) ----------------------------------------
 
-    if config.trip_type == TripType::OneWay {
-        println!("Itinerary URL: {}", config.to_flight_url());
+    if config.trip_type == TripType::Return {
+        let return_response = client
+            .request_flights(&config)
+            .await
+            .with_context(|| "Failed to request return flights")?;
 
-        println!("One-way flight detected. Exiting.");
-        return Ok(());
-    } else if config.trip_type != TripType::Return {
-        println!("Unsupported trip type.");
-        return Ok(());
-    }
+        let maybe_return = return_response
+            .responses
+            .iter()
+            .filter_map(|r| r.maybe_get_all_flights())
+            .flatten()
+            .next();
 
-    // Request return flights.
-
-    let return_flight_response = client
-        .request_flights(&config)
-        .await
-        .with_context(|| "Failed to request return flights")?;
-
-    // Find the second (return) flight.
-
-    let maybe_second_flight = return_flight_response
-        .responses
-        .iter()
-        .filter_map(|resp| resp.maybe_get_all_flights())
-        .flatten()
-        .next();
-
-    let second_flight = match maybe_second_flight {
-        Some(flight) => flight,
-
-        None => {
-            println!("No return flights found.");
-
-            return Ok(());
+        if let Some(flight) = maybe_return {
+            println!("Return:   {:?}", flight.itinerary);
+            println!("Price:    {:?} {:?}", flight.itinerary_cost.trip_cost, config.currency);
+            config.fixed_flights.add_element(flight)?;
+        } else {
+            println!("No return flights found — showing outbound offers only.");
         }
-    };
-
-    println!("Return Itinerary: {:?}", second_flight.itinerary);
-
-    println!(
-        "Price: {:?} {:?}",
-        second_flight.itinerary_cost.trip_cost, config.currency
-    );
-
-    // Add the second flight to the fixed flights in the config.
-
-    config
-        .fixed_flights
-        .add_element(second_flight.clone())
-        .with_context(|| "Failed to add second flight to fixed flights")?;
+    }
 
     println!("Itinerary URL: {}", config.to_flight_url());
 
-    // ask for offers:
+    // --- Offers --------------------------------------------------------------
+
     let offers_response = client
         .request_offer(&config)
         .await
         .with_context(|| "Failed to request offers")?;
 
-    
-    // Collect all offer groups that have a price, sort cheapest first.
     let mut offer_groups: Vec<_> = offers_response
         .response
         .iter()
@@ -133,21 +103,19 @@ async fn main() -> Result<()> {
     }
 
     for offer in &offer_groups {
-        let price = offer.price.unwrap();
         println!(
             "Offer: {:?}  Price: {} {:?}",
-            offer.airline_names, price, config.currency
+            offer.airline_names,
+            offer.price.unwrap(),
+            config.currency
         );
 
         if let Some(token) = offer.click_token.as_deref() {
-            // Single-airline / OTA group: one URL covers the whole round trip.
             match client.resolve_booking_url(token).await {
                 Ok(url) => println!("  ->  {url}"),
                 Err(e) => println!("  (could not resolve URL: {e})"),
             }
         } else if !offer.sub_options.is_empty() {
-            // Multi-airline combined group: each leg is booked separately with
-            // its own airline.  Resolve every sub-option that has a click token.
             for sub in &offer.sub_options {
                 if let Some(token) = sub.click_token.as_deref() {
                     let label = if sub.partner_names.is_empty() {
