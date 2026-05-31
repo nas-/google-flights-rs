@@ -44,6 +44,36 @@ impl std::fmt::Display for RateLimitedError {
 
 impl std::error::Error for RateLimitedError {}
 
+/// Configuration for automatic retry with exponential back-off.
+///
+/// Applied to transient server errors (HTTP 500/502/503/504) and timed-out
+/// connections.  429s and 4xx client errors are never retried.
+///
+/// # Example
+/// ```rust
+/// use gflights::requests::api::RetryConfig;
+/// let cfg = RetryConfig { max_attempts: 5, base_delay_ms: 200, cap_delay_ms: 10_000 };
+/// ```
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    /// Total number of attempts (including the first).  `1` means no retries.
+    pub max_attempts: u32,
+    /// Base delay in milliseconds before the first retry.  Doubles each attempt.
+    pub base_delay_ms: u64,
+    /// Maximum delay cap in milliseconds (before jitter).
+    pub cap_delay_ms: u64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_attempts: 3,
+            base_delay_ms: 500,
+            cap_delay_ms: 30_000,
+        }
+    }
+}
+
 /// The `ApiClient` struct is used to send requests to the Google Flights website.
 ///
 /// Cloning this struct is cheap — all clones share the same underlying HTTP
@@ -57,6 +87,8 @@ pub struct ApiClient {
     /// receives HTTP 429.  While `true`, every call to `do_request` returns
     /// [`RateLimitedError`] immediately without touching the network.
     rate_limited: Arc<AtomicBool>,
+    /// Retry policy for transient server errors and timeouts.
+    retry_config: RetryConfig,
 }
 
 impl ApiClient {
@@ -79,7 +111,22 @@ impl ApiClient {
             frontend_version: frontend_version
                 .unwrap_or("boq_travel-frontend-flights-ui_20260527.01_p0".into()),
             rate_limited: Arc::new(AtomicBool::new(false)),
+            retry_config: RetryConfig::default(),
         }
+    }
+
+    /// Overrides the retry policy for this client.
+    ///
+    /// ```rust
+    /// # use gflights::requests::api::{ApiClient, RetryConfig};
+    /// # async fn example() {
+    /// let client = ApiClient::new().await
+    ///     .with_retry_config(RetryConfig { max_attempts: 5, base_delay_ms: 200, cap_delay_ms: 10_000 });
+    /// # }
+    /// ```
+    pub fn with_retry_config(mut self, retry_config: RetryConfig) -> Self {
+        self.retry_config = retry_config;
+        self
     }
 
     /// Returns `true` if this client has been halted by a 429 response.
@@ -306,11 +353,18 @@ impl ApiClient {
         Ok(raw.replace("&amp;", "&"))
     }
 
-    /// Sends a single HTTP request, enforcing the shared rate-limit flag.
+    /// Sends a single HTTP request, enforcing the shared rate-limit flag and
+    /// retrying on transient server errors according to [`RetryConfig`].
     ///
     /// Returns [`RateLimitedError`] (as an `anyhow::Error`) in two situations:
     /// - The flag is already set from a previous 429 on this client or any clone.
     /// - The server responds with HTTP 429 (the flag is then set for all clones).
+    ///
+    /// Retries (up to `retry_config.max_attempts - 1` times) are performed for:
+    /// - HTTP 500, 502, 503, 504
+    /// - Connection timeouts (`reqwest::Error::is_timeout()`)
+    ///
+    /// 4xx errors (other than 429) are not retried.
     #[tracing::instrument(skip_all)]
     async fn do_request(
         &self,
@@ -337,40 +391,89 @@ impl ApiClient {
             "Outgoing POST request"
         );
 
-        let _permit = self
-            .rate_limiter
-            .until_n_ready(NonZeroU32::MIN) // MIN == 1: consume one slot per request
-            .await;
-        let res = self
-            .client
-            .post(req_payload.url)
-            .body(req_payload.body)
-            .headers(headers)
-            .send()
-            .await?;
+        let max_attempts = self.retry_config.max_attempts.max(1);
+        let base_delay = self.retry_config.base_delay_ms;
+        let cap_delay = self.retry_config.cap_delay_ms;
 
-        tracing::trace!(
-            status = %res.status(),
-            http_version = ?res.version(),
-            "Response received"
-        );
+        // `last_err` is only read when the loop is exhausted (attempt == max_attempts - 1).
+        let mut last_err: anyhow::Error = anyhow::anyhow!("all retry attempts exhausted");
 
-        match res.status() {
-            StatusCode::OK => {}
-            StatusCode::TOO_MANY_REQUESTS => {
-                // Signal all clones to stop; they will return RateLimitedError
-                // on their next attempt without hitting the network.
-                self.rate_limited.store(true, Ordering::SeqCst);
-                return Err(anyhow::Error::new(RateLimitedError));
+        for attempt in 0..max_attempts {
+            if attempt > 0 {
+                // Exponential back-off: base * 2^(attempt-1), capped, plus deterministic
+                // jitter derived from the attempt number (no `rand` dependency needed).
+                let backoff = (base_delay * (1u64 << (attempt - 1).min(30))).min(cap_delay);
+                let jitter = (attempt as u64 * 37) % 101;
+                let delay_ms = backoff + jitter;
+                tracing::debug!(
+                    attempt,
+                    delay_ms,
+                    "transient error — retrying after back-off"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
             }
-            status => tracing::warn!(
+
+            // Consume one rate-limiter slot per attempt.
+            let _permit = self
+                .rate_limiter
+                .until_n_ready(NonZeroU32::MIN) // MIN == 1
+                .await;
+
+            let res = match self
+                .client
+                .post(req_payload.url.clone())
+                .body(req_payload.body.clone())
+                .headers(headers.clone())
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) if e.is_timeout() => {
+                    tracing::warn!(attempt, error = %e, "request timed out");
+                    last_err = e.into();
+                    continue; // retry
+                }
+                Err(e) => return Err(e.into()), // non-transient network error
+            };
+
+            tracing::trace!(
+                status = %res.status(),
                 http_version = ?res.version(),
-                status_code = %status,
-                "Unexpected HTTP response status"
-            ),
+                "Response received"
+            );
+
+            match res.status() {
+                StatusCode::OK => return Ok(res),
+                StatusCode::TOO_MANY_REQUESTS => {
+                    // Signal all clones to stop; they will return RateLimitedError
+                    // on their next attempt without hitting the network.
+                    self.rate_limited.store(true, Ordering::SeqCst);
+                    return Err(anyhow::Error::new(RateLimitedError));
+                }
+                StatusCode::INTERNAL_SERVER_ERROR
+                | StatusCode::BAD_GATEWAY
+                | StatusCode::SERVICE_UNAVAILABLE
+                | StatusCode::GATEWAY_TIMEOUT => {
+                    tracing::warn!(
+                        attempt,
+                        status = %res.status(),
+                        "server error — will retry if attempts remain"
+                    );
+                    last_err = anyhow::anyhow!("server error: {}", res.status());
+                    // continue to next attempt
+                }
+                status => {
+                    tracing::warn!(
+                        http_version = ?res.version(),
+                        status_code = %status,
+                        "Unexpected HTTP response status"
+                    );
+                    return Ok(res);
+                }
+            }
         }
 
-        Ok(res)
+        Err(last_err)
     }
 }
 
@@ -494,6 +597,7 @@ mod tests {
             client: Arc::new(Client::new()),
             frontend_version: "test".into(),
             rate_limited: Arc::new(AtomicBool::new(false)),
+            retry_config: RetryConfig::default(),
         }
     }
 
