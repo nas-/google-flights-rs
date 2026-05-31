@@ -292,17 +292,10 @@ impl From<&Config> for Vec<Leg> {
         let max_stopover_minutes = options.stopover_max.to_option();
         let max_duration_minutes = options.duration_max.to_option();
 
-        let departure: Vec<LocationProto> = options
-            .departure
-            .iter()
-            .map(location_to_location_proto)
-            .collect();
-
-        let destination: Vec<LocationProto> = options
-            .destination
-            .iter()
-            .map(location_to_location_proto)
-            .collect();
+        let departure: Vec<LocationProto> =
+            options.departure.iter().map(LocationProto::from).collect();
+        let destination: Vec<LocationProto> =
+            options.destination.iter().map(LocationProto::from).collect();
 
         let first_leg = Leg {
             date: options.departing_date.to_string(),
@@ -349,19 +342,20 @@ impl From<&Config> for Vec<Leg> {
     }
 }
 
-/// Conversion from Location to LocationProto, used for creating the URL.
-/// Unfortunately, inpossible to create a trait implementation for this as Location and LocationProto live in different subcrates.
-fn location_to_location_proto(location: &Location) -> LocationProto {
-    let loc_type = match location.loc_type {
-        PlaceType::Airport => 1,
-        PlaceType::City => 2,
-        // Regions and unspecified types are treated as city-level (type 2) in the
-        // URL proto, which matches how Google Flights encodes region searches.
-        PlaceType::MaybeRegion | PlaceType::RegionMaybe | PlaceType::Unspecified => 2,
-    };
-    LocationProto {
-        r#type: loc_type,
-        place_name: location.loc_identifier.clone(),
+/// Converts a [`Location`] to the protobuf [`LocationProto`] used in URL encoding.
+///
+/// Airports use type `1`; cities, regions, and unspecified types use type `2`,
+/// which matches how Google Flights encodes region searches.
+impl From<&Location> for LocationProto {
+    fn from(location: &Location) -> Self {
+        let loc_type = match location.loc_type {
+            PlaceType::Airport => 1,
+            _ => 2,
+        };
+        LocationProto {
+            r#type: loc_type,
+            place_name: location.loc_identifier.clone(),
+        }
     }
 }
 /// Conversion from Config to ItineraryUrl, used for creating the URL.
@@ -646,8 +640,7 @@ mod tests {
             loc_identifier: "JFK".to_string(),
             location_name: None,
         };
-
-        let location_proto = location_to_location_proto(&location);
+        let location_proto = LocationProto::from(&location);
         assert_eq!(location_proto.r#type, 1);
         assert_eq!(location_proto.place_name, "JFK");
     }
@@ -659,8 +652,7 @@ mod tests {
             loc_identifier: "/m/04jpl".to_string(),
             location_name: None,
         };
-
-        let location_proto = location_to_location_proto(&location);
+        let location_proto = LocationProto::from(&location);
         assert_eq!(location_proto.r#type, 2);
         assert_eq!(location_proto.place_name, "/m/04jpl");
     }

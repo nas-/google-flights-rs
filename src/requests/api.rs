@@ -135,13 +135,12 @@ impl ApiClient {
             .get_end_graph(months)
             .ok_or_else(|| anyhow::anyhow!("date overflow when computing graph end date"))?
             .to_string();
-        let date_end_graph = date_end_graph.as_str();
         let req_options = GraphRequestOptions::new(
             &args.departure,
             &args.destination,
             &args.departing_date,
             args.return_date.as_ref(),
-            date_end_graph,
+            &date_end_graph,
             args.travellers.clone(),
             &args.travel_class,
             &args.stop_options,
@@ -151,14 +150,12 @@ impl ApiClient {
             &args.duration_max,
             &self.frontend_version,
         );
-
         let body = self
             .do_request(&req_options, Some(args.currency.clone()))
             .await?
             .text()
             .await?;
-        let parsed = GraphRawResponseContainer::try_from(body.as_ref())?;
-        Ok(parsed)
+        GraphRawResponseContainer::try_from(body.as_ref())
     }
 
     /// Sends a request to retrieve flight data.
@@ -178,32 +175,9 @@ impl ApiClient {
         stops = ?args.stop_options,
     ))]
     pub async fn request_flights(&self, args: &Config) -> Result<FlightResponseContainer> {
-        let date_start = args.departing_date.to_string();
-        let date_return: Option<String> = args.return_date.map(|f| f.to_string());
         tracing::info!("Requesting flights");
-        let req_options = FlightRequestOptions::new(
-            &args.departure,
-            &args.destination,
-            &date_start,
-            date_return.as_deref(),
-            args.travellers.clone(),
-            &args.travel_class,
-            &args.stop_options,
-            &args.departing_times,
-            &args.return_times,
-            &args.stopover_max,
-            &args.duration_max,
-            &self.frontend_version,
-            &args.fixed_flights,
-        );
-
-        let body = self
-            .do_request(&req_options, Some(args.currency.clone()))
-            .await?
-            .text()
-            .await?;
-        let inner = create_raw_response_vec(body)?;
-        Ok(inner)
+        let body = self.fetch_flight_body(args).await?;
+        create_raw_response_vec(body)
     }
 
     /// Sends a request to retrieve flight offer data.
@@ -223,9 +197,20 @@ impl ApiClient {
         stops = ?args.stop_options,
     ))]
     pub async fn request_offer(&self, args: &Config) -> Result<OfferRawResponseContainer> {
-        let date_start = args.departing_date.to_string();
-        let date_return: Option<String> = args.return_date.map(|f| f.to_string());
         tracing::info!("Requesting offers");
+        let body = self.fetch_flight_body(args).await?;
+        tracing::trace!(body = %body, "raw offer response body");
+        offer_response::create_raw_response_offer_vec(body)
+    }
+
+    /// Builds the request options from a [`Config`] and POSTs to the flights endpoint,
+    /// returning the raw response body.
+    ///
+    /// Shared by [`Self::request_flights`] and [`Self::request_offer`], which differ only
+    /// in how they parse the body.
+    async fn fetch_flight_body(&self, args: &Config) -> Result<String> {
+        let date_start = args.departing_date.to_string();
+        let date_return = args.return_date.map(|f| f.to_string());
         let req_options = FlightRequestOptions::new(
             &args.departure,
             &args.destination,
@@ -241,14 +226,11 @@ impl ApiClient {
             &self.frontend_version,
             &args.fixed_flights,
         );
-        let body = self
+        Ok(self
             .do_request(&req_options, Some(args.currency.clone()))
             .await?
             .text()
-            .await?;
-        tracing::trace!(body = %body, "raw offer response body");
-        let inner = offer_response::create_raw_response_offer_vec(body)?;
-        Ok(inner)
+            .await?)
     }
 
     /// Resolves a `click_token` from an [`OfferGroup`] or [`BookingSubOption`]
