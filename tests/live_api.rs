@@ -541,3 +541,227 @@ async fn multi_airport_destination_returns_flights() -> Result<()> {
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Offer / booking options
+// ---------------------------------------------------------------------------
+
+/// Full offer flow for a return trip LHR → JFK:
+///   1. Search outbound  → select first result
+///   2. Search return    → select first result
+///   3. Request offers   → at least one offer with a sensible price
+///
+/// We only check that the price is within a very wide but sanity-checking
+/// range (> 0 and < 20 000 EUR/USD) — exact prices change daily.
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn offer_request_returns_prices_for_lhr_jfk() -> Result<()> {
+    require_live!();
+    let client = ApiClient::new().await;
+
+    let config = Config::builder()
+        .departure("LHR", &client)
+        .await?
+        .destination("JFK", &client)
+        .await?
+        .departing_date(days_from_now(30))
+        .return_date(days_from_now(37))
+        .build()?;
+
+    // --- Outbound leg ---
+    let out_resp = client.request_flights(&config).await?;
+    let first_out = out_resp
+        .responses
+        .iter()
+        .filter_map(|r| r.maybe_get_all_flights())
+        .flatten()
+        .next()
+        .expect("no outbound flights for LHR→JFK");
+
+    config
+        .fixed_flights
+        .add_element(first_out)
+        .expect("failed to fix outbound leg");
+
+    // --- Return leg ---
+    let ret_resp = client.request_flights(&config).await?;
+    let first_ret = ret_resp
+        .responses
+        .iter()
+        .filter_map(|r| r.maybe_get_all_flights())
+        .flatten()
+        .next()
+        .expect("no return flights for JFK→LHR");
+
+    config
+        .fixed_flights
+        .add_element(first_ret)
+        .expect("failed to fix return leg");
+
+    // --- Offers ---
+    let offer_container = client.request_offer(&config).await?;
+
+    // Flatten all offer groups across all inner responses
+    let all_prices: Vec<(Vec<String>, i32)> = offer_container
+        .response
+        .iter()
+        .filter_map(|r| r.get_offer_prices())
+        .flatten()
+        .collect();
+
+    assert!(
+        !all_prices.is_empty(),
+        "expected at least one booking offer for LHR→JFK round trip, got none"
+    );
+
+    for (airlines, price) in &all_prices {
+        assert!(
+            *price > 0,
+            "offer price should be positive, got {price} (airlines: {airlines:?})"
+        );
+        assert!(
+            *price < 20_000,
+            "offer price looks unreasonably high: {price} (airlines: {airlines:?})"
+        );
+        assert!(
+            !airlines.is_empty(),
+            "offer should have at least one airline name, got empty list (price: {price})"
+        );
+    }
+
+    Ok(())
+}
+
+/// Offers have at least one price in a plausible transatlantic range (> 200).
+///
+/// This is a weaker sanity-check companion to `offer_request_returns_prices_for_lhr_jfk`:
+/// we assert that Google returns at least one offer that is neither suspiciously
+/// cheap nor obviously a data-parse artifact.
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn offer_prices_are_in_plausible_range_for_lhr_jfk() -> Result<()> {
+    require_live!();
+    let client = ApiClient::new().await;
+
+    let config = Config::builder()
+        .departure("LHR", &client)
+        .await?
+        .destination("JFK", &client)
+        .await?
+        .departing_date(days_from_now(30))
+        .return_date(days_from_now(37))
+        .build()?;
+
+    // Select outbound
+    let out_resp = client.request_flights(&config).await?;
+    let first_out = out_resp
+        .responses
+        .iter()
+        .filter_map(|r| r.maybe_get_all_flights())
+        .flatten()
+        .next()
+        .expect("no outbound flights for LHR→JFK");
+    config.fixed_flights.add_element(first_out).unwrap();
+
+    // Select return
+    let ret_resp = client.request_flights(&config).await?;
+    let first_ret = ret_resp
+        .responses
+        .iter()
+        .filter_map(|r| r.maybe_get_all_flights())
+        .flatten()
+        .next()
+        .expect("no return flights for JFK→LHR");
+    config.fixed_flights.add_element(first_ret).unwrap();
+
+    // Offers
+    let offer_container = client.request_offer(&config).await?;
+    let all_prices: Vec<i32> = offer_container
+        .response
+        .iter()
+        .filter_map(|r| r.get_offer_prices())
+        .flatten()
+        .map(|(_, p)| p)
+        .collect();
+
+    assert!(
+        !all_prices.is_empty(),
+        "expected at least one offer for LHR→JFK round trip"
+    );
+
+    // At least one offer should be over 200 (transatlantic round trip is never free)
+    let has_plausible = all_prices.iter().any(|&p| p > 200);
+    assert!(
+        has_plausible,
+        "expected at least one offer > 200, got: {:?}",
+        all_prices
+    );
+
+    Ok(())
+}
+
+/// Offer sub-options (per-OTA booking channels) are structurally valid when present.
+///
+/// When Google returns per-channel prices they must all be positive and
+/// each channel must have at least one partner name.
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn offer_sub_options_are_structurally_valid_for_lhr_jfk() -> Result<()> {
+    require_live!();
+    let client = ApiClient::new().await;
+
+    let config = Config::builder()
+        .departure("LHR", &client)
+        .await?
+        .destination("JFK", &client)
+        .await?
+        .departing_date(days_from_now(30))
+        .return_date(days_from_now(37))
+        .build()?;
+
+    // Select outbound
+    let out_resp = client.request_flights(&config).await?;
+    let first_out = out_resp
+        .responses
+        .iter()
+        .filter_map(|r| r.maybe_get_all_flights())
+        .flatten()
+        .next()
+        .expect("no outbound flights for LHR→JFK");
+    config.fixed_flights.add_element(first_out).unwrap();
+
+    // Select return
+    let ret_resp = client.request_flights(&config).await?;
+    let first_ret = ret_resp
+        .responses
+        .iter()
+        .filter_map(|r| r.maybe_get_all_flights())
+        .flatten()
+        .next()
+        .expect("no return flights for JFK→LHR");
+    config.fixed_flights.add_element(first_ret).unwrap();
+
+    // Offers
+    let offer_container = client.request_offer(&config).await?;
+
+    for (i, raw_resp) in offer_container.response.iter().enumerate() {
+        for (j, group) in raw_resp.offers.iter().enumerate() {
+            for (k, sub) in group.sub_options.iter().enumerate() {
+                if let Some(price) = sub.price {
+                    assert!(
+                        price > 0,
+                        "response[{i}] group[{j}] sub_option[{k}]: price should be positive, got {price}"
+                    );
+                }
+                if sub.price.is_some() {
+                    assert!(
+                        !sub.partner_names.is_empty(),
+                        "response[{i}] group[{j}] sub_option[{k}]: has a price but no partner names"
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
+}

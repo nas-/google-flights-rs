@@ -14,7 +14,7 @@ use super::common::{
     Location, RequestBody, SerializeToWeb, StopOptions, ToRequestBody, TravelClass, Travelers,
     CHARACTERS_TO_ENCODE,
 };
-use crate::parsers::constants::FLIGHT_REQUEST;
+use crate::parsers::constants::{BOOKING_REQUEST, FLIGHT_REQUEST};
 use anyhow::Result;
 
 pub struct FlightRequestOptions<'a> {
@@ -107,6 +107,8 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
             vec![leg1]
         };
 
+        let is_booking = options.fixed_flights.is_full();
+
         let itinerary = ItineraryRequest {
             legs,
             travel_class: options.travel_class,
@@ -120,12 +122,11 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
         let complete_flight_request = CompleteFlightRequest {
             itinerary,
             departure_token: departure_token.as_deref(),
+            is_booking,
         };
         let body = complete_flight_request.serialize_to_web()?;
-        let url = match options.fixed_flights.is_full() {
-            true => format!("{FLIGHT_REQUEST}?f.sid=6921237406276106431&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c", options.frontend_version),
-            false =>   format!("{FLIGHT_REQUEST}?f.sid=6921237406276106431&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c", options.frontend_version)
-        };
+        let endpoint = if is_booking { BOOKING_REQUEST } else { FLIGHT_REQUEST };
+        let url = format!("{endpoint}?f.sid=6921237406276106431&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c", options.frontend_version);
         let encoded = utf8_percent_encode(&body, CHARACTERS_TO_ENCODE).to_string();
         Ok(Self { url, body: encoded })
     }
@@ -281,6 +282,9 @@ impl SerializeToWeb for ItineraryRequest<'_> {
 struct CompleteFlightRequest<'a> {
     itinerary: ItineraryRequest<'a>,
     departure_token: Option<&'a str>,
+    /// `true` when all flight legs are fixed — triggers the `GetBookingResults`
+    /// endpoint and the matching `null,0` body tail the browser uses.
+    is_booking: bool,
 }
 
 impl SerializeToWeb for CompleteFlightRequest<'_> {
@@ -292,9 +296,9 @@ impl SerializeToWeb for CompleteFlightRequest<'_> {
             None => "[]".to_string(),
         };
 
-        // When both legs are fixed (offer request), use the same end_part as a normal search.
-        // "null,0" was tried previously but causes the server to reject the request.
-        let end_part = "1,0,0";
+        // Booking requests (GetBookingResults) use `null,0` as the body tail —
+        // matching what the browser sends.  Regular shopping requests use `1,0,0`.
+        let end_part = if self.is_booking { "null,0" } else { "1,0,0" };
 
         Ok(format!(
             r#"f.req=[null,"[{},{},{}]"]&at=AAuQa1qiXfSThbBOCdcDUAVTopoc:{}&"#,
@@ -568,6 +572,7 @@ mod tests {
         let complete_req = CompleteFlightRequest {
             itinerary: itinerary_return,
             departure_token: None,
+            is_booking: false,
         };
         assert!(complete_req
             .serialize_to_web()?

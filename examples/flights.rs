@@ -116,23 +116,58 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| "Failed to request offers")?;
 
-    println!("Offers response: {:?}", offers_response);
     
-    let mut offers: Vec<(Vec<String>, i32)> = offers_response
+    // Collect all offer groups that have a price, sort cheapest first.
+    let mut offer_groups: Vec<_> = offers_response
         .response
         .iter()
-        .filter_map(|resp| resp.get_offer_prices())
-        .flatten()
+        .flat_map(|r| &r.offers)
+        .filter(|o| o.price.is_some())
         .collect();
 
-    offers.sort_by(|a, b| a.1.cmp(&b.1));
+    offer_groups.sort_by_key(|o| o.price.unwrap_or(i32::MAX));
 
-    if offers.is_empty() {
+    if offer_groups.is_empty() {
         println!("No offers found");
         return Ok(());
     }
-    for (offer, price) in offers {
-        println!("Offer: {:?}, Price: {} {:?}", offer, price, config.currency);
+
+    for offer in &offer_groups {
+        let price = offer.price.unwrap();
+        println!(
+            "Offer: {:?}  Price: {} {:?}",
+            offer.airline_names, price, config.currency
+        );
+
+        if let Some(token) = offer.click_token.as_deref() {
+            // Single-airline / OTA group: one URL covers the whole round trip.
+            match client.resolve_booking_url(token).await {
+                Ok(url) => println!("  ->  {url}"),
+                Err(e) => println!("  (could not resolve URL: {e})"),
+            }
+        } else if !offer.sub_options.is_empty() {
+            // Multi-airline combined group: each leg is booked separately with
+            // its own airline.  Resolve every sub-option that has a click token.
+            for sub in &offer.sub_options {
+                if let Some(token) = sub.click_token.as_deref() {
+                    let label = if sub.partner_names.is_empty() {
+                        "unknown".to_string()
+                    } else {
+                        sub.partner_names.join(", ")
+                    };
+                    let price_str = sub
+                        .price
+                        .map(|p| format!("{} {:?}", p, config.currency))
+                        .unwrap_or_default();
+                    match client.resolve_booking_url(token).await {
+                        Ok(url) => println!("  [{label}  {price_str}]  ->  {url}"),
+                        Err(e) => println!("  [{label}] (could not resolve URL: {e})"),
+                    }
+                }
+            }
+        } else {
+            println!("  (no booking link available)");
+        }
     }
 
     Ok(())
