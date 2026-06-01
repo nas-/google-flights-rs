@@ -13,8 +13,8 @@ pub use airline::{AirlineCode, AirlineFilter, Alliance};
 pub use duration::{FlightTimes, StopoverDuration, TotalDuration};
 pub use fixed_flights::FixedFlights;
 pub use location::Location;
-pub use types::{PlaceType, SortOrder, StopOptions, TravelClass};
 pub use travelers::Travelers;
+pub use types::{PlaceType, SortOrder, StopOptions, TravelClass};
 
 /// The set of characters that are percent-encoded in google flights requests.
 pub(crate) const CHARACTERS_TO_ENCODE: &AsciiSet = &CONTROLS

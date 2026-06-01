@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "gflights-py"]
+resolver = "2"
+
 [package]
 name = "gflights"
 version = "0.1.0"

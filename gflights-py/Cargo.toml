@@ -1,0 +1,20 @@
+[package]
+name = "gflights-py"
+version = "0.1.0"
+edition = "2021"
+description = "Python bindings for gflights — unofficial Rust client for Google Flights"
+license = "MIT"
+repository = "https://github.com/nas-/google-flights-rs"
+
+[lib]
+name = "_gflights"
+crate-type = ["cdylib"]
+
+[dependencies]
+gflights = { path = ".." }
+pyo3 = { version = "0.24", features = ["extension-module"] }
+pyo3-async-runtimes = { version = "0.24", features = ["tokio-runtime"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+anyhow = "1"
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }
