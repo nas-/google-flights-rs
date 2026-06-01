@@ -2,13 +2,10 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::parsers::common::get_idx;
-use crate::parsers::flight_response::RawResponseContainerVec;
-
-use super::{
-    common::{decode_inner_object, decode_outer_object},
-    flight_response::{CheaperTravelDifferentDates, RawResponseContainer},
+use super::flight_response::{
+    CheaperTravelDifferentDates, RawResponseContainer, RawResponseContainerVec,
 };
+use crate::parsers::common::{decode_inner_object, decode_outer_object, get_idx};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(transparent)]

@@ -3,14 +3,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::NaiveDate;
 use percent_encoding::utf8_percent_encode;
 
-use crate::parsers::common::{FlightTimes, StopoverDuration, TotalDuration};
-
-use super::common::{
-    Location, RequestBody, SerializeToWeb, SortOrder, StopOptions, ToRequestBody, TravelClass,
-    Travelers,
+use crate::parsers::common::{
+    FlightTimes, Location, RequestBody, SerializeToWeb, SortOrder, StopOptions, StopoverDuration,
+    ToRequestBody, TotalDuration, TravelClass, Travelers, CHARACTERS_TO_ENCODE,
 };
-use super::{common::CHARACTERS_TO_ENCODE, flight_request::ItineraryRequest};
 use crate::parsers::constants::CALENDAR_GRAPH;
+use crate::parsers::request::flight_request::ItineraryRequest;
 
 use anyhow::Result;
 

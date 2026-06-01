@@ -5,16 +5,12 @@ use std::{
 
 use percent_encoding::utf8_percent_encode;
 
-use crate::{
-    parsers::common::{FixedFlights, FlightTimes, StopoverDuration, TotalDuration},
-    parsers::flight_response::FlightInfo,
-};
-
-use super::common::{
-    Location, RequestBody, SerializeToWeb, SortOrder, StopOptions, ToRequestBody, TravelClass,
-    Travelers, CHARACTERS_TO_ENCODE,
+use crate::parsers::common::{
+    FixedFlights, FlightTimes, Location, RequestBody, SerializeToWeb, SortOrder, StopOptions,
+    StopoverDuration, ToRequestBody, TotalDuration, TravelClass, Travelers, CHARACTERS_TO_ENCODE,
 };
 use crate::parsers::constants::{BOOKING_REQUEST, FLIGHT_REQUEST};
+use crate::parsers::response::flight_response::FlightInfo;
 use anyhow::Result;
 
 pub struct FlightRequestOptions<'a> {
@@ -286,7 +282,7 @@ mod tests {
     use chrono::{Duration, Utc};
 
     use crate::parsers::common::PlaceType;
-    use crate::parsers::flight_response::{AirplaneInfo, Date, Hour};
+    use crate::parsers::response::flight_response::{AirplaneInfo, Date, Hour};
 
     fn future_date(days: i64) -> String {
         (Utc::now().date_naive() + Duration::days(days)).to_string()

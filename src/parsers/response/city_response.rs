@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::parsers::common::{get_idx, GetOuterErrorMessages, Location, PlaceType};
 
-use super::common::{decode_inner_object, decode_outer_object};
+use crate::parsers::common::{decode_inner_object, decode_outer_object};
 
 // Vec<Value> based — absorbs trailing fields
 #[derive(Debug, Serialize)]
