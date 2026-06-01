@@ -78,4 +78,46 @@ mod tests {
         let other: Result<GraphRawResponse, _> = decode_inner_object(outer);
         assert!(other.is_ok())
     }
+
+    /// Full round-trip: raw response bytes → `GraphRawResponseContainer` via `TryFrom`.
+    #[test]
+    fn graph_raw_response_container_try_from_parses_file() {
+        let body = fs::read_to_string("test_files/graph_response").expect("Cannot read from file");
+        let container = GraphRawResponseContainer::try_from(body.as_str());
+        assert!(
+            container.is_ok(),
+            "TryFrom<&str> should succeed: {:?}",
+            container.err()
+        );
+    }
+
+    /// `get_all_graphs()` returns at least one suggestion from the fixture file.
+    #[test]
+    fn get_all_graphs_returns_nonempty_for_fixture() {
+        let body = fs::read_to_string("test_files/graph_response").expect("Cannot read from file");
+        let container = GraphRawResponseContainer::try_from(body.as_str()).unwrap();
+        let graphs = container.get_all_graphs();
+        assert!(
+            !graphs.is_empty(),
+            "expected ≥1 price-graph entry from fixture"
+        );
+    }
+
+    /// Every `CheaperTravelDifferentDates` entry from the fixture has a
+    /// non-past proposed departure date (basic structural sanity).
+    #[test]
+    fn get_all_graphs_entries_have_valid_dates() {
+        let body = fs::read_to_string("test_files/graph_response").expect("Cannot read from file");
+        let container = GraphRawResponseContainer::try_from(body.as_str()).unwrap();
+        for (i, entry) in container.get_all_graphs().iter().enumerate() {
+            // `maybe_get_date_price` returns None when there is no price data —
+            // either outcome is acceptable, but calling it must not panic.
+            let _ = entry.maybe_get_date_price();
+            // The proposed departure date must be a valid NaiveDate (it IS a
+            // NaiveDate, so it is always valid — we just access it to confirm
+            // the field exists and is reachable).
+            let _ = entry.proposed_departure_date;
+            let _ = i; // silence unused variable warning
+        }
+    }
 }

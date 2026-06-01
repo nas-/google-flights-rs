@@ -837,4 +837,147 @@ mod tests {
         }
         Ok(())
     }
+
+    // -----------------------------------------------------------------------
+    // Date::serialize_to_web
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn date_serialize_to_web_valid() {
+        let d = Date {
+            year: 2024,
+            month: 3,
+            day: 15,
+        };
+        assert_eq!(d.serialize_to_web().unwrap(), "2024-03-15");
+    }
+
+    #[test]
+    fn date_serialize_to_web_invalid_returns_err() {
+        let d = Date {
+            year: 2024,
+            month: 13, // invalid month
+            day: 1,
+        };
+        assert!(d.serialize_to_web().is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // FlightInfo::serialize_to_web
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn flight_info_serialize_to_web_produces_correct_format() {
+        let fi = FlightInfo {
+            departure_airport_code: "LHR".to_owned(),
+            destination_airport_code: "JFK".to_owned(),
+            departure_time: Hour::default(),
+            arrival_time: Hour::default(),
+            leg_duration_minutes: Some(420),
+            departure_date: Date {
+                year: 2025,
+                month: 8,
+                day: 1,
+            },
+            arrival_date: Date {
+                year: 2025,
+                month: 8,
+                day: 1,
+            },
+            airplane_info: AirplaneInfo {
+                code: "BA".to_owned(),
+                flight_number: "175".to_owned(),
+                plane_crew_by: None,
+                name: "Boeing 747".to_owned(),
+            },
+        };
+        let serialized = fi.serialize_to_web().unwrap();
+        assert!(serialized.contains("LHR"));
+        assert!(serialized.contains("JFK"));
+        assert!(serialized.contains("2025-08-01"));
+        assert!(serialized.contains("BA"));
+        assert!(serialized.contains("175"));
+    }
+
+    // -----------------------------------------------------------------------
+    // CheaperTravelDifferentDates Display + maybe_get_date_price
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn cheaper_travel_different_dates_display_with_return() {
+        let entry = CheaperTravelDifferentDates {
+            proposed_departure_date: NaiveDate::from_ymd_opt(2025, 8, 1).unwrap(),
+            proposed_return_date: Some(NaiveDate::from_ymd_opt(2025, 8, 15).unwrap()),
+            proposed_trip_cost: Some(TripCostContainer {
+                trip_cost: TripCost {
+                    unknown: None,
+                    price: 499,
+                },
+                cost_protobuf: String::new(),
+            }),
+        };
+        let s = format!("{}", entry);
+        assert!(s.contains("2025-08-01"), "should contain departure date");
+        assert!(s.contains("2025-08-15"), "should contain return date");
+        assert!(s.contains("499"), "should contain price");
+    }
+
+    #[test]
+    fn cheaper_travel_different_dates_display_one_way() {
+        let entry = CheaperTravelDifferentDates {
+            proposed_departure_date: NaiveDate::from_ymd_opt(2025, 8, 1).unwrap(),
+            proposed_return_date: None,
+            proposed_trip_cost: None,
+        };
+        let s = format!("{}", entry);
+        assert!(s.contains("One way"), "should indicate one-way");
+        assert!(s.contains("2025-08-01"), "should contain departure date");
+    }
+
+    #[test]
+    fn maybe_get_date_price_returns_none_when_no_cost() {
+        let entry = CheaperTravelDifferentDates {
+            proposed_departure_date: NaiveDate::from_ymd_opt(2025, 8, 1).unwrap(),
+            proposed_return_date: None,
+            proposed_trip_cost: None,
+        };
+        assert_eq!(entry.maybe_get_date_price(), None);
+    }
+
+    #[test]
+    fn maybe_get_date_price_returns_date_and_price() {
+        let entry = CheaperTravelDifferentDates {
+            proposed_departure_date: NaiveDate::from_ymd_opt(2025, 8, 1).unwrap(),
+            proposed_return_date: None,
+            proposed_trip_cost: Some(TripCostContainer {
+                trip_cost: TripCost {
+                    unknown: None,
+                    price: 350,
+                },
+                cost_protobuf: String::new(),
+            }),
+        };
+        let result = entry.maybe_get_date_price();
+        assert_eq!(
+            result,
+            Some((NaiveDate::from_ymd_opt(2025, 8, 1).unwrap(), 350))
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // FlightResponseContainer::get_usual_price_bound
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn flight_response_container_get_usual_price_bound_returns_none_when_no_price_graph() {
+        let container = FlightResponseContainer {
+            responses: vec![RawResponse {
+                best_flights: None,
+                other_flights: None,
+                price_graph: None,
+                travel_cheaper_different_date: None,
+            }],
+        };
+        assert_eq!(container.get_usual_price_bound(), None);
+    }
 }

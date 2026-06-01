@@ -729,4 +729,337 @@ mod tests {
     fn sort_order_default_is_best() {
         assert!(matches!(SortOrder::default(), SortOrder::Best));
     }
+
+    // -----------------------------------------------------------------------
+    // PlaceType::from
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn place_type_from_all_known_values() {
+        assert!(matches!(PlaceType::from(0), PlaceType::Unspecified));
+        assert!(matches!(PlaceType::from(1), PlaceType::Airport));
+        assert!(matches!(PlaceType::from(3), PlaceType::MaybeRegion));
+        assert!(matches!(PlaceType::from(4), PlaceType::RegionMaybe));
+        assert!(matches!(PlaceType::from(5), PlaceType::City));
+    }
+
+    #[test]
+    fn place_type_from_unknown_falls_back_to_unspecified() {
+        assert!(matches!(PlaceType::from(99), PlaceType::Unspecified));
+        assert!(matches!(PlaceType::from(-1), PlaceType::Unspecified));
+    }
+
+    // -----------------------------------------------------------------------
+    // TravelClass::from
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn travel_class_from_all_known_values() {
+        assert!(matches!(TravelClass::from(1), TravelClass::Economy));
+        assert!(matches!(TravelClass::from(2), TravelClass::PremiumEconomy));
+        assert!(matches!(TravelClass::from(3), TravelClass::Business));
+        assert!(matches!(TravelClass::from(4), TravelClass::First));
+    }
+
+    #[test]
+    fn travel_class_from_unknown_falls_back_to_economy() {
+        assert!(matches!(TravelClass::from(99), TravelClass::Economy));
+    }
+
+    #[test]
+    fn travel_class_serialize_to_web() {
+        assert_eq!(TravelClass::Economy.serialize_to_web().unwrap(), "1");
+        assert_eq!(TravelClass::PremiumEconomy.serialize_to_web().unwrap(), "2");
+        assert_eq!(TravelClass::Business.serialize_to_web().unwrap(), "3");
+        assert_eq!(TravelClass::First.serialize_to_web().unwrap(), "4");
+    }
+
+    // -----------------------------------------------------------------------
+    // StopOptions::from
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn stop_options_from_all_known_values() {
+        assert!(matches!(StopOptions::from(0), StopOptions::All));
+        assert!(matches!(StopOptions::from(1), StopOptions::NoStop));
+        assert!(matches!(StopOptions::from(2), StopOptions::OneOrLess));
+        assert!(matches!(StopOptions::from(3), StopOptions::TwoOrLess));
+    }
+
+    #[test]
+    fn stop_options_from_unknown_falls_back_to_all() {
+        assert!(matches!(StopOptions::from(99), StopOptions::All));
+    }
+
+    #[test]
+    fn stop_options_serialize_to_web() {
+        assert_eq!(StopOptions::All.serialize_to_web().unwrap(), "0");
+        assert_eq!(StopOptions::NoStop.serialize_to_web().unwrap(), "1");
+        assert_eq!(StopOptions::OneOrLess.serialize_to_web().unwrap(), "2");
+        assert_eq!(StopOptions::TwoOrLess.serialize_to_web().unwrap(), "3");
+    }
+
+    // -----------------------------------------------------------------------
+    // StopoverDuration
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn stopover_duration_serialize_exact_multiple_of_30() {
+        assert_eq!(
+            StopoverDuration::Minutes(60).serialize_to_web().unwrap(),
+            "60"
+        );
+        assert_eq!(
+            StopoverDuration::Minutes(120).serialize_to_web().unwrap(),
+            "120"
+        );
+    }
+
+    #[test]
+    fn stopover_duration_serialize_rounds_up_to_nearest_30() {
+        // 45 → rounds up to 60
+        assert_eq!(
+            StopoverDuration::Minutes(45).serialize_to_web().unwrap(),
+            "60"
+        );
+        // 31 → rounds up to 60
+        assert_eq!(
+            StopoverDuration::Minutes(31).serialize_to_web().unwrap(),
+            "60"
+        );
+        // 1 → rounds up to 30
+        assert_eq!(
+            StopoverDuration::Minutes(1).serialize_to_web().unwrap(),
+            "30"
+        );
+    }
+
+    #[test]
+    fn stopover_duration_unlimited_serializes_to_null() {
+        assert_eq!(
+            StopoverDuration::UNLIMITED.serialize_to_web().unwrap(),
+            "null"
+        );
+    }
+
+    #[test]
+    fn stopover_duration_to_option() {
+        assert_eq!(StopoverDuration::Minutes(90).to_option(), Some(90));
+        assert_eq!(StopoverDuration::UNLIMITED.to_option(), None);
+    }
+
+    #[test]
+    fn stopover_duration_to_i32() {
+        assert_eq!(StopoverDuration::Minutes(60).to_i32(), Some(60));
+        assert_eq!(StopoverDuration::UNLIMITED.to_i32(), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // TotalDuration
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn total_duration_serialize_exact_multiple_of_30() {
+        assert_eq!(
+            TotalDuration::Minutes(180).serialize_to_web().unwrap(),
+            "[180]"
+        );
+    }
+
+    #[test]
+    fn total_duration_serialize_rounds_up_to_nearest_30() {
+        // 91 → rounds up to 120
+        assert_eq!(
+            TotalDuration::Minutes(91).serialize_to_web().unwrap(),
+            "[120]"
+        );
+    }
+
+    #[test]
+    fn total_duration_unlimited_serializes_to_null() {
+        assert_eq!(TotalDuration::UNLIMITED.serialize_to_web().unwrap(), "null");
+    }
+
+    #[test]
+    fn total_duration_to_option() {
+        assert_eq!(TotalDuration::Minutes(200).to_option(), Some(200));
+        assert_eq!(TotalDuration::UNLIMITED.to_option(), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // FlightTimes
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn flight_times_default_serializes_to_null() {
+        let ft = FlightTimes::default();
+        assert_eq!(ft.serialize_to_web().unwrap(), "null");
+    }
+
+    #[test]
+    fn flight_times_with_values_serializes_correctly() {
+        let ft = FlightTimes::new(6, 22, 8, 20);
+        assert_eq!(ft.serialize_to_web().unwrap(), "[6,22,8,20]");
+    }
+
+    #[test]
+    fn flight_times_zero_hours_treated_as_none() {
+        // Values of 0 are rejected by the constructor (0 is not > 0)
+        let ft = FlightTimes::new(0, 0, 0, 0);
+        assert_eq!(ft.serialize_to_web().unwrap(), "null");
+    }
+
+    #[test]
+    fn flight_times_out_of_range_hours_treated_as_none() {
+        // Values ≥ 24 are rejected
+        let ft = FlightTimes::new(25, 25, 25, 25);
+        assert_eq!(ft.serialize_to_web().unwrap(), "null");
+    }
+
+    #[test]
+    fn flight_times_getters_return_correct_values() {
+        let ft = FlightTimes::new(7, 21, 9, 18);
+        assert_eq!(ft.get_departure_hour_min(), Some(7));
+        assert_eq!(ft.get_departure_hour_max(), Some(21));
+        assert_eq!(ft.get_arrival_hour_min(), Some(9));
+        assert_eq!(ft.get_arrival_hour_max(), Some(18));
+    }
+
+    #[test]
+    fn flight_times_getters_return_none_for_default() {
+        let ft = FlightTimes::default();
+        assert_eq!(ft.get_departure_hour_min(), None);
+        assert_eq!(ft.get_departure_hour_max(), None);
+        assert_eq!(ft.get_arrival_hour_min(), None);
+        assert_eq!(ft.get_arrival_hour_max(), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Location::serialize_to_web
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn location_airport_serializes_with_type_zero() {
+        let loc = Location {
+            loc_identifier: "LHR".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        assert_eq!(loc.serialize_to_web().unwrap(), r#"[\"LHR\",0]"#);
+    }
+
+    #[test]
+    fn location_city_serializes_with_type_five() {
+        let loc = Location {
+            loc_identifier: "/m/04jpl".to_owned(),
+            loc_type: PlaceType::City,
+            location_name: Some("London".to_owned()),
+        };
+        assert_eq!(loc.serialize_to_web().unwrap(), r#"[\"/m/04jpl\",5]"#);
+    }
+
+    // -----------------------------------------------------------------------
+    // Travelers::to_proto_vec
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn travelers_to_proto_vec_maps_correctly() {
+        let t = Travelers::new(vec![2, 1, 1, 1]).unwrap();
+        let v = t.to_proto_vec();
+        // 2 adults → [1,1], 1 child → [2], 1 infant_in_seat → [3], 1 infant_on_lap → [4]
+        assert_eq!(v, vec![1, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn travelers_to_proto_vec_adults_only() {
+        let t = Travelers::new(vec![3, 0, 0, 0]).unwrap();
+        assert_eq!(t.to_proto_vec(), vec![1, 1, 1]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Travelers::serialize_to_web
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn travelers_serialize_to_web() {
+        let t = Travelers::new(vec![2, 1, 0, 0]).unwrap();
+        assert_eq!(t.serialize_to_web().unwrap(), "[2,1,0,0]");
+    }
+
+    // -----------------------------------------------------------------------
+    // FixedFlights
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn fixed_flights_add_element_enforces_max() {
+        use crate::parsers::flight_response::{Itinerary, ItineraryContainer, ItineraryCost};
+        let ff = FixedFlights::new(1);
+        let dummy = || ItineraryContainer {
+            itinerary: Itinerary {
+                flight_by: "XX".to_owned(),
+                flight_details: vec![],
+                total_time_minutes: 0,
+                connection_info: None,
+                emissions: None,
+            },
+            itinerary_cost: ItineraryCost {
+                departure_token: "tok".to_owned(),
+                trip_cost: None,
+            },
+            departure_protobuf: String::new(),
+        };
+        assert!(ff.add_element(dummy()).is_ok());
+        assert!(ff.is_full());
+        assert!(ff.add_element(dummy()).is_err());
+    }
+
+    #[test]
+    fn fixed_flights_get_departure_token_returns_last() {
+        use crate::parsers::flight_response::{Itinerary, ItineraryContainer, ItineraryCost};
+        let ff = FixedFlights::new(2);
+        let make = |tok: &str| ItineraryContainer {
+            itinerary: Itinerary {
+                flight_by: "XX".to_owned(),
+                flight_details: vec![],
+                total_time_minutes: 0,
+                connection_info: None,
+                emissions: None,
+            },
+            itinerary_cost: ItineraryCost {
+                departure_token: tok.to_owned(),
+                trip_cost: None,
+            },
+            departure_protobuf: String::new(),
+        };
+        assert_eq!(ff.get_departure_token(), None);
+        ff.add_element(make("first_token")).unwrap();
+        assert_eq!(ff.get_departure_token(), Some("first_token".to_owned()));
+        ff.add_element(make("second_token")).unwrap();
+        assert_eq!(ff.get_departure_token(), Some("second_token".to_owned()));
+    }
+
+    #[test]
+    fn fixed_flights_maybe_get_nth_flight_info() {
+        use crate::parsers::flight_response::{Itinerary, ItineraryContainer, ItineraryCost};
+        let ff = FixedFlights::new(2);
+        assert!(ff.maybe_get_nth_flight_info(0).is_none());
+        let dummy = ItineraryContainer {
+            itinerary: Itinerary {
+                flight_by: "BA".to_owned(),
+                flight_details: vec![],
+                total_time_minutes: 120,
+                connection_info: None,
+                emissions: None,
+            },
+            itinerary_cost: ItineraryCost {
+                departure_token: "tok".to_owned(),
+                trip_cost: None,
+            },
+            departure_protobuf: String::new(),
+        };
+        ff.add_element(dummy).unwrap();
+        let info = ff.maybe_get_nth_flight_info(0);
+        assert!(info.is_some());
+        assert_eq!(info.unwrap().len(), 0);
+    }
 }
