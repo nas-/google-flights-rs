@@ -12,15 +12,20 @@ Search flights, compare prices across a date range, retrieve booking offers, and
 
 - **Flight search** — one-way, return, multi-stop itineraries
 - **Price graph** — cheapest fares across a configurable date range
+- **Date grid** — full departure × return price matrix for round trips
 - **Booking offers** — airline/OTA offers with prices and booking URLs
 - **City / airport lookup** — resolve city names and IATA codes
 - **Multi-airport search** — up to 4 departure or destination airports
+- **Airline / alliance filters** — include or exclude specific airlines or alliances (oneworld, SkyTeam, Star Alliance)
+- **Connection filters** — require layover through specific airports; set min/max layover duration
+- **Lower-emissions filter** — restrict to flights with below-average CO₂
 - **Locale support** — `language` + `country` for non-English results
 - **Sort order** — Best · Price · Duration · Departure time · Arrival time
 - **CO2 / emissions** — included in parsed itinerary data
 - **Layover details** — connection time, airport codes, overnight warnings
 - **Rate limiting** — built-in governor-based token-bucket limiter
 - **Retry logic** — exponential back-off for transient 5xx / timeout errors
+- **CLI** — interactive REPL and one-shot subcommands (`search`, `graph`, `dgrid`, `offer`)
 
 ---
 
@@ -31,6 +36,92 @@ Search flights, compare prices across a date range, retrieve booking offers, and
 gflights = "0.1.0"
 tokio = { version = "1", features = ["full"] }
 ```
+
+---
+
+## CLI
+
+The crate ships a `gflights` binary. Install it with:
+
+```sh
+cargo install gflights
+```
+
+### One-shot mode
+
+```sh
+# Search flights
+gflights search --from LHR --to JFK --date 2026-08-01
+
+# Round trip with filters
+gflights search --from MXP --to NRT --date 2026-09-01 --return 2026-09-15 \
+  --airline LX --airline ONEWORLD --via ZRH \
+  --min-layover 60 --max-layover 180 \
+  --lower-emissions --sort price --format json
+
+# Price graph (cheapest fare per day over 3 months)
+gflights graph --from LHR --to JFK --date 2026-08-01 --months 3
+
+# Departure × return price grid
+gflights dgrid --from LHR --to JFK \
+  --dep-start 2026-08-01 --dep-end 2026-08-07 \
+  --ret-start 2026-08-15 --ret-end 2026-08-22
+
+# Booking offers with clickable URLs (OSC 8, supported in most modern terminals)
+gflights offer --from FRA --to SIN --date 2026-10-01
+```
+
+### Interactive REPL
+
+Run `gflights` with no arguments to enter an interactive session with history:
+
+```
+gflights> search --from LHR --to JFK --date 2026-08-01
+gflights> graph  --from MXP --to SYD --date 2026-09-01 --months 2
+gflights> dgrid  --from LHR --to JFK --dep-start 2026-08-01 --dep-end 2026-08-07 --ret-start 2026-08-15 --ret-end 2026-08-22
+gflights> quit
+```
+
+### `search` flag reference
+
+| Flag | Default | Description |
+|---|---|---|
+| `--from <CODE>` | required | Departure airport IATA code or city name |
+| `--to <CODE>` | required | Destination airport IATA code or city name |
+| `--date <YYYY-MM-DD>` | required | Outbound departure date |
+| `--return <YYYY-MM-DD>` | one-way | Return date |
+| `--adults <N>` | `1` | Number of adult passengers |
+| `--class <CLASS>` | `economy` | `economy` · `premium-economy` · `business` · `first` |
+| `--stops <STOPS>` | `all` | `all` · `non-stop` · `one-stop` |
+| `--sort <SORT>` | `best` | `best` · `price` · `duration` · `departure-time` · `arrival-time` ¹ |
+| `--airline <CODE>` | — | Include airline IATA code or alliance (`ONEWORLD`, `SKYTEAM`, `STAR_ALLIANCE`). Repeatable. |
+| `--exclude-airline <CODE>` | — | Exclude airline or alliance. Repeatable. |
+| `--via <IATA>` | — | Require connection through this airport. Repeatable. |
+| `--min-layover <MINS>` | none | Minimum layover in minutes (rounded up to 30 min intervals) |
+| `--max-layover <MINS>` | none | Maximum layover in minutes |
+| `--lower-emissions` | off | Restrict to below-average CO₂ flights |
+| `--currency <CURRENCY>` | `euro` | Result currency (e.g. `us-dollar`, `british-pound`) |
+| `--lang <CODE>` | `en` | BCP-47 language subtag |
+| `--country <CODE>` | `GB` | ISO 3166-1 alpha-2 country code |
+| `--format <FORMAT>` | `table` | `table` · `json` |
+
+¹ `departure-time` and `arrival-time` are sorted client-side after Google returns results.
+
+### `dgrid` flag reference
+
+| Flag | Default | Description |
+|---|---|---|
+| `--from <CODE>` | required | Departure airport IATA code or city name |
+| `--to <CODE>` | required | Destination airport IATA code or city name |
+| `--dep-start <DATE>` | required | First outbound departure date |
+| `--dep-end <DATE>` | required | Last outbound departure date |
+| `--ret-start <DATE>` | required | First return date |
+| `--ret-end <DATE>` | required | Last return date |
+| `--adults <N>` | `1` | Number of adult passengers |
+| `--class <CLASS>` | `economy` | Travel class |
+| `--stops <STOPS>` | `all` | Stop filter |
+| `--currency <CURRENCY>` | `euro` | Result currency |
+| `--format <FORMAT>` | `table` | `table` · `json` |
 
 ---
 
@@ -139,10 +230,18 @@ cargo run --example graph
 | `.currency(c)` | `Currency` | EUR | Result currency |
 | `.language(s)` | `&str` | `"en"` | BCP-47 language subtag |
 | `.country(s)` | `&str` | `"GB"` | ISO 3166-1 alpha-2 country code |
+| `.stopover_min(d)` | `StopoverDuration` | Unlimited | Minimum layover duration |
 | `.stopover_max(d)` | `StopoverDuration` | Unlimited | Maximum layover duration |
 | `.duration_max(d)` | `TotalDuration` | Unlimited | Maximum total trip duration |
 | `.departing_times(t)` | `FlightTimes` | Any | Outbound departure time window |
 | `.return_times(t)` | `FlightTimes` | Any | Return departure time window |
+| `.airlines_include(v)` | `Vec<AirlineFilter>` | none | Restrict to these airlines / alliances |
+| `.add_airline_include(f)` | `AirlineFilter` | — | Add one airline / alliance to include filter |
+| `.airlines_exclude(v)` | `Vec<AirlineFilter>` | none | Exclude these airlines / alliances |
+| `.add_airline_exclude(f)` | `AirlineFilter` | — | Add one airline / alliance to exclude filter |
+| `.connecting_airports(v)` | `Vec<String>` | none | Require connection through these IATA airport codes |
+| `.add_connecting_airport(s)` | `&str` | — | Add one connecting airport |
+| `.lower_emissions(b)` | `bool` | `false` | Restrict to below-average CO₂ flights |
 
 ### Travelers
 
@@ -154,6 +253,28 @@ let travelers = Travelers::new(vec![2, 1, 0, 0])?; // 2 adults + 1 child
 ```
 
 Rules: at least 1 adult, total ≤ 9 passengers.
+
+### Airline & connection filters
+
+```rust
+use gflights::parsers::common::{AirlineFilter, Alliance};
+
+let config = Config::builder()
+    .departure("LHR", &client).await?
+    .destination("JFK", &client).await?
+    .departing_date(date)
+    // Only show British Airways and oneworld alliance members
+    .add_airline_include("BA".parse::<AirlineFilter>()?)
+    .add_airline_include(AirlineFilter::Alliance(Alliance::OneWorld))
+    // Must connect through Dublin
+    .add_connecting_airport("DUB")
+    // At least 45 min layover, at most 3 hours
+    .stopover_min(StopoverDuration::Minutes(45))
+    .stopover_max(StopoverDuration::Minutes(180))
+    // Lower CO₂ only
+    .lower_emissions(true)
+    .build()?;
+```
 
 ---
 
@@ -232,18 +353,26 @@ match client.request_flights(&config).await {
 cargo build
 
 # Unit tests (no network)
-cargo test
+cargo test --lib
 
-# Live integration tests (requires internet)
-cargo test --test live_api -- --ignored
+# Binary (CLI) tests
+cargo test --bin gflights
 
-# Run examples
-cargo run --example flights
-cargo run --example graph
+# Doc tests
+cargo test --doc
+
+# Live integration tests (requires internet, skipped in CI)
+RUN_LIVE_TESTS=1 cargo test --lib -- --ignored
 
 # Docs
 cargo doc --open
 
 # Lint
-cargo clippy
+cargo clippy --all-targets -- -D warnings
+
+# Format
+cargo fmt
+
+# Security audit
+cargo audit
 ```
