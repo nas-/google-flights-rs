@@ -394,14 +394,17 @@ async fn cmd_graph(args: GraphArgs, client: &ApiClient) -> Result<()> {
 // offer
 // ---------------------------------------------------------------------------
 
-/// Maximum display width for booking URLs in the table view.
-const URL_DISPLAY_MAX: usize = 60;
-
-fn truncate_url(url: &str) -> String {
-    if url.len() <= URL_DISPLAY_MAX {
-        url.to_string()
+/// Render a terminal hyperlink (OSC 8) when stdout is a TTY; plain URL otherwise.
+///
+/// Supported by: Windows Terminal, iTerm2, GNOME Terminal, VTE-based terminals.
+/// In a non-TTY context (pipe / file redirect) the raw URL is emitted instead.
+fn render_link(url: &str, label: &str) -> String {
+    use std::io::IsTerminal;
+    if std::io::stdout().is_terminal() {
+        // OSC 8 ; params ; uri ST  label  OSC 8 ; ; ST
+        format!("\x1b]8;;{url}\x1b\\{label}\x1b]8;;\x1b\\")
     } else {
-        format!("{}…", &url[..URL_DISPLAY_MAX])
+        url.to_string()
     }
 }
 
@@ -455,15 +458,15 @@ async fn cmd_offer(args: OfferArgs, client: &ApiClient) -> Result<()> {
                 let airlines = o.airline_names.join(", ");
                 let price = o.price.unwrap_or(0);
                 // Resolve booking URL if a click token is available.
-                let url = if let Some(token) = o.click_token.as_deref() {
+                let link = if let Some(token) = o.click_token.as_deref() {
                     match client.resolve_booking_url(token).await {
-                        Ok(u) => truncate_url(&u),
+                        Ok(u) => render_link(&u, "Book"),
                         Err(_) => "(URL unavailable)".into(),
                     }
                 } else {
                     "(no token)".into()
                 };
-                println!("{:<30}  {:>8}  {}", airlines, price, url);
+                println!("{:<30}  {:>8}  {}", airlines, price, link);
             }
         }
     }
