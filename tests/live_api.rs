@@ -44,6 +44,25 @@
 use anyhow::Result;
 use chrono::{Duration, Months, Utc};
 use gflights::requests::{api::ApiClient, config::Config};
+use std::sync::Arc;
+
+// ---------------------------------------------------------------------------
+// Shared client (avoids spinning up a fresh rate-limiter for every test)
+// ---------------------------------------------------------------------------
+
+/// A process-wide live client initialised at most once.
+///
+/// `tokio::sync::OnceCell` is safe to share across the independent runtimes
+/// that `#[tokio::test]` creates because, once the value is present, every
+/// subsequent `get_or_init` call resolves immediately without touching the
+/// runtime-internal waker machinery.
+static LIVE_CLIENT: tokio::sync::OnceCell<ApiClient> = tokio::sync::OnceCell::const_new();
+
+async fn shared_client() -> &'static ApiClient {
+    LIVE_CLIENT
+        .get_or_init(|| async { ApiClient::new().await })
+        .await
+}
 
 /// Early-returns `Ok(())` from the enclosing async fn unless `RUN_LIVE_TESTS`
 /// is set to a non-empty value in the environment.
@@ -784,6 +803,231 @@ async fn offer_sub_options_are_structurally_valid_for_lhr_jfk() -> Result<()> {
                     );
                 }
             }
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Locale parameters
+// ---------------------------------------------------------------------------
+
+/// A search with French locale (language="fr", country="FR") returns a
+/// structurally valid response — verifies non-English locale is threaded
+/// through to the API endpoint without parse errors.
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn search_with_french_locale_parses_ok() -> Result<()> {
+    require_live!();
+    let client = shared_client().await;
+
+    let config = Config::builder()
+        .departure("CDG", client)
+        .await?
+        .destination("JFK", client)
+        .await?
+        .departing_date(days_from_now(14))
+        .language("fr".to_string())
+        .country("FR".to_string())
+        .build()?;
+
+    let response = client.request_flights(&config).await?;
+
+    // Must parse without error and return at least one flight on a busy route.
+    let flights: Vec<_> = response
+        .responses
+        .iter()
+        .filter_map(|r| r.maybe_get_all_flights())
+        .flatten()
+        .collect();
+
+    assert!(
+        !flights.is_empty(),
+        "expected ≥1 flight for CDG→JFK with fr-FR locale"
+    );
+
+    // Structural sanity on the first result.
+    let first = &flights[0].itinerary;
+    assert!(!first.flight_by.is_empty(), "flight_by should not be empty");
+    assert!(
+        !first.flight_details.is_empty(),
+        "flight_details should not be empty"
+    );
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Concurrency
+// ---------------------------------------------------------------------------
+
+/// Three concurrent tasks sharing one `ApiClient` all return results without
+/// panicking. Exercises the rate-limiter and internal state under parallelism.
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn concurrent_requests_all_succeed() -> Result<()> {
+    require_live!();
+    // Use a freshly constructed client wrapped in Arc so all three tasks share
+    // the same rate-limiter bucket.
+    let client = Arc::new(ApiClient::new().await);
+
+    let mut handles = Vec::new();
+    for _ in 0..3 {
+        let c = Arc::clone(&client);
+        handles.push(tokio::spawn(async move {
+            let config = Config::builder()
+                .departure("LHR", &*c)
+                .await?
+                .destination("JFK", &*c)
+                .await?
+                .departing_date(days_from_now(14))
+                .build()?;
+            let resp = c.request_flights(&config).await?;
+            let count = resp
+                .responses
+                .iter()
+                .filter_map(|r| r.maybe_get_all_flights())
+                .flatten()
+                .count();
+            anyhow::Ok(count)
+        }));
+    }
+
+    for (i, handle) in handles.into_iter().enumerate() {
+        let count = handle.await??;
+        assert!(
+            count > 0,
+            "concurrent task {i} returned 0 flights — expected ≥1 for LHR→JFK"
+        );
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Booking-URL / click tokens
+// ---------------------------------------------------------------------------
+
+/// Every offer that carries a price also carries a non-empty click token.
+/// The click token is the opaque string used by `resolve_booking_url()` to
+/// obtain the final airline/OTA redirect URL.
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn offer_click_tokens_are_nonempty() -> Result<()> {
+    require_live!();
+    let client = shared_client().await;
+
+    let config = Config::builder()
+        .departure("LHR", client)
+        .await?
+        .destination("JFK", client)
+        .await?
+        .departing_date(days_from_now(30))
+        .return_date(days_from_now(37))
+        .build()?;
+
+    // Fix outbound leg.
+    let out_resp = client.request_flights(&config).await?;
+    let first_out = out_resp
+        .responses
+        .iter()
+        .filter_map(|r| r.maybe_get_all_flights())
+        .flatten()
+        .next()
+        .expect("no outbound flights for LHR→JFK");
+    config.fixed_flights.add_element(first_out)?;
+
+    // Fix return leg.
+    let ret_resp = client.request_flights(&config).await?;
+    let first_ret = ret_resp
+        .responses
+        .iter()
+        .filter_map(|r| r.maybe_get_all_flights())
+        .flatten()
+        .next()
+        .expect("no return flights for JFK→LHR");
+    config.fixed_flights.add_element(first_ret)?;
+
+    let offers = client.request_offer(&config).await?;
+
+    // Collect offers that have a price — those must also carry a click token.
+    let priced_offers: Vec<_> = offers
+        .response
+        .iter()
+        .flat_map(|r| &r.offers)
+        .filter(|o| o.price.is_some())
+        .collect();
+
+    assert!(
+        !priced_offers.is_empty(),
+        "expected ≥1 priced offer for LHR→JFK round trip"
+    );
+
+    for (i, offer) in priced_offers.iter().enumerate() {
+        let token = offer
+            .click_token
+            .as_deref()
+            .unwrap_or_else(|| panic!("offer[{i}] has a price but no click_token"));
+        assert!(
+            !token.is_empty(),
+            "offer[{i}] click_token must be non-empty"
+        );
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Negative / error inputs
+// ---------------------------------------------------------------------------
+
+/// Searching with the fictional IATA code "XXX" must not panic.
+///
+/// The API may:
+///   (a) refuse to build the config (`build()` returns `Err`), or
+///   (b) send the request and return an empty result list, or
+///   (c) interpret "XXX" as a city lookup and return results for another airport.
+///
+/// All outcomes are acceptable — what is NOT acceptable is an unhandled panic
+/// or an error that propagates without being caught by the error types.
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn invalid_iata_xxx_does_not_panic() -> Result<()> {
+    require_live!();
+    let client = shared_client().await;
+
+    // City lookup for "XXX" — may succeed (returning some location) or fail.
+    let build_result = Config::builder()
+        .departure("XXX", client)
+        .await?
+        .destination("JFK", client)
+        .await?
+        .departing_date(days_from_now(14))
+        .build();
+
+    let config = match build_result {
+        Err(_) => {
+            // Config build rejected the input — valid outcome.
+            return Ok(());
+        }
+        Ok(c) => c,
+    };
+
+    // If config built, the flight search must either parse cleanly or return
+    // a typed error — no panics allowed.
+    match client.request_flights(&config).await {
+        Err(_) => {
+            // Typed error propagated correctly — valid outcome.
+        }
+        Ok(resp) => {
+            // Parse the response regardless of flight count — must not panic.
+            let _count = resp
+                .responses
+                .iter()
+                .filter_map(|r| r.maybe_get_all_flights())
+                .flatten()
+                .count();
         }
     }
 
