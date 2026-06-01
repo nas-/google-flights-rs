@@ -241,6 +241,17 @@ async fn run_repl(client: &ApiClient) -> Result<()> {
                             eprintln!("Error: {e:#}");
                         }
                     }
+                    // clap would normally call process::exit for --help / --version;
+                    // intercept those kinds and just print without exiting the REPL.
+                    Err(e)
+                        if matches!(
+                            e.kind(),
+                            clap::error::ErrorKind::DisplayHelp
+                                | clap::error::ErrorKind::DisplayVersion
+                        ) =>
+                    {
+                        print!("{e}");
+                    }
                     Err(e) => eprintln!("{e}"),
                 }
             }
