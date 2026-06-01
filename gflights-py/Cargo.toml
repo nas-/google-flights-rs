@@ -7,13 +7,14 @@ license = "MIT"
 repository = "https://github.com/nas-/google-flights-rs"
 
 [lib]
-name = "gflights"
+name = "_gflights"
 crate-type = ["cdylib"]
 
 [dependencies]
 gflights = { path = ".." }
 pyo3 = { version = "0.22", features = ["extension-module"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+pyo3-async-runtimes = { version = "0.22", features = ["tokio-runtime"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
 anyhow = "1"
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }

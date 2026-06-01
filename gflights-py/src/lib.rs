@@ -1,34 +1,27 @@
-//! Python bindings for the `gflights` Rust library.
-// pyo3's generated wrapper functions emit a PyErr→PyErr conversion that triggers
-// this lint.  Suppress globally since we cannot annotate macro-generated items.
-#![allow(clippy::useless_conversion)]
+//! Private Rust extension module — import via the `gflights` Python package.
 //!
 //! Build with `maturin develop` (editable install) or `maturin build --release`.
 //!
 //! ```python
+//! import asyncio
 //! import gflights
 //!
-//! client = gflights.GFlights()
+//! async def main():
+//!     client = gflights.GFlights()
+//!     flights = await client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01")
+//!     for f in flights:
+//!         print(f.airline, f.duration_minutes, f.price)
 //!
-//! flights = client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01")
-//! for f in flights:
-//!     print(f.airline, f.duration_minutes, f.price)
-//!
-//! graph = client.price_graph(from_airport="LHR", to_airport="JFK", date="2026-08-01", months=3)
-//! cheapest = min(graph, key=lambda e: e.price)
-//!
-//! grid = client.date_grid(
-//!     from_airport="LHR", to_airport="JFK",
-//!     dep_start="2026-08-01", dep_end="2026-08-07",
-//!     ret_start="2026-08-15", ret_end="2026-08-22",
-//! )
+//! asyncio.run(main())
 //! ```
+
+// pyo3's generated wrapper functions emit a PyErr→PyErr conversion that triggers
+// this lint. Suppress globally since we cannot annotate macro-generated items.
+#![allow(clippy::useless_conversion)]
 
 use anyhow::Context as _;
 use chrono::{Months, NaiveDate};
-// Alias the upstream crate to avoid the name collision with the #[pymodule]
-// function `gflights` that pyo3 injects into this module's namespace.
-use ::gflights::{
+use gflights::{
     parsers::common::{AirlineFilter, SortOrder, StopOptions, TravelClass},
     requests::{
         api::ApiClient,
@@ -36,7 +29,6 @@ use ::gflights::{
     },
 };
 use pyo3::prelude::*;
-use tokio::runtime::Runtime;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -171,8 +163,7 @@ impl LayoverInfo {
 #[pyclass(get_all)]
 #[derive(Clone, Debug)]
 pub struct EmissionsInfo {
-    /// How much more (+) or less (−) CO₂ this itinerary emits vs. the typical
-    /// route, as a percentage. `None` if Google did not return this value.
+    /// How much more (+) or less (−) CO₂ vs. typical route, as a percentage.
     pub vs_average_percent: Option<i64>,
     /// Estimated CO₂ for this specific flight, in grams.
     pub co2_this_flight_g: Option<i64>,
@@ -192,7 +183,7 @@ impl EmissionsInfo {
     }
 }
 
-/// One flight itinerary returned by [`GFlights.search`].
+/// One flight itinerary returned by :meth:`GFlights.search`.
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct FlightResult {
@@ -208,7 +199,7 @@ pub struct FlightResult {
     /// Price in the requested currency, or `None` if unavailable.
     #[pyo3(get)]
     pub price: Option<i32>,
-    /// Raw booking token — pass to [`GFlights.offers`] for booking URLs.
+    /// Raw booking token — pass to :meth:`GFlights.offers` for booking URLs.
     #[pyo3(get)]
     pub booking_token: String,
     legs: Vec<LegInfo>,
@@ -221,28 +212,19 @@ impl FlightResult {
     /// List of individual flight legs.
     #[getter]
     fn legs(&self, py: Python<'_>) -> PyResult<Vec<Py<LegInfo>>> {
-        self.legs
-            .iter()
-            .map(|l| Py::new(py, l.clone()))
-            .collect()
+        self.legs.iter().map(|l| Py::new(py, l.clone())).collect()
     }
 
     /// List of layover connections between legs (empty for non-stop flights).
     #[getter]
     fn layovers(&self, py: Python<'_>) -> PyResult<Vec<Py<LayoverInfo>>> {
-        self.layovers
-            .iter()
-            .map(|l| Py::new(py, l.clone()))
-            .collect()
+        self.layovers.iter().map(|l| Py::new(py, l.clone())).collect()
     }
 
     /// CO₂ emissions data, or `None` if Google did not return it.
     #[getter]
     fn emissions(&self, py: Python<'_>) -> PyResult<Option<Py<EmissionsInfo>>> {
-        self.emissions
-            .as_ref()
-            .map(|e| Py::new(py, e.clone()))
-            .transpose()
+        self.emissions.as_ref().map(|e| Py::new(py, e.clone())).transpose()
     }
 
     fn __repr__(&self) -> String {
@@ -297,49 +279,39 @@ impl DateGridEntry {
 // ---------------------------------------------------------------------------
 
 fn flight_info_to_leg(
-    fi: &::gflights::parsers::response::flight_response::FlightInfo,
+    fi: &gflights::parsers::response::flight_response::FlightInfo,
 ) -> LegInfo {
     let dep_h = fi.departure_time.hour.unwrap_or(0);
     let arr_h = fi.arrival_time.hour.unwrap_or(0);
-    let dep_time = format!("{dep_h:02}:{:02}", fi.departure_time.minute);
-    let arr_time = format!("{arr_h:02}:{:02}", fi.arrival_time.minute);
-    let dep_date = format!(
-        "{:04}-{:02}-{:02}",
-        fi.departure_date.year, fi.departure_date.month, fi.departure_date.day
-    );
-    let arr_date = format!(
-        "{:04}-{:02}-{:02}",
-        fi.arrival_date.year, fi.arrival_date.month, fi.arrival_date.day
-    );
     LegInfo {
         from_airport: fi.departure_airport_code.clone(),
         to_airport: fi.destination_airport_code.clone(),
-        departure_time: dep_time,
-        arrival_time: arr_time,
-        departure_date: dep_date,
-        arrival_date: arr_date,
+        departure_time: format!("{dep_h:02}:{:02}", fi.departure_time.minute),
+        arrival_time: format!("{arr_h:02}:{:02}", fi.arrival_time.minute),
+        departure_date: format!(
+            "{:04}-{:02}-{:02}",
+            fi.departure_date.year, fi.departure_date.month, fi.departure_date.day
+        ),
+        arrival_date: format!(
+            "{:04}-{:02}-{:02}",
+            fi.arrival_date.year, fi.arrival_date.month, fi.arrival_date.day
+        ),
         duration_minutes: fi.leg_duration_minutes,
     }
 }
 
 fn conn_to_layover(
-    c: &::gflights::parsers::response::flight_response::ConnectionInfo,
+    c: &gflights::parsers::response::flight_response::ConnectionInfo,
 ) -> LayoverInfo {
-    let overnight = c
-        .connection_warnings
-        .as_ref()
-        .is_some_and(|w| w.contains(&1));
     LayoverInfo {
         connection_minutes: c.connection_time_minutes,
         arrival_airport: c.arrival_airport.clone(),
         departure_airport: c.departure_airport.clone(),
-        overnight,
+        overnight: c.connection_warnings.as_ref().is_some_and(|w| w.contains(&1)),
     }
 }
 
-fn emissions_to_py(
-    e: &::gflights::parsers::response::flight_response::Emissions,
-) -> EmissionsInfo {
+fn emissions_to_py(e: &gflights::parsers::response::flight_response::Emissions) -> EmissionsInfo {
     EmissionsInfo {
         vs_average_percent: e.emission_vs_average_percent,
         co2_this_flight_g: e.co2_this_flight_g,
@@ -349,26 +321,22 @@ fn emissions_to_py(
 }
 
 fn itinerary_container_to_flight(
-    ic: &::gflights::parsers::response::flight_response::ItineraryContainer,
+    ic: &gflights::parsers::response::flight_response::ItineraryContainer,
 ) -> FlightResult {
-    let legs = ic.itinerary.flight_details.iter().map(flight_info_to_leg).collect();
-    let layovers = ic
-        .itinerary
-        .connection_info
-        .as_ref()
-        .map(|v| v.iter().map(conn_to_layover).collect())
-        .unwrap_or_default();
-    let emissions = ic.itinerary.emissions.as_ref().map(emissions_to_py);
-    let price = ic.itinerary_cost.trip_cost.as_ref().map(|c| c.price);
     FlightResult {
         airline: ic.itinerary.flight_by.clone(),
         duration_minutes: ic.itinerary.total_time_minutes,
         stops: ic.itinerary.stop_count(),
-        price,
+        price: ic.itinerary_cost.trip_cost.as_ref().map(|c| c.price),
         booking_token: ic.itinerary_cost.departure_token.clone(),
-        legs,
-        layovers,
-        emissions,
+        legs: ic.itinerary.flight_details.iter().map(flight_info_to_leg).collect(),
+        layovers: ic
+            .itinerary
+            .connection_info
+            .as_ref()
+            .map(|v| v.iter().map(conn_to_layover).collect())
+            .unwrap_or_default(),
+        emissions: ic.itinerary.emissions.as_ref().map(emissions_to_py),
     }
 }
 
@@ -376,35 +344,38 @@ fn itinerary_container_to_flight(
 // Main Python class
 // ---------------------------------------------------------------------------
 
-/// Async Rust client for Google Flights, exposed as a synchronous Python class.
+/// Async Python client for Google Flights, backed by a fast Rust/tokio core.
 ///
-/// All network calls block the calling Python thread.  Use
-/// `asyncio.to_thread(client.search, ...)` if you need async behaviour.
+/// All three search methods are coroutines — use with ``await``.
+/// Multiple calls can run concurrently with ``asyncio.gather``.
 ///
 /// Example::
 ///
-///     import gflights
-///     client = gflights.GFlights()
-///     flights = client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01")
+///     import asyncio, gflights
+///
+///     async def main():
+///         client = gflights.GFlights()
+///         lhr_jfk, mad_mex = await asyncio.gather(
+///             client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01"),
+///             client.search(from_airport="MAD", to_airport="MEX", date="2026-08-01"),
+///         )
+///
+///     asyncio.run(main())
 #[pyclass]
 pub struct GFlights {
     client: ApiClient,
-    rt: Runtime,
 }
 
-// pyo3's generated wrapper functions trigger `useless_conversion` (PyErr→PyErr)
-// for any method returning PyResult<Vec<Py<T>>>. Suppress at impl-block level.
-#[allow(clippy::useless_conversion)]
 #[pymethods]
 impl GFlights {
-    /// Create a new client. Initialises the underlying HTTP client and
-    /// tokio runtime. This is the only blocking constructor call.
+    /// Create a new client.
+    ///
+    /// The constructor is synchronous (fast — just initialises the HTTP client).
+    /// All search methods are async coroutines.
     #[new]
-    fn new() -> PyResult<Self> {
-        let rt = Runtime::new()
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        let client = rt.block_on(ApiClient::new());
-        Ok(GFlights { client, rt })
+    fn new() -> Self {
+        let client = pyo3_async_runtimes::tokio::get_runtime().block_on(ApiClient::new());
+        GFlights { client }
     }
 
     /// Search for flights.
@@ -417,15 +388,14 @@ impl GFlights {
     /// :param travel_class: ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
     /// :param stops:        ``"all"`` / ``"nonstop"`` / ``"one-stop"``.
     /// :param sort:         ``"best"`` / ``"price"`` / ``"duration"`` / ``"departure-time"`` / ``"arrival-time"``.
-    /// :param airlines_include: List of IATA codes or alliance names to include
-    ///                          (e.g. ``["BA", "ONEWORLD"]``).
-    /// :param airlines_exclude: List of IATA codes or alliance names to exclude.
+    /// :param airlines_include: IATA codes or alliances to include (e.g. ``["BA", "ONEWORLD"]``).
+    /// :param airlines_exclude: IATA codes or alliances to exclude.
     /// :param via:          Require a connection through these airports.
     /// :param lower_emissions: Restrict to below-average CO₂ flights.
-    /// :param currency:     Currency name (e.g. ``"euro"``, ``"us-dollar"``, ``"british-pound"``).
+    /// :param currency:     Currency name (e.g. ``"euro"``, ``"us-dollar"``).
     /// :param lang:         BCP-47 language subtag (default ``"en"``).
     /// :param country:      ISO 3166-1 alpha-2 country code (default ``"GB"``).
-    /// :returns:            List of :class:`FlightResult`.
+    /// :returns:            Coroutine → ``list[FlightResult]``
     #[pyo3(signature = (
         from_airport,
         to_airport,
@@ -443,14 +413,14 @@ impl GFlights {
         lang = "en",
         country = "GB",
     ))]
-    #[allow(clippy::too_many_arguments, clippy::useless_conversion)]
-    fn search(
+    #[allow(clippy::too_many_arguments)]
+    fn search<'py>(
         &self,
-        py: Python<'_>,
-        from_airport: &str,
-        to_airport: &str,
-        date: &str,
-        return_date: Option<&str>,
+        py: Python<'py>,
+        from_airport: String,
+        to_airport: String,
+        date: String,
+        return_date: Option<String>,
         adults: u8,
         travel_class: &str,
         stops: &str,
@@ -462,68 +432,77 @@ impl GFlights {
         currency: &str,
         lang: &str,
         country: &str,
-    ) -> PyResult<Vec<Py<FlightResult>>> {
-        let dep_date = parse_date(date)?;
-        let ret_date = return_date.map(parse_date).transpose()?;
+    ) -> PyResult<Bound<'py, PyAny>> {
+        // Validate synchronously — raises ValueError before the coroutine is even awaited.
+        let dep_date = parse_date(&date)?;
+        let ret_date = return_date.as_deref().map(parse_date).transpose()?;
         let currency = parse_currency(currency)?;
         let stop_opt = parse_stop_options(stops)?;
         let class = parse_travel_class(travel_class)?;
         let sort_ord = parse_sort_order(sort)?;
         let inc = parse_airline_filters(&airlines_include)?;
         let exc = parse_airline_filters(&airlines_exclude)?;
-
-        let travelers = ::gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
+        let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
-        let results = py.allow_threads(|| {
-            self.rt.block_on(async {
-                let mut builder = Config::builder()
-                    .departure(from_airport, &self.client)
-                    .await?
-                    .destination(to_airport, &self.client)
-                    .await?
-                    .departing_date(dep_date)
-                    .travel_class(class)
-                    .stop_options(stop_opt)
-                    .sort_order(sort_ord)
-                    .currency(currency)
-                    .language(lang)
-                    .country(country)
-                    .travelers(travelers)
-                    .airlines_include(inc)
-                    .airlines_exclude(exc)
-                    .lower_emissions(lower_emissions);
+        // Convert &str → String before moving into the 'static async block.
+        let lang = lang.to_string();
+        let country = country.to_string();
+        let client = self.client.clone();
 
-                for airport in &via {
-                    builder = builder.add_connecting_airport(airport);
-                }
-                if let Some(r) = ret_date {
-                    builder = builder.return_date(r);
-                }
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let mut builder = Config::builder()
+                .departure(&from_airport, &client)
+                .await
+                .map_err(anyhow_to_py)?
+                .destination(&to_airport, &client)
+                .await
+                .map_err(anyhow_to_py)?
+                .departing_date(dep_date)
+                .travel_class(class)
+                .stop_options(stop_opt)
+                .sort_order(sort_ord)
+                .currency(currency)
+                .language(&lang)
+                .country(&country)
+                .travelers(travelers)
+                .airlines_include(inc)
+                .airlines_exclude(exc)
+                .lower_emissions(lower_emissions);
 
-                let config = builder.build()?;
-                let resp = self.client.request_flights(&config).await?;
-                Ok::<_, anyhow::Error>(resp.get_all_flights())
+            for airport in &via {
+                builder = builder.add_connecting_airport(airport);
+            }
+            if let Some(r) = ret_date {
+                builder = builder.return_date(r);
+            }
+
+            let config = builder.build().map_err(anyhow_to_py)?;
+            let flights = client
+                .request_flights(&config)
+                .await
+                .map_err(anyhow_to_py)?
+                .get_all_flights();
+
+            Python::with_gil(|py| {
+                flights
+                    .iter()
+                    .map(|ic| Py::new(py, itinerary_container_to_flight(ic)))
+                    .collect::<PyResult<Vec<_>>>()
             })
-        });
-
-        let flights = results.map_err(anyhow_to_py)?;
-        flights
-            .iter()
-            .map(|ic| Py::new(py, itinerary_container_to_flight(ic)))
-            .collect()
+        })
     }
 
     /// Retrieve the cheapest fare for each day over a date range (price graph).
     ///
     /// :param from_airport: Departure IATA code or city name.
     /// :param to_airport:   Destination IATA code or city name.
-    /// :param date:         Start date for the price graph as ``"YYYY-MM-DD"``.
+    /// :param date:         Start date as ``"YYYY-MM-DD"``.
     /// :param months:       How many months of price data to fetch (default 1).
     /// :param currency:     Currency name (e.g. ``"euro"``).
     /// :param lang:         BCP-47 language subtag.
     /// :param country:      ISO 3166-1 alpha-2 country code.
-    /// :returns:            List of :class:`PriceEntry`, sorted by date.
+    /// :returns:            Coroutine → ``list[PriceEntry]``, sorted by date.
     #[pyo3(signature = (
         from_airport,
         to_airport,
@@ -533,58 +512,64 @@ impl GFlights {
         lang = "en",
         country = "GB",
     ))]
-    #[allow(clippy::too_many_arguments, clippy::useless_conversion)]
-    fn price_graph(
+    #[allow(clippy::too_many_arguments)]
+    fn price_graph<'py>(
         &self,
-        py: Python<'_>,
-        from_airport: &str,
-        to_airport: &str,
-        date: &str,
+        py: Python<'py>,
+        from_airport: String,
+        to_airport: String,
+        date: String,
         months: u32,
         currency: &str,
         lang: &str,
         country: &str,
-    ) -> PyResult<Vec<Py<PriceEntry>>> {
-        let dep_date = parse_date(date)?;
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let dep_date = parse_date(&date)?;
         let currency = parse_currency(currency)?;
+        let lang = lang.to_string();
+        let country = country.to_string();
+        let client = self.client.clone();
 
-        let entries = py.allow_threads(|| {
-            self.rt.block_on(async {
-                let config = Config::builder()
-                    .departure(from_airport, &self.client)
-                    .await?
-                    .destination(to_airport, &self.client)
-                    .await?
-                    .departing_date(dep_date)
-                    .currency(currency)
-                    .language(lang)
-                    .country(country)
-                    .build()?;
-                let graph = self
-                    .client
-                    .request_graph(&config, Months::new(months))
-                    .await?;
-                let mut result: Vec<(String, i32)> = graph
-                    .get_all_graphs()
-                    .iter()
-                    .filter_map(|g| {
-                        let (date, price) = g.maybe_get_date_price()?;
-                        Some((date.to_string(), price))
-                    })
-                    .collect();
-                result.sort_by(|a, b| a.0.cmp(&b.0));
-                Ok::<_, anyhow::Error>(result)
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let config = Config::builder()
+                .departure(&from_airport, &client)
+                .await
+                .map_err(anyhow_to_py)?
+                .destination(&to_airport, &client)
+                .await
+                .map_err(anyhow_to_py)?
+                .departing_date(dep_date)
+                .currency(currency)
+                .language(&lang)
+                .country(&country)
+                .build()
+                .map_err(anyhow_to_py)?;
+
+            let graph = client
+                .request_graph(&config, Months::new(months))
+                .await
+                .map_err(anyhow_to_py)?;
+
+            let mut entries: Vec<PriceEntry> = graph
+                .get_all_graphs()
+                .iter()
+                .filter_map(|g| {
+                    let (date, price) = g.maybe_get_date_price()?;
+                    Some(PriceEntry { date: date.to_string(), price })
+                })
+                .collect();
+            entries.sort_by(|a, b| a.date.cmp(&b.date));
+
+            Python::with_gil(|py| {
+                entries
+                    .into_iter()
+                    .map(|e| Py::new(py, e))
+                    .collect::<PyResult<Vec<_>>>()
             })
-        });
-
-        let pairs = entries.map_err(anyhow_to_py)?;
-        pairs
-            .into_iter()
-            .map(|(date, price)| Py::new(py, PriceEntry { date, price }))
-            .collect()
+        })
     }
 
-    /// Retrieve the cheapest fare for every (departure date × return date) combination.
+    /// Retrieve the cheapest fare for every (departure × return date) combination.
     ///
     /// :param from_airport: Departure IATA code or city name.
     /// :param to_airport:   Destination IATA code or city name.
@@ -595,7 +580,7 @@ impl GFlights {
     /// :param currency:     Currency name (e.g. ``"euro"``).
     /// :param lang:         BCP-47 language subtag.
     /// :param country:      ISO 3166-1 alpha-2 country code.
-    /// :returns:            List of :class:`DateGridEntry`.
+    /// :returns:            Coroutine → ``list[DateGridEntry]``
     #[pyo3(signature = (
         from_airport,
         to_airport,
@@ -607,61 +592,66 @@ impl GFlights {
         lang = "en",
         country = "GB",
     ))]
-    #[allow(clippy::too_many_arguments, clippy::useless_conversion)]
-    fn date_grid(
+    #[allow(clippy::too_many_arguments)]
+    fn date_grid<'py>(
         &self,
-        py: Python<'_>,
-        from_airport: &str,
-        to_airport: &str,
-        dep_start: &str,
-        dep_end: &str,
-        ret_start: &str,
-        ret_end: &str,
+        py: Python<'py>,
+        from_airport: String,
+        to_airport: String,
+        dep_start: String,
+        dep_end: String,
+        ret_start: String,
+        ret_end: String,
         currency: &str,
         lang: &str,
         country: &str,
-    ) -> PyResult<Vec<Py<DateGridEntry>>> {
-        let dep_s = parse_date(dep_start)?;
-        let dep_e = parse_date(dep_end)?;
-        let ret_s = parse_date(ret_start)?;
-        let ret_e = parse_date(ret_end)?;
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let dep_s = parse_date(&dep_start)?;
+        let dep_e = parse_date(&dep_end)?;
+        let ret_s = parse_date(&ret_start)?;
+        let ret_e = parse_date(&ret_end)?;
         let currency = parse_currency(currency)?;
+        let lang = lang.to_string();
+        let country = country.to_string();
+        let client = self.client.clone();
 
-        let entries = py.allow_threads(|| {
-            self.rt.block_on(async {
-                // date_grid requires a return_date in Config; use dep_start as placeholder.
-                let config = Config::builder()
-                    .departure(from_airport, &self.client)
-                    .await?
-                    .destination(to_airport, &self.client)
-                    .await?
-                    .departing_date(dep_s)
-                    .return_date(ret_s)
-                    .currency(currency)
-                    .language(lang)
-                    .country(country)
-                    .build()?;
-                let grid = self
-                    .client
-                    .request_date_grid(&config, dep_s, dep_e, ret_s, ret_e)
-                    .await?;
-                Ok::<_, anyhow::Error>(grid.entries)
-            })
-        });
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let config = Config::builder()
+                .departure(&from_airport, &client)
+                .await
+                .map_err(anyhow_to_py)?
+                .destination(&to_airport, &client)
+                .await
+                .map_err(anyhow_to_py)?
+                .departing_date(dep_s)
+                .return_date(ret_s)
+                .currency(currency)
+                .language(&lang)
+                .country(&country)
+                .build()
+                .map_err(anyhow_to_py)?;
 
-        let rows = entries.map_err(anyhow_to_py)?;
-        rows.into_iter()
-            .map(|e| {
-                Py::new(
-                    py,
-                    DateGridEntry {
-                        dep_date: e.departure_date.to_string(),
-                        ret_date: e.return_date.to_string(),
-                        price: e.price,
-                    },
-                )
+            let grid = client
+                .request_date_grid(&config, dep_s, dep_e, ret_s, ret_e)
+                .await
+                .map_err(anyhow_to_py)?;
+
+            Python::with_gil(|py| {
+                grid.entries
+                    .into_iter()
+                    .map(|e| {
+                        Py::new(
+                            py,
+                            DateGridEntry {
+                                dep_date: e.departure_date.to_string(),
+                                ret_date: e.return_date.to_string(),
+                                price: e.price,
+                            },
+                        )
+                    })
+                    .collect::<PyResult<Vec<_>>>()
             })
-            .collect()
+        })
     }
 
     /// `True` if the last request was rate-limited by Google (HTTP 429).
@@ -684,9 +674,15 @@ impl GFlights {
 // Module registration
 // ---------------------------------------------------------------------------
 
-/// Unofficial Python client for Google Flights, powered by a Rust backend.
+/// Private Rust extension — import via the `gflights` Python package.
 #[pymodule]
-fn gflights(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _gflights(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Initialise the shared multi-thread tokio runtime used by all coroutines.
+    // init() takes a Builder (not a built Runtime) and builds it internally.
+    let mut rt_builder = tokio::runtime::Builder::new_multi_thread();
+    rt_builder.enable_all();
+    pyo3_async_runtimes::tokio::init(rt_builder);
+
     m.add_class::<GFlights>()?;
     m.add_class::<FlightResult>()?;
     m.add_class::<LegInfo>()?;

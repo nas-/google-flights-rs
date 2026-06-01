@@ -5,25 +5,27 @@ build-backend = "maturin"
 [project]
 name = "gflights"
 version = "0.1.0"
-description = "Unofficial Python client for Google Flights, powered by a Rust backend"
+description = "Unofficial async Python client for Google Flights, powered by a Rust backend"
 license = { text = "MIT" }
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
     "Topic :: Internet :: WWW/HTTP",
 ]
 
-[dependency-groups]
-dev = ["pytest>=8", "maturin>=1.4,<2.0"]
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "maturin>=1.4,<2.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 markers = [
     "live: requires live network (set RUN_LIVE_TESTS=1 to run)",
 ]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "gflights"
+# Extension becomes gflights._gflights; the gflights/ Python package is included too.
+module-name = "gflights._gflights"
+python-packages = ["gflights"]
