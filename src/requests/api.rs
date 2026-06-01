@@ -557,7 +557,7 @@ impl ApiClient {
 
             let res = match self
                 .client
-                .post(req_payload.url.clone())
+                .post(req_payload.url.as_str())
                 .body(req_payload.body.clone())
                 .headers(headers.clone())
                 .send()

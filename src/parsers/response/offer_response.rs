@@ -10,8 +10,8 @@ pub fn create_raw_response_offer_vec(raw_inputs: String) -> Result<OfferRawRespo
     let inner_objects: Vec<OfferRawResponse> = outer
         .iter()
         .flat_map(|f| &f.resp)
-        .flat_map(|f: &RawResponseContainer| f.payload.clone())
-        .filter_map(|payload| decode_inner_object(&payload).ok())
+        .filter_map(|f: &RawResponseContainer| f.payload.as_deref())
+        .filter_map(|payload| decode_inner_object(payload).ok())
         .collect();
     Ok(OfferRawResponseContainer {
         response: inner_objects,

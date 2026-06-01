@@ -138,9 +138,9 @@ fn parse_inner_payload(payload: &str) -> Result<Vec<DateGridEntry>> {
 
 /// Parse one grid entry: `["dep_date", "ret_date", [[null, price], token], 1]`
 fn parse_entry(v: Value) -> Result<DateGridEntry> {
-    let arr = match v.as_array() {
-        Some(a) => a.clone(),
-        None => anyhow::bail!("entry is not an array"),
+    let arr = match v {
+        serde_json::Value::Array(a) => a,
+        _ => anyhow::bail!("entry is not an array"),
     };
 
     let dep_str: String = get_idx(&arr, 0).ok_or_else(|| anyhow::anyhow!("missing dep_date"))?;

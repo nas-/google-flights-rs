@@ -63,19 +63,19 @@ impl TryFrom<&str> for ResponseInnerBodyParsed {
 }
 ///Basically if it is a region, then 5 else 0
 impl ResponseInnerBodyParsed {
-    pub fn to_city_list(&self) -> Location {
-        let bulk = &self.result_container[0];
-        if let Some(airport_code) = &bulk.city.airport_code {
+    pub fn to_city_list(mut self) -> Location {
+        let bulk = self.result_container.remove(0);
+        if let Some(airport_code) = bulk.city.airport_code {
             Location {
-                loc_identifier: airport_code.clone(),
+                loc_identifier: airport_code,
                 loc_type: PlaceType::Airport,
-                location_name: Some(bulk.city.city_name.clone()),
+                location_name: Some(bulk.city.city_name),
             }
         } else {
             Location {
-                loc_identifier: bulk.city.identifier.clone(),
+                loc_identifier: bulk.city.identifier,
                 loc_type: PlaceType::City,
-                location_name: Some(bulk.city.city_name.clone()),
+                location_name: Some(bulk.city.city_name),
             }
         }
     }

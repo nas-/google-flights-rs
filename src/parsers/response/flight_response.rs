@@ -427,22 +427,25 @@ impl<'de> Deserialize<'de> for RawResponse {
 
 impl RawResponse {
     pub fn maybe_get_all_flights(&self) -> Option<Vec<ItineraryContainer>> {
-        let mut all_itineraries: Vec<ItineraryContainer> = Vec::new();
-
-        let options_1: Option<Vec<ItineraryContainer>> =
-            self.best_flights.as_ref().map(|f| f.itinerary_list.clone());
-        let options_2: Option<Vec<ItineraryContainer>> = self
-            .other_flights
+        let capacity = self
+            .best_flights
             .as_ref()
-            .map(|f| f.itinerary_list.clone());
-
-        for maybe_itinerary in [options_1, options_2].into_iter().flatten() {
-            all_itineraries.extend(maybe_itinerary);
+            .map_or(0, |f| f.itinerary_list.len())
+            + self
+                .other_flights
+                .as_ref()
+                .map_or(0, |f| f.itinerary_list.len());
+        if capacity == 0 {
+            return None;
         }
-        match all_itineraries.len() {
-            0 => None,
-            _ => Some(all_itineraries),
+        let mut all_itineraries: Vec<ItineraryContainer> = Vec::with_capacity(capacity);
+        if let Some(f) = &self.best_flights {
+            all_itineraries.extend(f.itinerary_list.iter().cloned());
         }
+        if let Some(f) = &self.other_flights {
+            all_itineraries.extend(f.itinerary_list.iter().cloned());
+        }
+        Some(all_itineraries)
     }
 
     fn get_usual_price_bound(&self) -> Option<i32> {

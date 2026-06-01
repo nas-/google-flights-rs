@@ -36,6 +36,11 @@ prost = "0.13"
 prost-types = "0.13"
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "parse"
+harness = false
 
 [build-dependencies]
 prost-build = "0.13"

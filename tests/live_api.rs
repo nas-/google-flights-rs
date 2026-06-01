@@ -43,6 +43,7 @@
 
 use anyhow::Result;
 use chrono::{Duration, Months, Utc};
+use gflights::parsers::common::{AirlineCode, AirlineFilter, Alliance};
 use gflights::requests::{api::ApiClient, config::Config};
 use std::sync::Arc;
 
@@ -981,6 +982,122 @@ async fn offer_click_tokens_are_nonempty() -> Result<()> {
 // ---------------------------------------------------------------------------
 // Negative / error inputs
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Airline + Alliance mixed filter
+// ---------------------------------------------------------------------------
+
+/// Verifies that the Google API accepts a mixed include filter containing both
+/// an IATA airline code (`BA`) **and** an alliance name (`ONEWORLD`).
+///
+/// Serialisation produces `["BA","ONEWORLD"]` — the question under test is
+/// whether Google actually processes this at runtime (unit tests only cover
+/// the serialisation side).  We assert:
+/// - No parse or HTTP error from the API.
+/// - The response is non-empty (BA and other Oneworld carriers fly LHR→JFK).
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn live_mixed_airline_alliance_include_filter() -> Result<()> {
+    require_live!();
+    let client = shared_client().await;
+
+    let mut config = Config::builder()
+        .departure("LHR", client)
+        .await?
+        .destination("JFK", client)
+        .await?
+        .departing_date(days_from_now(14))
+        .build()?;
+
+    // Mixed include: BA (IATA code) + OneWorld (alliance) in one array.
+    config.airlines_include = vec![
+        AirlineFilter::Airline(AirlineCode::new("BA")?),
+        AirlineFilter::Alliance(Alliance::OneWorld),
+    ];
+
+    let response = client.request_flights(&config).await?;
+
+    let flights: Vec<_> = response
+        .responses
+        .iter()
+        .filter_map(|r| r.maybe_get_all_flights())
+        .flatten()
+        .collect();
+
+    // The API must accept the mixed array without returning a parse error.
+    // LHR→JFK is served by OneWorld members so we expect real results.
+    assert!(
+        !flights.is_empty(),
+        "expected ≥1 flight with mixed BA+OneWorld include filter on LHR→JFK"
+    );
+
+    Ok(())
+}
+
+/// Verifies that the Google API accepts a mixed exclude filter containing both
+/// an IATA airline code (`FR` / Ryanair) **and** an alliance (`SKYTEAM`).
+///
+/// Serialisation produces `["FR","SKYTEAM"]`.  We assert:
+/// - No parse or HTTP error from the API.
+/// - No returned flight has `flight_by == "FR"` (Ryanair excluded).
+/// - No returned flight is operated by a common SkyTeam carrier
+///   (AF, KL, DL) — checked as a best-effort signal on a route where
+///   those airlines typically appear.
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn live_mixed_airline_alliance_exclude_filter() -> Result<()> {
+    require_live!();
+    let client = shared_client().await;
+
+    let mut config = Config::builder()
+        .departure("CDG", client)
+        .await?
+        .destination("JFK", client)
+        .await?
+        .departing_date(days_from_now(14))
+        .build()?;
+
+    // Mixed exclude: FR (Ryanair, IATA code) + SkyTeam (alliance).
+    config.airlines_exclude = vec![
+        AirlineFilter::Airline(AirlineCode::new("FR")?),
+        AirlineFilter::Alliance(Alliance::SkyTeam),
+    ];
+
+    let response = client.request_flights(&config).await?;
+
+    let flights: Vec<_> = response
+        .responses
+        .iter()
+        .filter_map(|r| r.maybe_get_all_flights())
+        .flatten()
+        .collect();
+
+    // Even with exclusions CDG→JFK has non-SkyTeam options (e.g. AA, BA, LH).
+    assert!(
+        !flights.is_empty(),
+        "expected ≥1 non-SkyTeam/non-FR flight for CDG→JFK"
+    );
+
+    // Ryanair should not appear (it doesn't fly transatlantic anyway, but the
+    // filter must not break the response).
+    for (i, f) in flights.iter().enumerate() {
+        assert_ne!(
+            f.itinerary.flight_by, "FR",
+            "flight[{i}]: Ryanair (FR) should have been excluded"
+        );
+        // Best-effort: the most prominent SkyTeam transatlantic carriers.
+        // Google may suppress results entirely rather than enumerate, so only
+        // assert when the carrier is directly named.
+        for code in &["AF", "KL", "DL"] {
+            assert_ne!(
+                &f.itinerary.flight_by, code,
+                "flight[{i}]: SkyTeam carrier {code} should have been excluded"
+            );
+        }
+    }
+
+    Ok(())
+}
 
 /// Searching with the fictional IATA code "XXX" must not panic.
 ///
