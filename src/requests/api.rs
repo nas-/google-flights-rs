@@ -432,7 +432,7 @@ impl ApiClient {
             .await?)
     }
 
-    /// Resolves a `click_token` from an [`OfferGroup`] or [`BookingSubOption`]
+    /// Resolves a `click_token` from an `OfferGroup` or `BookingSubOption`
     /// into the final airline / OTA booking URL.
     ///
     /// Internally this POSTs the token to Google's click-tracker endpoint

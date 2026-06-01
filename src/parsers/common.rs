@@ -474,7 +474,8 @@ impl SerializeToWeb for TotalDuration {
     }
 }
 /// Flight times filters. It is the departure hours, and the arrival hours.
-///[0,23,13,23] --> Leave between 0:00 and 23:59. Arrival between 13 and 23:59
+///
+/// Example: `[0,23,13,23]` → leave between 0:00 and 23:59, arrive between 13:00 and 23:59.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct FlightTimes {
     departure_hour_min: Option<u32>,

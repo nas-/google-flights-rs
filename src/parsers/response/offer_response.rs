@@ -116,7 +116,7 @@ pub struct OfferGroup {
     /// through multiple booking channels at different prices).
     pub sub_options: Vec<BookingSubOption>,
     /// Click-tracking token (`u=` parameter) for `POST /travel/clk/f`.
-    /// Pass to [`ApiClient::resolve_booking_url`] to get the final booking URL.
+    /// Pass to `ApiClient::resolve_booking_url` to get the final booking URL.
     /// Present for single-airline / OTA-style entries; `None` for multi-airline
     /// combined groups (use sub-options in that case).
     pub click_token: Option<String>,
@@ -204,7 +204,7 @@ pub struct BookingSubOption {
     /// Opaque booking token for this channel.
     pub booking_token: Option<String>,
     /// Click-tracking token (`u=` parameter) for `POST /travel/clk/f`.
-    /// Pass to [`ApiClient::resolve_booking_url`] to get the final booking URL.
+    /// Pass to `ApiClient::resolve_booking_url` to get the final booking URL.
     pub click_token: Option<String>,
 }
 

@@ -39,8 +39,10 @@ jobs:
 
       # Run only unit + doc tests — live tests require RUN_LIVE_TESTS=1 and
       # are intentionally excluded from CI (they call Google's servers).
-      - name: Test (unit + doc)
-        run: cargo test --lib --doc
+      - name: Test (unit)
+        run: cargo test --lib
+      - name: Test (doc)
+        run: cargo test --doc
 
   clippy:
     name: Clippy
