@@ -2,8 +2,12 @@
 name = "gflights"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Unofficial async Rust client for the Google Flights web API — search flights, price graphs, and booking offers."
+license = "MIT"
+keywords = ["google-flights", "flights", "travel", "api", "scraping"]
+categories = ["web-programming::http-client", "api-bindings"]
+repository = "https://github.com/YOUR_USERNAME/google-flights-rs"
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0.79"
