@@ -277,12 +277,24 @@ mod tests {
 
         // Header
         assert!(output.contains("dep \\ ret"), "should contain header label");
-        assert!(output.contains("06-15"), "should contain return-date column 06-15");
-        assert!(output.contains("06-16"), "should contain return-date column 06-16");
+        assert!(
+            output.contains("06-15"),
+            "should contain return-date column 06-15"
+        );
+        assert!(
+            output.contains("06-16"),
+            "should contain return-date column 06-16"
+        );
 
         // Row labels
-        assert!(output.contains("06-07"), "should contain departure-date row 06-07");
-        assert!(output.contains("06-08"), "should contain departure-date row 06-08");
+        assert!(
+            output.contains("06-07"),
+            "should contain departure-date row 06-07"
+        );
+        assert!(
+            output.contains("06-08"),
+            "should contain departure-date row 06-08"
+        );
 
         // Prices
         assert!(output.contains("84"), "should contain price 84");
@@ -314,7 +326,10 @@ mod tests {
         let response = DateGridResponse { entries: vec![] };
         let output = format!("{response}");
         // Empty: just the header with no data columns
-        assert!(output.contains("dep \\ ret"), "empty grid should still have header");
+        assert!(
+            output.contains("dep \\ ret"),
+            "empty grid should still have header"
+        );
     }
 
     #[test]

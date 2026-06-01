@@ -422,6 +422,10 @@ impl ApiClient {
             language: &args.language,
             country: &args.country,
             sort_order: &server_sort,
+            airlines_include: &args.airlines_include,
+            airlines_exclude: &args.airlines_exclude,
+            connecting_airports: &args.connecting_airports,
+            lower_emissions: args.lower_emissions,
         };
         Ok(self
             .do_request(

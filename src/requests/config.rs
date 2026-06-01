@@ -9,8 +9,8 @@ use anyhow::Result;
 use chrono::{Months, NaiveDate};
 use clap::ValueEnum;
 use parsers::common::{
-    FlightTimes, Location, PlaceType, SortOrder, StopOptions, StopoverDuration, TotalDuration,
-    TravelClass, Travelers,
+    AirlineFilter, FlightTimes, Location, PlaceType, SortOrder, StopOptions, StopoverDuration,
+    TotalDuration, TravelClass, Travelers,
 };
 
 use protos::urls::{ItineraryUrl, Leg};
@@ -56,6 +56,17 @@ pub struct Config {
     pub country: String,
     /// Sort order applied to the search results.
     pub sort_order: SortOrder,
+    /// Airlines / alliances to include (position [4] of the per-leg array).
+    /// Empty = no restriction.
+    pub airlines_include: Vec<AirlineFilter>,
+    /// Airlines / alliances to exclude (position [5] of the per-leg array).
+    /// Empty = no restriction.
+    pub airlines_exclude: Vec<AirlineFilter>,
+    /// Require a connection through these IATA airport codes (position [9]).
+    /// Empty = no restriction.
+    pub connecting_airports: Vec<String>,
+    /// If `true`, restrict results to lower-CO₂ emissions flights (position [13]).
+    pub lower_emissions: bool,
 }
 
 impl Default for Config {
@@ -79,6 +90,10 @@ impl Default for Config {
             language: "en".to_string(),
             country: "GB".to_string(),
             sort_order: SortOrder::default(),
+            airlines_include: Vec::new(),
+            airlines_exclude: Vec::new(),
+            connecting_airports: Vec::new(),
+            lower_emissions: false,
         }
     }
 }
@@ -134,6 +149,10 @@ impl Config {
             language: "en".to_string(),
             country: "GB".to_string(),
             sort_order: SortOrder::default(),
+            airlines_include: Vec::new(),
+            airlines_exclude: Vec::new(),
+            connecting_airports: Vec::new(),
+            lower_emissions: false,
         }
     }
     /// Calculates the number of days between the departing and return dates, if this is a return trip.
@@ -183,6 +202,14 @@ pub struct ConfigBuilder {
     country: String,
     /// Sort order for search results. Default: [`SortOrder::Best`].
     sort_order: SortOrder,
+    /// Airlines / alliances to include. Empty = no restriction.
+    airlines_include: Vec<AirlineFilter>,
+    /// Airlines / alliances to exclude. Empty = no restriction.
+    airlines_exclude: Vec<AirlineFilter>,
+    /// Connecting airport IATA codes. Empty = no restriction.
+    connecting_airports: Vec<String>,
+    /// Restrict to lower-CO₂ emissions flights. Default: `false`.
+    lower_emissions: bool,
 }
 
 impl Default for ConfigBuilder {
@@ -204,6 +231,10 @@ impl Default for ConfigBuilder {
             language: "en".to_string(),
             country: "GB".to_string(),
             sort_order: SortOrder::default(),
+            airlines_include: Vec::new(),
+            airlines_exclude: Vec::new(),
+            connecting_airports: Vec::new(),
+            lower_emissions: false,
         }
     }
 }
@@ -351,6 +382,56 @@ impl ConfigBuilder {
         self
     }
 
+    /// Replace the entire airlines-include list.
+    ///
+    /// Accepts IATA codes (`"LX"`, `"LH"`) and alliance names
+    /// (`"ONEWORLD"`, `"SKYTEAM"`, `"STAR_ALLIANCE"`).
+    pub fn airlines_include(mut self, filters: Vec<AirlineFilter>) -> Self {
+        self.airlines_include = filters;
+        self
+    }
+
+    /// Add a single airline/alliance to the include filter.
+    pub fn add_airline_include(mut self, filter: AirlineFilter) -> Self {
+        self.airlines_include.push(filter);
+        self
+    }
+
+    /// Replace the entire airlines-exclude list.
+    pub fn airlines_exclude(mut self, filters: Vec<AirlineFilter>) -> Self {
+        self.airlines_exclude = filters;
+        self
+    }
+
+    /// Add a single airline/alliance to the exclude filter.
+    pub fn add_airline_exclude(mut self, filter: AirlineFilter) -> Self {
+        self.airlines_exclude.push(filter);
+        self
+    }
+
+    /// Set the list of connecting airports (IATA codes, e.g. `"CDG"`).
+    ///
+    /// Only itineraries that connect through at least one of these airports
+    /// will be returned.
+    pub fn connecting_airports(mut self, airports: Vec<String>) -> Self {
+        self.connecting_airports = airports;
+        self
+    }
+
+    /// Add a single connecting airport (IATA code).
+    pub fn add_connecting_airport(mut self, airport: impl Into<String>) -> Self {
+        self.connecting_airports.push(airport.into());
+        self
+    }
+
+    /// If `true`, restrict results to flights with lower CO₂ emissions.
+    ///
+    /// Defaults to `false` (no restriction).
+    pub fn lower_emissions(mut self, lower: bool) -> Self {
+        self.lower_emissions = lower;
+        self
+    }
+
     pub fn build(self) -> Result<Config> {
         let departing_date = self
             .departing_date
@@ -390,6 +471,10 @@ impl ConfigBuilder {
             language: self.language,
             country: self.country,
             sort_order: self.sort_order,
+            airlines_include: self.airlines_include,
+            airlines_exclude: self.airlines_exclude,
+            connecting_airports: self.connecting_airports,
+            lower_emissions: self.lower_emissions,
         })
     }
 }

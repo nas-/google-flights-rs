@@ -1050,7 +1050,12 @@ mod tests {
         };
 
         let flights = container.get_all_flights();
-        assert_eq!(flights.len(), 3, "expected 3 unique tokens, got: {}", flights.len());
+        assert_eq!(
+            flights.len(),
+            3,
+            "expected 3 unique tokens, got: {}",
+            flights.len()
+        );
 
         let tokens: std::collections::HashSet<&str> = flights
             .iter()

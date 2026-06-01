@@ -20,7 +20,9 @@
 use anyhow::Result;
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand, ValueEnum};
-use gflights::parsers::common::{SortOrder, StopOptions, TravelClass, Travelers};
+use gflights::parsers::common::{
+    AirlineFilter, SortOrder, StopOptions, StopoverDuration, TravelClass, Travelers,
+};
 use gflights::requests::api::ApiClient;
 use gflights::requests::config::{Config, Currency};
 use rustyline::error::ReadlineError;
@@ -141,6 +143,33 @@ struct SearchArgs {
     /// Sort order.
     #[arg(long, default_value = "best")]
     sort: SortOrder,
+
+    /// Minimum layover duration in minutes (rounded up to the next 30 min interval).
+    #[arg(long)]
+    min_layover: Option<u32>,
+
+    /// Maximum layover duration in minutes (rounded up to the next 30 min interval).
+    #[arg(long)]
+    max_layover: Option<u32>,
+
+    /// Restrict results to lower-CO₂ emissions flights.
+    #[arg(long)]
+    lower_emissions: bool,
+
+    /// Airline IATA code (e.g. LX, LH) or alliance name (ONEWORLD, SKYTEAM, STAR_ALLIANCE)
+    /// to include. May be repeated for multiple airlines/alliances.
+    #[arg(long = "airline")]
+    airlines: Vec<AirlineFilter>,
+
+    /// Airline IATA code or alliance name to exclude.
+    /// May be repeated for multiple airlines/alliances.
+    #[arg(long = "exclude-airline")]
+    exclude_airlines: Vec<AirlineFilter>,
+
+    /// Require a connection through this IATA airport code (e.g. CDG, AMS).
+    /// May be repeated for multiple airports.
+    #[arg(long = "via")]
+    connecting_airports: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -354,9 +383,21 @@ async fn build_config(common: &CommonArgs, client: &ApiClient) -> Result<Config>
 // ---------------------------------------------------------------------------
 
 async fn cmd_search(args: SearchArgs, client: &ApiClient) -> Result<()> {
-    let config = build_config(&args.common, client)
+    let mut config = build_config(&args.common, client)
         .await?
         .with_sort_order(args.sort);
+
+    // Apply filter flags that live on SearchArgs rather than CommonArgs.
+    config.airlines_include = args.airlines;
+    config.airlines_exclude = args.exclude_airlines;
+    config.connecting_airports = args.connecting_airports;
+    config.lower_emissions = args.lower_emissions;
+    if let Some(mins) = args.min_layover {
+        config.stopover_min = StopoverDuration::Minutes(mins);
+    }
+    if let Some(mins) = args.max_layover {
+        config.stopover_max = StopoverDuration::Minutes(mins);
+    }
 
     let results = client.request_flights(&config).await?;
     let mut flights = results.get_all_flights();
@@ -674,8 +715,16 @@ mod tests {
 
     #[test]
     fn repl_parse_search_minimal() {
-        let rc = parse(&["search", "--from", "LHR", "--to", "JFK", "--date", "2026-08-01"])
-            .expect("minimal search should parse");
+        let rc = parse(&[
+            "search",
+            "--from",
+            "LHR",
+            "--to",
+            "JFK",
+            "--date",
+            "2026-08-01",
+        ])
+        .expect("minimal search should parse");
         match rc.command {
             Commands::Search(args) => {
                 assert_eq!(args.common.from, "LHR");
@@ -750,8 +799,16 @@ mod tests {
 
     #[test]
     fn repl_parse_offer_command() {
-        let rc = parse(&["offer", "--from", "FRA", "--to", "NRT", "--date", "2026-09-01"])
-            .expect("offer should parse");
+        let rc = parse(&[
+            "offer",
+            "--from",
+            "FRA",
+            "--to",
+            "NRT",
+            "--date",
+            "2026-09-01",
+        ])
+        .expect("offer should parse");
         assert!(matches!(rc.command, Commands::Offer(_)));
     }
 
@@ -787,8 +844,54 @@ mod tests {
     }
 
     #[test]
+    fn repl_parse_search_filter_flags() {
+        let rc = parse(&[
+            "search",
+            "--from",
+            "LHR",
+            "--to",
+            "JFK",
+            "--date",
+            "2026-08-01",
+            "--min-layover",
+            "60",
+            "--max-layover",
+            "180",
+            "--lower-emissions",
+            "--airline",
+            "LX",
+            "--airline",
+            "ONEWORLD",
+            "--exclude-airline",
+            "FR",
+            "--via",
+            "CDG",
+        ])
+        .expect("search with filter flags should parse");
+        match rc.command {
+            Commands::Search(args) => {
+                assert_eq!(args.min_layover, Some(60));
+                assert_eq!(args.max_layover, Some(180));
+                assert!(args.lower_emissions);
+                assert_eq!(args.airlines.len(), 2);
+                assert_eq!(args.exclude_airlines.len(), 1);
+                assert_eq!(args.connecting_airports, vec!["CDG"]);
+            }
+            other => panic!("expected Search, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn repl_parse_invalid_date_returns_error() {
-        let result = parse(&["search", "--from", "LHR", "--to", "JFK", "--date", "not-a-date"]);
+        let result = parse(&[
+            "search",
+            "--from",
+            "LHR",
+            "--to",
+            "JFK",
+            "--date",
+            "not-a-date",
+        ]);
         assert!(result.is_err(), "invalid date should error");
     }
 

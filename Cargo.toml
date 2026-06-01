@@ -6,7 +6,7 @@ description = "Unofficial async Rust client for the Google Flights web API — s
 license = "MIT"
 keywords = ["google-flights", "flights", "travel", "api", "scraping"]
 categories = ["web-programming::http-client", "api-bindings"]
-repository = "https://github.com/YOUR_USERNAME/google-flights-rs"
+repository = "https://github.com/nas-/google-flights-rs"
 readme = "README.md"
 
 [[bin]]
@@ -40,6 +40,7 @@ prost-types = "0.12.3"
 
 [build-dependencies]
 prost-build = "0.12.3"
+protoc-bin-vendored = "3"
 
 [profile.dev]
 opt-level = 0

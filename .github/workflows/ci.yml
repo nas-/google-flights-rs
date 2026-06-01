@@ -105,3 +105,14 @@ jobs:
         run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
         env:
           RUSTDOCFLAGS: "-D warnings"
+
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Security audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

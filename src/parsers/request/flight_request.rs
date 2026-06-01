@@ -6,8 +6,9 @@ use std::{
 use percent_encoding::utf8_percent_encode;
 
 use crate::parsers::common::{
-    FixedFlights, FlightTimes, Location, RequestBody, SerializeToWeb, SortOrder, StopOptions,
-    StopoverDuration, ToRequestBody, TotalDuration, TravelClass, Travelers, CHARACTERS_TO_ENCODE,
+    AirlineFilter, FixedFlights, FlightTimes, Location, RequestBody, SerializeToWeb, SortOrder,
+    StopOptions, StopoverDuration, ToRequestBody, TotalDuration, TravelClass, Travelers,
+    CHARACTERS_TO_ENCODE,
 };
 use crate::parsers::constants::{BOOKING_REQUEST, FLIGHT_REQUEST};
 use crate::parsers::response::flight_response::FlightInfo;
@@ -24,7 +25,7 @@ pub struct FlightRequestOptions<'a> {
     pub departing_times: &'a FlightTimes,
     pub return_times: &'a FlightTimes,
     pub stopover_max: &'a StopoverDuration,
-    /// Minimum layover duration (position 13 in the per-leg array).
+    /// Minimum layover duration (position [11] in the per-leg array).
     /// Defaults to [`StopoverDuration::UNLIMITED`] (no minimum imposed).
     pub stopover_min: &'a StopoverDuration,
     pub duration_max: &'a TotalDuration,
@@ -36,6 +37,17 @@ pub struct FlightRequestOptions<'a> {
     pub country: &'a str,
     /// Result sort order sent to Google Flights.
     pub sort_order: &'a SortOrder,
+    /// Airlines / alliances to include (per-leg array position [4]).
+    /// Empty = no restriction.
+    pub airlines_include: &'a [AirlineFilter],
+    /// Airlines / alliances to exclude (per-leg array position [5]).
+    /// Empty = no restriction.
+    pub airlines_exclude: &'a [AirlineFilter],
+    /// Require a connection through these IATA airport codes (position [9]).
+    /// Empty = no restriction.
+    pub connecting_airports: &'a [String],
+    /// If `true`, send `[1]` at position [13] to restrict to lower-CO₂ flights.
+    pub lower_emissions: bool,
 }
 
 impl ToRequestBody for FlightRequestOptions<'_> {
@@ -61,6 +73,10 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
             stopover_min: options.stopover_min,
             duration_max: options.duration_max,
             chosen_itinerary: itinerary_going.as_ref(),
+            airlines_include: options.airlines_include,
+            airlines_exclude: options.airlines_exclude,
+            connecting_airports: options.connecting_airports,
+            lower_emissions: options.lower_emissions,
         };
         let leg2 = options.date_return.map(|date_return| SingleLegStruct {
             departure: arrival,
@@ -72,6 +88,10 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
             stopover_min: options.stopover_min,
             duration_max: options.duration_max,
             chosen_itinerary: itinerary_return.as_ref(),
+            airlines_include: options.airlines_include,
+            airlines_exclude: options.airlines_exclude,
+            connecting_airports: options.connecting_airports,
+            lower_emissions: options.lower_emissions,
         });
         let legs: Vec<SingleLegStruct<'_>> = if let Some(leg_2) = leg2 {
             vec![leg1, leg_2]
@@ -123,38 +143,96 @@ pub struct SingleLegStruct<'a> {
     pub times: &'a FlightTimes,
     pub stopover_max: &'a StopoverDuration,
     /// Minimum layover / connection duration.
-    /// Serialized to position 13 of the per-leg array.
+    /// Serialized to position **[11]** of the per-leg array.
     /// Set to [`StopoverDuration::UNLIMITED`] (default) to impose no minimum.
     pub stopover_min: &'a StopoverDuration,
     pub duration_max: &'a TotalDuration,
     pub chosen_itinerary: Option<&'a Vec<FlightInfo>>,
+    /// Airlines / alliances to include (position [4]).
+    pub airlines_include: &'a [AirlineFilter],
+    /// Airlines / alliances to exclude (position [5]).
+    pub airlines_exclude: &'a [AirlineFilter],
+    /// Connecting airport IATA codes (position [9]).
+    pub connecting_airports: &'a [String],
+    /// Lower-emissions filter (position [13]): sends `[1]` when `true`.
+    pub lower_emissions: bool,
+}
+
+/// Serialise a slice of [`AirlineFilter`] values to the Google Flights wire
+/// format: a JSON array of quoted strings, or `null` when empty.
+///
+/// Example: `["LX","LH"]` or `["ONEWORLD"]`
+fn serialize_airline_filters(v: &[AirlineFilter]) -> String {
+    if v.is_empty() {
+        return "null".to_owned();
+    }
+    format!(
+        "[{}]",
+        v.iter()
+            .map(|f| format!("\\\"{}\\\"", f.as_google_str()))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+/// Serialise a slice of IATA airport codes to the Google Flights wire format.
+///
+/// Example: `["CDG"]` or `null` when empty.
+fn serialize_airport_list(v: &[String]) -> String {
+    if v.is_empty() {
+        return "null".to_owned();
+    }
+    format!(
+        "[{}]",
+        v.iter()
+            .map(|s| format!("\\\"{}\\\"", s))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
 }
 
 impl SerializeToWeb for SingleLegStruct<'_> {
     fn serialize_to_web(&self) -> Result<String> {
-        // [[[[\\"/m/0fq8f\\",4]]],[[[\\"/m/0947l\\",5]]],[0,8,0,23],0,null,null,\\"2024-02-06\\",null,null,null,null,null,null,null,3]
-        // Display mode for flight options: 3 = return all available flights,
-        // 1 = return a limited/curated selection only.
+        // Per-leg array (15 elements, indices 0–14):
+        //   [0]  departure airports
+        //   [1]  arrival airports
+        //   [2]  time-of-day filter [dep_min, dep_max, arr_min, arr_max] or null
+        //   [3]  stops option (0=any, 1=nonstop, 2=≤1, 3=≤2)
+        //   [4]  airline/alliance include filter  ["LX"] / ["ONEWORLD"] / null
+        //   [5]  airline/alliance exclude filter  (mirror of [4])       / null
+        //   [6]  departure date string "YYYY-MM-DD"
+        //   [7]  max total duration [minutes] or null
+        //   [8]  pre-selected itinerary (offer flow) or null
+        //   [9]  connecting airport IATA codes ["CDG"] or null
+        //   [10] unknown (always null)
+        //   [11] min layover minutes or null
+        //   [12] max layover minutes or null
+        //   [13] lower-emissions flag [1] or null
+        //   [14] display classifier: 3 = outbound / one-way
         let flight_to_show: i32 = 3;
 
         let chosen_itinerary = match self.chosen_itinerary {
             Some(x) => x.clone().serialize_to_web()?,
             None => "null".to_string(),
         };
+
         Ok(format!(
-            // Indices: [dep, arr, times, stops, null, null, "date", dur_max, chosen,
-            //           null, null, null, stop_max, stop_min, show]
-            r#"[{0},{1},{2},{3},null,null,\"{4}\",{5},{6},null,null,null,{7},{8},{9}]"#,
-            &self.departure.serialize_to_web()?,
-            &self.arrival.serialize_to_web()?,
-            &self.times.serialize_to_web()?,
-            &self.stop_options.serialize_to_web()?,
-            self.date,
-            self.duration_max.serialize_to_web()?,
-            chosen_itinerary,
-            self.stopover_max.serialize_to_web()?,
-            self.stopover_min.serialize_to_web()?,
-            flight_to_show,
+            r#"[{0},{1},{2},{3},{4},{5},\"{6}\",{7},{8},{9},null,{10},{11},{12},{13}]"#,
+            &self.departure.serialize_to_web()?,    // [0]
+            &self.arrival.serialize_to_web()?,      // [1]
+            &self.times.serialize_to_web()?,        // [2]
+            &self.stop_options.serialize_to_web()?, // [3]
+            serialize_airline_filters(self.airlines_include), // [4]
+            serialize_airline_filters(self.airlines_exclude), // [5]
+            self.date,                              // [6]
+            self.duration_max.serialize_to_web()?,  // [7]
+            chosen_itinerary,                       // [8]
+            serialize_airport_list(self.connecting_airports), // [9]
+            // [10] hardcoded null (in format string above)
+            self.stopover_min.serialize_to_web()?, // [11] ← FIXED (was [13])
+            self.stopover_max.serialize_to_web()?, // [12]
+            if self.lower_emissions { "[1]" } else { "null" }, // [13]
+            flight_to_show,                        // [14]
         ))
     }
 }
@@ -202,6 +280,10 @@ impl<'a> ItineraryRequest<'a> {
             stopover_min,
             duration_max,
             chosen_itinerary: None,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
         legs.push(first);
         if let Some(x) = date_return {
@@ -215,6 +297,10 @@ impl<'a> ItineraryRequest<'a> {
                 stopover_min,
                 duration_max,
                 chosen_itinerary: None,
+                airlines_include: &[],
+                airlines_exclude: &[],
+                connecting_airports: &[],
+                lower_emissions: false,
             })
         };
         ItineraryRequest {
@@ -326,6 +412,10 @@ mod tests {
             language: "en",
             country: "GB",
             sort_order: &SortOrder::Best,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
 
         let req: RequestBody = (&search_settings).try_into()?;
@@ -372,6 +462,10 @@ mod tests {
             language: "en",
             country: "GB",
             sort_order: &SortOrder::Best,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
 
         let req: RequestBody = (&search_settings).try_into()?;
@@ -416,6 +510,10 @@ mod tests {
             stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
         assert_eq!(
             a.serialize_to_web()?,
@@ -449,6 +547,10 @@ mod tests {
             stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
         assert_eq!(
             a.serialize_to_web()?,
@@ -482,6 +584,10 @@ mod tests {
             stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
         assert_eq!(
             a.serialize_to_web()?,
@@ -515,6 +621,10 @@ mod tests {
             stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
         assert_eq!(
             a.serialize_to_web()?,
@@ -548,6 +658,10 @@ mod tests {
             stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
         let second = SingleLegStruct {
             departure: vec![vec![&arrival]],
@@ -559,6 +673,10 @@ mod tests {
             stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
         let travelers = Travelers::new([1, 0, 0, 0].to_vec())?;
 
@@ -657,6 +775,10 @@ mod tests {
             stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: Some(&choosen_itinerary),
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
         assert_eq!(
             a.serialize_to_web()?,
@@ -691,6 +813,10 @@ mod tests {
             stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: Some(&choosen_itinerary),
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
         assert_eq!(
             a.serialize_to_web()?,
@@ -725,6 +851,10 @@ mod tests {
             stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: Some(&choosen_itinerary),
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
         assert_eq!(
             a.serialize_to_web()?,
@@ -767,6 +897,10 @@ mod tests {
             stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
         let expected = format!(
             r#"[[[[\"LHR\",0],[\"LGW\",0]]],[[[\"JFK\",0]]],null,0,null,null,\"{date}\",null,null,null,null,null,null,null,3]"#
@@ -820,6 +954,10 @@ mod tests {
             language: "en",
             country: "GB",
             sort_order: &SortOrder::Best,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
         };
         let req: RequestBody = (&opts).try_into()?;
         // Both LHR and LGW must appear in the body; JFK as the single arrival.
