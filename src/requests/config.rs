@@ -1097,4 +1097,139 @@ mod tests {
         assert_eq!(legs[1].departure[0].place_name, "JFK");
         assert_eq!(legs[1].arrival.len(), 2);
     }
+
+    // -----------------------------------------------------------------------
+    // Config::new()
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn config_new_oneway_sets_correct_trip_type() {
+        let dep = Location {
+            loc_identifier: "LHR".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let dst = Location {
+            loc_identifier: "JFK".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let date = future_date(30);
+        let travelers = crate::parsers::common::Travelers::new(vec![1, 0, 0, 0]).unwrap();
+        let cfg = Config::new(
+            date,
+            vec![dep],
+            vec![dst],
+            StopOptions::default(),
+            TravelClass::default(),
+            None, // one-way
+            travelers,
+            FlightTimes::default(),
+            FlightTimes::default(),
+            StopoverDuration::default(),
+            TotalDuration::default(),
+            None,
+        );
+        assert!(matches!(cfg.trip_type, TripType::OneWay));
+        // One-way → FixedFlights holds exactly 1 slot (checked indirectly via get_diff_days)
+        assert!(cfg.return_date.is_none());
+    }
+
+    #[test]
+    fn config_new_return_sets_correct_trip_type() {
+        let dep = Location {
+            loc_identifier: "MXP".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let dst = Location {
+            loc_identifier: "CDG".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let date = future_date(30);
+        let ret = future_date(37);
+        let travelers = crate::parsers::common::Travelers::new(vec![2, 0, 0, 0]).unwrap();
+        let cfg = Config::new(
+            date,
+            vec![dep],
+            vec![dst],
+            StopOptions::default(),
+            TravelClass::default(),
+            Some(ret),
+            travelers,
+            FlightTimes::default(),
+            FlightTimes::default(),
+            StopoverDuration::default(),
+            TotalDuration::default(),
+            Some(Currency::Euro),
+        );
+        assert!(matches!(cfg.trip_type, TripType::Return));
+        assert_eq!(cfg.get_diff_days(), Some(7));
+    }
+
+    #[test]
+    fn config_get_end_graph_adds_months() {
+        use chrono::{Datelike, Months};
+        let cfg = Config {
+            departing_date: chrono::NaiveDate::from_ymd_opt(2026, 1, 15).unwrap(),
+            ..Default::default()
+        };
+        let end = cfg.get_end_graph(Months::new(3)).unwrap();
+        assert_eq!(end.month(), 4);
+        assert_eq!(end.year(), 2026);
+    }
+
+    // -----------------------------------------------------------------------
+    // Currency::Display — spot-check a handful of known ISO codes
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn currency_display_spot_check() {
+        assert_eq!(Currency::Euro.to_string(), "EUR");
+        assert_eq!(Currency::USDollar.to_string(), "USD");
+        assert_eq!(Currency::BritishPound.to_string(), "GBP");
+        assert_eq!(Currency::JapaneseYen.to_string(), "JPY");
+        assert_eq!(Currency::SwissFranc.to_string(), "CHF");
+        assert_eq!(Currency::AustralianDollar.to_string(), "AUD");
+    }
+
+    // -----------------------------------------------------------------------
+    // ConfigBuilder filter setters
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn builder_filter_setters_propagate() {
+        use crate::parsers::common::{AirlineCode, AirlineFilter, Alliance};
+        let lhr = Location {
+            loc_identifier: "LHR".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let jfk = Location {
+            loc_identifier: "JFK".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let cfg = Config::builder()
+            .departing_date(future_date(30))
+            .departure_location(lhr)
+            .destination_location(jfk)
+            .add_airline_include(AirlineFilter::Airline(AirlineCode::new("LX").unwrap()))
+            .add_airline_include(AirlineFilter::Alliance(Alliance::OneWorld))
+            .add_airline_exclude(AirlineFilter::Airline(AirlineCode::new("FR").unwrap()))
+            .add_connecting_airport("CDG")
+            .lower_emissions(true)
+            .stopover_min(StopoverDuration::Minutes(60))
+            .stopover_max(StopoverDuration::Minutes(180))
+            .build()
+            .expect("valid config");
+
+        assert_eq!(cfg.airlines_include.len(), 2);
+        assert_eq!(cfg.airlines_exclude.len(), 1);
+        assert_eq!(cfg.connecting_airports, vec!["CDG"]);
+        assert!(cfg.lower_emissions);
+        assert!(matches!(cfg.stopover_min, StopoverDuration::Minutes(60)));
+        assert!(matches!(cfg.stopover_max, StopoverDuration::Minutes(180)));
+    }
 }

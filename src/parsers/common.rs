@@ -1209,4 +1209,96 @@ mod tests {
         assert!(info.is_some());
         assert_eq!(info.unwrap().len(), 0);
     }
+
+    // -----------------------------------------------------------------------
+    // AirlineCode
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn airline_code_valid_lowercase_is_upcased() {
+        let code = AirlineCode::new("lx").unwrap();
+        assert_eq!(code.as_str(), "LX");
+        assert_eq!(code.to_string(), "LX");
+    }
+
+    #[test]
+    fn airline_code_valid_uppercase_accepted() {
+        let code = AirlineCode::new("BA").unwrap();
+        assert_eq!(code.as_str(), "BA");
+    }
+
+    #[test]
+    fn airline_code_too_short_errors() {
+        assert!(AirlineCode::new("A").is_err());
+    }
+
+    #[test]
+    fn airline_code_too_long_errors() {
+        assert!(AirlineCode::new("LHR").is_err());
+    }
+
+    #[test]
+    fn airline_code_digits_error() {
+        assert!(AirlineCode::new("B6").is_err(), "digits should be rejected");
+    }
+
+    #[test]
+    fn airline_code_empty_errors() {
+        assert!(AirlineCode::new("").is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // Alliance
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn alliance_as_google_str_all_variants() {
+        assert_eq!(Alliance::OneWorld.as_google_str(), "ONEWORLD");
+        assert_eq!(Alliance::SkyTeam.as_google_str(), "SKYTEAM");
+        assert_eq!(Alliance::StarAlliance.as_google_str(), "STAR_ALLIANCE");
+    }
+
+    // -----------------------------------------------------------------------
+    // AirlineFilter
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn airline_filter_from_str_oneworld_case_insensitive() {
+        let f: AirlineFilter = "oneworld".parse().unwrap();
+        assert_eq!(f, AirlineFilter::Alliance(Alliance::OneWorld));
+        assert_eq!(f.as_google_str(), "ONEWORLD");
+        assert_eq!(f.to_string(), "ONEWORLD");
+    }
+
+    #[test]
+    fn airline_filter_from_str_skyteam() {
+        let f: AirlineFilter = "SKYTEAM".parse().unwrap();
+        assert_eq!(f, AirlineFilter::Alliance(Alliance::SkyTeam));
+    }
+
+    #[test]
+    fn airline_filter_from_str_star_alliance() {
+        let f: AirlineFilter = "star_alliance".parse().unwrap();
+        assert_eq!(f, AirlineFilter::Alliance(Alliance::StarAlliance));
+    }
+
+    #[test]
+    fn airline_filter_from_str_iata_code() {
+        let f: AirlineFilter = "LH".parse().unwrap();
+        assert!(matches!(f, AirlineFilter::Airline(_)));
+        assert_eq!(f.as_google_str(), "LH");
+        assert_eq!(f.to_string(), "LH");
+    }
+
+    #[test]
+    fn airline_filter_from_str_invalid_code_errors() {
+        // 3 letters → not a valid IATA airline code
+        assert!("LHR".parse::<AirlineFilter>().is_err());
+    }
+
+    #[test]
+    fn airline_filter_alliance_as_google_str() {
+        let f = AirlineFilter::Alliance(Alliance::StarAlliance);
+        assert_eq!(f.as_google_str(), "STAR_ALLIANCE");
+    }
 }

@@ -1029,4 +1029,99 @@ mod tests {
 
         [choosen_itinerary_1, choosen_itinerary_2].to_vec()
     }
+
+    // -----------------------------------------------------------------------
+    // serialize_airline_filters / serialize_airport_list
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn serialize_airline_filters_empty_returns_null() {
+        assert_eq!(serialize_airline_filters(&[]), "null");
+    }
+
+    #[test]
+    fn serialize_airline_filters_single_iata() {
+        use crate::parsers::common::AirlineCode;
+        let f = AirlineFilter::Airline(AirlineCode::new("LX").unwrap());
+        assert_eq!(serialize_airline_filters(&[f]), r#"[\"LX\"]"#);
+    }
+
+    #[test]
+    fn serialize_airline_filters_alliance() {
+        use crate::parsers::common::Alliance;
+        let f = AirlineFilter::Alliance(Alliance::OneWorld);
+        assert_eq!(serialize_airline_filters(&[f]), r#"[\"ONEWORLD\"]"#);
+    }
+
+    #[test]
+    fn serialize_airline_filters_mixed_multiple() {
+        use crate::parsers::common::{AirlineCode, Alliance};
+        let filters = vec![
+            AirlineFilter::Airline(AirlineCode::new("LH").unwrap()),
+            AirlineFilter::Alliance(Alliance::SkyTeam),
+        ];
+        assert_eq!(
+            serialize_airline_filters(&filters),
+            r#"[\"LH\",\"SKYTEAM\"]"#
+        );
+    }
+
+    #[test]
+    fn serialize_airport_list_empty_returns_null() {
+        assert_eq!(serialize_airport_list(&[]), "null");
+    }
+
+    #[test]
+    fn serialize_airport_list_single() {
+        assert_eq!(serialize_airport_list(&["CDG".to_string()]), r#"[\"CDG\"]"#);
+    }
+
+    #[test]
+    fn serialize_airport_list_multiple() {
+        assert_eq!(
+            serialize_airport_list(&["CDG".to_string(), "AMS".to_string()]),
+            r#"[\"CDG\",\"AMS\"]"#
+        );
+    }
+
+    /// Verify that lower_emissions=true produces `[1]` at position [13]
+    /// and false produces `null`.
+    #[test]
+    fn single_leg_lower_emissions_serialization() {
+        let dep = Location {
+            loc_identifier: "LHR".to_string(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arr = Location {
+            loc_identifier: "JFK".to_string(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let times = FlightTimes::default();
+        let leg_no_emissions = SingleLegStruct {
+            departure: vec![vec![&dep]],
+            arrival: vec![vec![&arr]],
+            times: &times,
+            stop_options: &StopOptions::All,
+            date: "2026-08-01",
+            stopover_max: &StopoverDuration::UNLIMITED,
+            stopover_min: &StopoverDuration::UNLIMITED,
+            duration_max: &TotalDuration::UNLIMITED,
+            chosen_itinerary: None,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
+        };
+        let without = leg_no_emissions.serialize_to_web().unwrap();
+        assert!(without.ends_with(",null,3]"), "no emissions: {without}");
+
+        let leg_with_emissions = SingleLegStruct {
+            lower_emissions: true,
+            ..leg_no_emissions
+        };
+        let with_str = leg_with_emissions.serialize_to_web().unwrap();
+        assert!(with_str.ends_with(",[1],3]"), "with emissions: {with_str}");
+    }
 }
