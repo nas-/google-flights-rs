@@ -545,12 +545,17 @@ async fn get_frontend_version() -> Option<String> {
 
     let status = res.status();
     let final_url = res.url().to_string();
-    if final_url != url {
+    // Only warn when the base path changes (different host or path).
+    // Ignore minor redirects that only add/change query parameters.
+    fn base_url(u: &str) -> &str {
+        u.split_once('?').map_or(u, |(base, _)| base)
+    }
+    if base_url(&final_url) != base_url(&url) {
         tracing::warn!(
             original_url = %url,
             final_url = %final_url,
             status = %status,
-            "main page request was redirected"
+            "main page request was redirected to a different URL"
         );
     } else {
         tracing::debug!(url = %final_url, status = %status, "main page response");

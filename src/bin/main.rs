@@ -1,11 +1,19 @@
 //! `gflights` — command-line interface for the gflights library.
 //!
-//! # Subcommands
+//! # Usage
 //!
+//! **One-shot mode** — pass a subcommand directly:
 //! ```text
 //! gflights search --from LHR --to JFK --date 2025-08-01 [OPTIONS]
-//! gflights graph  --from LHR --to JFK --date 2025-08-01 [--months 3] [OPTIONS]
-//! gflights offer  --from LHR --to JFK --date 2025-08-01 [OPTIONS]
+//! gflights graph  --from LHR --to JFK --date 2025-08-01 [--months 3]
+//! gflights offer  --from LHR --to JFK --date 2025-08-01
+//! ```
+//!
+//! **Interactive mode** — run `gflights` with no arguments to enter a REPL:
+//! ```text
+//! gflights> search --from LHR --to JFK --date 2025-08-01
+//! gflights> graph  --from MXP --to SYD --date 2025-09-01 --months 2
+//! gflights> quit
 //! ```
 
 use anyhow::Result;
@@ -14,6 +22,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use gflights::parsers::common::{SortOrder, StopOptions, TravelClass, Travelers};
 use gflights::requests::api::ApiClient;
 use gflights::requests::config::{Config, Currency};
+use rustyline::error::ReadlineError;
+use rustyline::DefaultEditor;
 
 // ---------------------------------------------------------------------------
 // Output format
@@ -29,13 +39,23 @@ enum OutputFormat {
 }
 
 // ---------------------------------------------------------------------------
-// Top-level CLI
+// Top-level CLI  (optional subcommand → REPL when absent)
 // ---------------------------------------------------------------------------
 
 /// Unofficial Google Flights command-line client.
+///
+/// Run without arguments to enter the interactive REPL.
 #[derive(Parser, Debug)]
 #[command(name = "gflights", version, about, long_about = None)]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+/// Wrapper used inside the REPL to parse a single line as a subcommand.
+#[derive(Parser, Debug)]
+#[command(name = "gflights", disable_help_flag = true)]
+struct ReplCommand {
     #[command(subcommand)]
     command: Commands,
 }
@@ -48,6 +68,9 @@ enum Commands {
     Graph(GraphArgs),
     /// Show booking offers (with airline prices and URLs) for a specific itinerary.
     Offer(OfferArgs),
+    /// Exit the interactive REPL (alias: exit).
+    #[command(alias = "exit")]
+    Quit,
 }
 
 // ---------------------------------------------------------------------------
@@ -156,11 +179,79 @@ async fn main() -> Result<()> {
         )
         .init();
 
+    // Create one shared ApiClient (fetches the frontend version once).
+    let client = ApiClient::new().await;
+
     match cli.command {
-        Commands::Search(args) => cmd_search(args).await,
-        Commands::Graph(args) => cmd_graph(args).await,
-        Commands::Offer(args) => cmd_offer(args).await,
+        Some(cmd) => run_command(cmd, &client).await,
+        None => run_repl(&client).await,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch a parsed command
+// ---------------------------------------------------------------------------
+
+async fn run_command(cmd: Commands, client: &ApiClient) -> Result<()> {
+    match cmd {
+        Commands::Search(args) => cmd_search(args, client).await,
+        Commands::Graph(args) => cmd_graph(args, client).await,
+        Commands::Offer(args) => cmd_offer(args, client).await,
+        Commands::Quit => Ok(()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Interactive REPL
+// ---------------------------------------------------------------------------
+
+async fn run_repl(client: &ApiClient) -> Result<()> {
+    let mut rl = DefaultEditor::new()?;
+    println!("gflights interactive mode  (type 'help' for usage, 'quit' to exit)");
+
+    loop {
+        match rl.readline("gflights> ") {
+            Ok(line) => {
+                let line = line.trim().to_string();
+                if line.is_empty() {
+                    continue;
+                }
+                let _ = rl.add_history_entry(&line);
+
+                if line == "help" || line == "--help" || line == "-h" {
+                    println!("Commands:");
+                    println!("  search --from <CODE> --to <CODE> --date <YYYY-MM-DD> [OPTIONS]");
+                    println!("  graph  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--months N]");
+                    println!("  offer  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [OPTIONS]");
+                    println!("  quit / exit");
+                    continue;
+                }
+
+                // Prepend program name so clap can parse "search --from …" correctly.
+                let parts: Vec<String> = std::iter::once("gflights".to_string())
+                    .chain(line.split_whitespace().map(String::from))
+                    .collect();
+
+                match ReplCommand::try_parse_from(&parts) {
+                    Ok(rc) => {
+                        if matches!(rc.command, Commands::Quit) {
+                            break;
+                        }
+                        if let Err(e) = run_command(rc.command, client).await {
+                            eprintln!("Error: {e:#}");
+                        }
+                    }
+                    Err(e) => eprintln!("{e}"),
+                }
+            }
+            Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
+            Err(e) => {
+                eprintln!("Readline error: {e}");
+                break;
+            }
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -194,20 +285,13 @@ async fn build_config(common: &CommonArgs, client: &ApiClient) -> Result<Config>
 // search
 // ---------------------------------------------------------------------------
 
-async fn cmd_search(args: SearchArgs) -> Result<()> {
-    let client = ApiClient::new().await;
-    let config = build_config(&args.common, &client)
+async fn cmd_search(args: SearchArgs, client: &ApiClient) -> Result<()> {
+    let config = build_config(&args.common, client)
         .await?
         .with_sort_order(args.sort);
 
     let results = client.request_flights(&config).await?;
-
-    let flights: Vec<_> = results
-        .responses
-        .iter()
-        .filter_map(|r| r.maybe_get_all_flights())
-        .flatten()
-        .collect();
+    let flights = results.get_all_flights();
 
     if flights.is_empty() {
         eprintln!("No flights found.");
@@ -262,11 +346,10 @@ async fn cmd_search(args: SearchArgs) -> Result<()> {
 // graph
 // ---------------------------------------------------------------------------
 
-async fn cmd_graph(args: GraphArgs) -> Result<()> {
+async fn cmd_graph(args: GraphArgs, client: &ApiClient) -> Result<()> {
     use chrono::Months;
 
-    let client = ApiClient::new().await;
-    let config = build_config(&args.common, &client).await?;
+    let config = build_config(&args.common, client).await?;
     let months = Months::new(args.months);
 
     let graph = client.request_graph(&config, months).await?;
@@ -311,17 +394,22 @@ async fn cmd_graph(args: GraphArgs) -> Result<()> {
 // offer
 // ---------------------------------------------------------------------------
 
-async fn cmd_offer(args: OfferArgs) -> Result<()> {
-    let client = ApiClient::new().await;
-    let config = build_config(&args.common, &client).await?;
+/// Maximum display width for booking URLs in the table view.
+const URL_DISPLAY_MAX: usize = 60;
+
+fn truncate_url(url: &str) -> String {
+    if url.len() <= URL_DISPLAY_MAX {
+        url.to_string()
+    } else {
+        format!("{}…", &url[..URL_DISPLAY_MAX])
+    }
+}
+
+async fn cmd_offer(args: OfferArgs, client: &ApiClient) -> Result<()> {
+    let config = build_config(&args.common, client).await?;
 
     let result = client.request_flights(&config).await?;
-    let first_flight = result
-        .responses
-        .iter()
-        .filter_map(|r| r.maybe_get_all_flights())
-        .flatten()
-        .next();
+    let first_flight = result.get_all_flights().into_iter().next();
 
     let first = match first_flight {
         Some(f) => f,
@@ -336,13 +424,7 @@ async fn cmd_offer(args: OfferArgs) -> Result<()> {
     // If return trip, also lock in the cheapest return leg.
     if config.return_date.is_some() {
         let second_result = client.request_flights(&config).await?;
-        if let Some(ret) = second_result
-            .responses
-            .iter()
-            .filter_map(|r| r.maybe_get_all_flights())
-            .flatten()
-            .next()
-        {
+        if let Some(ret) = second_result.get_all_flights().into_iter().next() {
             config.fixed_flights.add_element(ret)?;
         }
     }
@@ -375,7 +457,7 @@ async fn cmd_offer(args: OfferArgs) -> Result<()> {
                 // Resolve booking URL if a click token is available.
                 let url = if let Some(token) = o.click_token.as_deref() {
                     match client.resolve_booking_url(token).await {
-                        Ok(u) => u,
+                        Ok(u) => truncate_url(&u),
                         Err(_) => "(URL unavailable)".into(),
                     }
                 } else {

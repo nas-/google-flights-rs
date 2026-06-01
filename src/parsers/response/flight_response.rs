@@ -471,6 +471,19 @@ impl FlightResponseContainer {
         res.sort();
         res.into_iter().next()
     }
+
+    /// Return all itineraries across every response chunk, deduplicated by
+    /// `departure_token`.  Google's streaming API often sends the same flight
+    /// in multiple `wrb.fr` chunks; this method keeps only the first occurrence.
+    pub fn get_all_flights(&self) -> Vec<ItineraryContainer> {
+        let mut seen = std::collections::HashSet::new();
+        self.responses
+            .iter()
+            .filter_map(|r| r.maybe_get_all_flights())
+            .flatten()
+            .filter(|f| seen.insert(f.itinerary_cost.departure_token.clone()))
+            .collect()
+    }
 }
 
 pub fn create_raw_response_vec(raw_inputs: String) -> Result<FlightResponseContainer> {
