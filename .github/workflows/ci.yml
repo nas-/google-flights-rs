@@ -118,7 +118,7 @@ jobs:
         with:
           tool: cargo-audit
 
-      # Fail only on confirmed vulnerabilities; unmaintained/notice warnings
-      # are informational — they appear in output but do not break CI.
+      # Vulnerabilities always exit non-zero; warnings (unmaintained etc.) do not.
+      # Add --deny warnings to make warnings blocking if desired in future.
       - name: Audit dependencies
-        run: cargo audit --deny vulnerability
+        run: cargo audit
