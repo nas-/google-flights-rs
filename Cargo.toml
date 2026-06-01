@@ -8,6 +8,7 @@ keywords = ["google-flights", "flights", "travel", "api", "scraping"]
 categories = ["web-programming::http-client", "api-bindings"]
 repository = "https://github.com/nas-/google-flights-rs"
 readme = "README.md"
+exclude = [".claude/", ".devcontainer/", ".github/"]
 
 [[bin]]
 name = "gflights"
