@@ -308,6 +308,13 @@ impl ConfigBuilder {
     }
 }
 
+pub(super) async fn get_location_pub(
+    location: &str,
+    client: &ApiClient,
+) -> Result<Location, anyhow::Error> {
+    get_location(location, client).await
+}
+
 async fn get_location(location: &str, client: &ApiClient) -> Result<Location, anyhow::Error> {
     let departure = if location.len() == 3 && location.chars().all(char::is_uppercase) {
         if location.starts_with('X') {
