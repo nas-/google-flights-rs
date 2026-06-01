@@ -1,5 +1,7 @@
 # gflights
 
+[![crates.io](https://img.shields.io/crates/v/gflights)](https://crates.io/crates/gflights)
+
 Unofficial async Rust client for the [Google Flights](https://www.google.com/flights) web API.
 
 Search flights, compare prices across a date range, retrieve booking offers, and resolve booking URLs — all without an official API key.
