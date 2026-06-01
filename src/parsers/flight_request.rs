@@ -28,6 +28,9 @@ pub struct FlightRequestOptions<'a> {
     pub departing_times: &'a FlightTimes,
     pub return_times: &'a FlightTimes,
     pub stopover_max: &'a StopoverDuration,
+    /// Minimum layover duration (position 13 in the per-leg array).
+    /// Defaults to [`StopoverDuration::UNLIMITED`] (no minimum imposed).
+    pub stopover_min: &'a StopoverDuration,
     pub duration_max: &'a TotalDuration,
     pub frontend_version: &'a String,
     pub fixed_flights: &'a FixedFlights,
@@ -59,6 +62,7 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
             date: options.date_start,
             times: options.departing_times,
             stopover_max: options.stopover_max,
+            stopover_min: options.stopover_min,
             duration_max: options.duration_max,
             chosen_itinerary: itinerary_going.as_ref(),
         };
@@ -69,6 +73,7 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
             date: date_return,
             times: options.return_times,
             stopover_max: options.stopover_max,
+            stopover_min: options.stopover_min,
             duration_max: options.duration_max,
             chosen_itinerary: itinerary_return.as_ref(),
         });
@@ -121,6 +126,10 @@ pub struct SingleLegStruct<'a> {
     pub date: &'a str,
     pub times: &'a FlightTimes,
     pub stopover_max: &'a StopoverDuration,
+    /// Minimum layover / connection duration.
+    /// Serialized to position 13 of the per-leg array.
+    /// Set to [`StopoverDuration::UNLIMITED`] (default) to impose no minimum.
+    pub stopover_min: &'a StopoverDuration,
     pub duration_max: &'a TotalDuration,
     pub chosen_itinerary: Option<&'a Vec<FlightInfo>>,
 }
@@ -137,7 +146,9 @@ impl SerializeToWeb for SingleLegStruct<'_> {
             None => "null".to_string(),
         };
         Ok(format!(
-            r#"[{0},{1},{2},{3},null,null,\"{4}\",{5},{6},null,null,null,{7},null,{8}]"#,
+            // Indices: [dep, arr, times, stops, null, null, "date", dur_max, chosen,
+            //           null, null, null, stop_max, stop_min, show]
+            r#"[{0},{1},{2},{3},null,null,\"{4}\",{5},{6},null,null,null,{7},{8},{9}]"#,
             &self.departure.serialize_to_web()?,
             &self.arrival.serialize_to_web()?,
             &self.times.serialize_to_web()?,
@@ -146,6 +157,7 @@ impl SerializeToWeb for SingleLegStruct<'_> {
             self.duration_max.serialize_to_web()?,
             chosen_itinerary,
             self.stopover_max.serialize_to_web()?,
+            self.stopover_min.serialize_to_web()?,
             flight_to_show,
         ))
     }
@@ -178,6 +190,7 @@ impl<'a> ItineraryRequest<'a> {
         departing_times: &'a FlightTimes,
         return_times: &'a FlightTimes,
         stopover_max: &'a StopoverDuration,
+        stopover_min: &'a StopoverDuration,
         duration_max: &'a TotalDuration,
         is_graph: bool,
         sort_order: SortOrder,
@@ -190,6 +203,7 @@ impl<'a> ItineraryRequest<'a> {
             date: date_start,
             times: departing_times,
             stopover_max,
+            stopover_min,
             duration_max,
             chosen_itinerary: None,
         };
@@ -202,6 +216,7 @@ impl<'a> ItineraryRequest<'a> {
                 stop_options,
                 times: return_times,
                 stopover_max,
+                stopover_min,
                 duration_max,
                 chosen_itinerary: None,
             })
@@ -307,6 +322,7 @@ mod tests {
             departing_times: &flight_times,
             return_times: &flight_times,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             frontend_version: &frontend_version,
             fixed_flights: &fixed_flights,
@@ -352,6 +368,7 @@ mod tests {
             departing_times: &flight_times,
             return_times: &flight_times,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             frontend_version: &frontend_version,
             fixed_flights: &fixed_flights,
@@ -399,6 +416,7 @@ mod tests {
             date: "2022-11-20",
             times: &binding,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
         };
@@ -431,6 +449,7 @@ mod tests {
             date: "2022-11-20",
             times: &binding,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
         };
@@ -463,6 +482,7 @@ mod tests {
             date: "2022-11-20",
             times: &binding,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
         };
@@ -495,6 +515,7 @@ mod tests {
             date: "2022-11-20",
             times: &binding,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
         };
@@ -527,6 +548,7 @@ mod tests {
             date: "2022-10-20",
             times: &binding,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
         };
@@ -537,6 +559,7 @@ mod tests {
             date: "2022-10-30",
             times: &binding,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
         };
@@ -594,6 +617,7 @@ mod tests {
             &binding,
             &binding,
             &stopover_max,
+            &StopoverDuration::UNLIMITED,
             &duration_max,
             false,
             SortOrder::Best,
@@ -633,6 +657,7 @@ mod tests {
             date: "2022-11-20",
             times: &binding,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: Some(&choosen_itinerary),
         };
@@ -666,6 +691,7 @@ mod tests {
             date: "2022-11-20",
             times: &binding,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: Some(&choosen_itinerary),
         };
@@ -699,6 +725,7 @@ mod tests {
             date: "2022-11-20",
             times: &binding,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: Some(&choosen_itinerary),
         };
@@ -740,6 +767,7 @@ mod tests {
             date: &date,
             times: &binding,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             chosen_itinerary: None,
         };
@@ -788,6 +816,7 @@ mod tests {
             departing_times: &flight_times,
             return_times: &flight_times,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             frontend_version: &frontend_version,
             fixed_flights: &fixed_flights,

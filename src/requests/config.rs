@@ -44,6 +44,8 @@ pub struct Config {
     pub departing_times: FlightTimes,
     pub return_times: FlightTimes,
     pub stopover_max: StopoverDuration,
+    /// Minimum layover / connection time (default: no minimum).
+    pub stopover_min: StopoverDuration,
     pub duration_max: TotalDuration,
     pub trip_type: TripType,
     pub currency: Currency,
@@ -69,6 +71,7 @@ impl Default for Config {
             departing_times: FlightTimes::default(),
             return_times: FlightTimes::default(),
             stopover_max: StopoverDuration::default(),
+            stopover_min: StopoverDuration::default(),
             duration_max: TotalDuration::default(),
             trip_type: TripType::default(),
             currency: Currency::default(),
@@ -123,6 +126,7 @@ impl Config {
             departing_times,
             return_times,
             stopover_max,
+            stopover_min: StopoverDuration::default(),
             duration_max,
             trip_type,
             currency: currency.unwrap_or_default(),
@@ -169,6 +173,8 @@ pub struct ConfigBuilder {
     departing_times: FlightTimes,
     return_times: FlightTimes,
     stopover_max: StopoverDuration,
+    /// Minimum layover duration. Default: no minimum.
+    stopover_min: StopoverDuration,
     duration_max: TotalDuration,
     currency: Option<Currency>,
     /// BCP-47 language subtag, e.g. `"en"`, `"fr"`. Default: `"en"`.
@@ -192,6 +198,7 @@ impl Default for ConfigBuilder {
             departing_times: FlightTimes::default(),
             return_times: FlightTimes::default(),
             stopover_max: StopoverDuration::default(),
+            stopover_min: StopoverDuration::default(),
             duration_max: TotalDuration::default(),
             currency: None,
             language: "en".to_string(),
@@ -298,6 +305,15 @@ impl ConfigBuilder {
         self
     }
 
+    /// Set the minimum layover / connection duration.
+    ///
+    /// Use this to avoid very short layovers.  Google Flights lets you choose
+    /// minimum layover times in 30-minute intervals.
+    pub fn stopover_min(mut self, duration: StopoverDuration) -> Self {
+        self.stopover_min = duration;
+        self
+    }
+
     pub fn duration_max(mut self, duration: TotalDuration) -> Self {
         self.duration_max = duration;
         self
@@ -360,6 +376,7 @@ impl ConfigBuilder {
             departing_times: self.departing_times,
             return_times: self.return_times,
             stopover_max: self.stopover_max,
+            stopover_min: self.stopover_min,
             duration_max: self.duration_max,
             currency: self.currency.unwrap_or_default(),
             trip_type: trip_type.clone(),

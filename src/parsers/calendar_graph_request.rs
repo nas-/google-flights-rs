@@ -26,6 +26,8 @@ pub struct GraphRequestOptions<'a> {
     pub departing_times: &'a FlightTimes,
     pub return_times: &'a FlightTimes,
     pub stopover_max: &'a StopoverDuration,
+    /// Minimum layover duration. Defaults to [`StopoverDuration::UNLIMITED`] (no minimum).
+    pub stopover_min: &'a StopoverDuration,
     pub duration_max: &'a TotalDuration,
     pub frontend_version: &'a String,
     /// BCP-47 language subtag, e.g. `"en"`, `"fr"`.
@@ -59,6 +61,7 @@ impl TryFrom<&GraphRequestOptions<'_>> for RequestBody {
             options.departing_times,
             options.return_times,
             options.stopover_max,
+            options.stopover_min,
             options.duration_max,
             true,
             *options.sort_order,
@@ -157,6 +160,7 @@ mod tests {
             departing_times: &binding,
             return_times: &binding,
             stopover_max: &stopover_max,
+            stopover_min: &StopoverDuration::UNLIMITED,
             duration_max: &duration_max,
             frontend_version: &frontend_version,
             language: "en",
@@ -197,6 +201,7 @@ mod tests {
             &flight_times,
             &flight_times,
             &stopover_max,
+            &StopoverDuration::UNLIMITED,
             &duration_max,
             true,
             SortOrder::Best,
