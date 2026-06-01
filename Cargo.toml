@@ -9,6 +9,10 @@ categories = ["web-programming::http-client", "api-bindings"]
 repository = "https://github.com/YOUR_USERNAME/google-flights-rs"
 readme = "README.md"
 
+[[bin]]
+name = "gflights"
+path = "src/bin/main.rs"
+
 [dependencies]
 anyhow = "1.0.79"
 chrono = { version = "0.4.31", features = ["serde"] }
@@ -24,6 +28,7 @@ governor = "0.6.0"
 regex = "1.10.3"
 serde_repr = "0.1.18"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 base64 = "0.21.7"
 prost = "0.12.3"
@@ -31,7 +36,6 @@ prost-build = "0.12.3"
 prost-types = "0.12.3"
 
 [dev-dependencies]
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [build-dependencies]
 prost-build = "0.12.3"
