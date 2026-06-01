@@ -12,6 +12,7 @@ use crate::parsers::common::{
 };
 use crate::parsers::constants::{BOOKING_REQUEST, FLIGHT_REQUEST};
 use crate::parsers::response::flight_response::FlightInfo;
+use crate::requests::config::multi_city::{leg_tail, MultiCityConfig};
 use anyhow::Result;
 
 pub struct FlightRequestOptions<'a> {
@@ -357,6 +358,103 @@ impl SerializeToWeb for CompleteFlightRequest<'_> {
             epoch_now
         ))
     }
+}
+
+// ---------------------------------------------------------------------------
+// Multi-city request
+// ---------------------------------------------------------------------------
+
+/// Request body builder for multi-city searches.
+///
+/// Produces the same outer `f.req` format as [`FlightRequestOptions`] but
+/// encodes N independent legs with the correct tail classifier per leg.
+pub struct MultiCityRequestOptions<'a> {
+    pub config: &'a MultiCityConfig,
+    pub frontend_version: &'a str,
+}
+
+impl ToRequestBody for MultiCityRequestOptions<'_> {
+    fn to_request_body(&self) -> Result<RequestBody> {
+        self.try_into()
+    }
+}
+
+impl TryFrom<&MultiCityRequestOptions<'_>> for RequestBody {
+    type Error = anyhow::Error;
+
+    fn try_from(opts: &MultiCityRequestOptions<'_>) -> Result<Self> {
+        let cfg = opts.config;
+        let server_sort = cfg.sort_order.server_sort();
+
+        let legs_json = build_multi_city_legs(cfg)?;
+
+        let itinerary_json = format!(
+            r#"[null,null,{sort},null,[],{class},{travelers},null,null,null,null,null,null,{legs},null,null,null,1]"#,
+            sort = server_sort as i32,
+            class = cfg.travel_class.serialize_to_web()?,
+            travelers = cfg.travellers.serialize_to_web()?,
+            legs = legs_json,
+        );
+
+        let epoch_now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis();
+
+        let body = format!(
+            r#"f.req=[null,"[[],{itinerary},0,0,0,1]"]&at=AAuQa1qiXfSThbBOCdcDUAVTopoc:{epoch}&"#,
+            itinerary = itinerary_json,
+            epoch = epoch_now,
+        );
+
+        let url = format!(
+            "{endpoint}?f.sid=6921237406276106431&bl={version}&hl={lang}-{country}&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c",
+            endpoint = FLIGHT_REQUEST,
+            version = opts.frontend_version,
+            lang = cfg.language,
+            country = cfg.country.to_uppercase(),
+        );
+
+        let encoded = utf8_percent_encode(&body, CHARACTERS_TO_ENCODE).to_string();
+        Ok(RequestBody { url, body: encoded })
+    }
+}
+
+fn build_multi_city_legs(cfg: &MultiCityConfig) -> Result<String> {
+    let first_leg = cfg
+        .legs
+        .first()
+        .expect("at least 2 legs validated in builder");
+
+    let legs: Vec<String> = cfg
+        .legs
+        .iter()
+        .enumerate()
+        .map(|(i, leg)| {
+            let departure: Vec<Vec<&Location>> = vec![leg.from.iter().collect()];
+            let arrival: Vec<Vec<&Location>> = vec![leg.to.iter().collect()];
+            let tail = leg_tail(i, leg, first_leg);
+            let dummy_times = FlightTimes::default();
+            let unlimited_stop = StopoverDuration::UNLIMITED;
+            let unlimited_dur = TotalDuration::UNLIMITED;
+
+            // Reuse SingleLegStruct for consistent serialization, then override tail.
+            // We build the 15-element array manually to set our own tail value.
+            Ok(format!(
+                r#"[{dep},{arr},{times},{stops},null,null,\"{date}\",{dur},null,null,null,{min_stop},{max_stop},null,{tail}]"#,
+                dep = departure.serialize_to_web()?,
+                arr = arrival.serialize_to_web()?,
+                times = dummy_times.serialize_to_web()?,
+                stops = StopOptions::All.serialize_to_web()?,
+                date = leg.date,
+                dur = unlimited_dur.serialize_to_web()?,
+                min_stop = unlimited_stop.serialize_to_web()?,
+                max_stop = unlimited_stop.serialize_to_web()?,
+                tail = tail,
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(format!("[{}]", legs.join(",")))
 }
 
 #[cfg(test)]

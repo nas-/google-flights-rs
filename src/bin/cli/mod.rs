@@ -9,11 +9,13 @@ use rustyline::DefaultEditor;
 
 pub mod date_grid;
 pub mod graph;
+pub mod multi_city;
 pub mod offer;
 pub mod search;
 
 use date_grid::{cmd_date_grid, DateGridArgs};
 use graph::{cmd_graph, GraphArgs};
+use multi_city::{cmd_multi_city, MultiCityArgs};
 use offer::{cmd_offer, OfferArgs};
 use search::{cmd_search, SearchArgs};
 
@@ -63,6 +65,13 @@ pub enum Commands {
     DateGrid(DateGridArgs),
     /// Show booking offers (with airline prices and URLs) for a specific itinerary.
     Offer(OfferArgs),
+    /// Multi-city (open-jaw) flight search across 2+ legs.
+    ///
+    /// Specify each leg with --leg FROM,TO,DATE (repeatable).
+    ///
+    /// Example: gflights mcity --leg LUX,FCO,2026-09-10 --leg FCO,MAD,2026-09-13 --leg MAD,LUX,2026-09-17
+    #[command(name = "mcity")]
+    MultiCity(MultiCityArgs),
     /// Exit the interactive REPL (alias: exit).
     #[command(alias = "exit")]
     Quit,
@@ -157,6 +166,7 @@ pub async fn run_command(cmd: Commands, client: &ApiClient) -> Result<()> {
         Commands::Graph(args) => cmd_graph(args, client).await,
         Commands::DateGrid(args) => cmd_date_grid(args, client).await,
         Commands::Offer(args) => cmd_offer(args, client).await,
+        Commands::MultiCity(args) => cmd_multi_city(args, client).await,
         Commands::Quit => Ok(()),
     }
 }
@@ -184,6 +194,7 @@ pub async fn run_repl(client: &ApiClient) -> Result<()> {
                     println!("  graph  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--months N]");
                     println!("  dgrid  --from <CODE> --to <CODE> --dep-start <DATE> --dep-end <DATE> --ret-start <DATE> --ret-end <DATE>");
                     println!("  offer  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [OPTIONS]");
+                    println!("  mcity  --leg FROM,TO,DATE [--leg FROM,TO,DATE ...] [OPTIONS]");
                     println!("  quit / exit");
                     continue;
                 }
@@ -435,6 +446,51 @@ mod tests {
             "not-a-date",
         ]);
         assert!(result.is_err(), "invalid date should error");
+    }
+
+    #[test]
+    fn repl_parse_mcity_two_legs() {
+        let rc = parse(&[
+            "mcity",
+            "--leg",
+            "LUX,FCO,2026-09-10",
+            "--leg",
+            "FCO,MAD,2026-09-13",
+        ])
+        .expect("mcity with 2 legs should parse");
+        match rc.command {
+            Commands::MultiCity(args) => {
+                assert_eq!(args.legs.len(), 2);
+                assert_eq!(args.legs[0].from, "LUX");
+                assert_eq!(args.legs[0].to, "FCO");
+                assert_eq!(args.legs[1].from, "FCO");
+            }
+            other => panic!("expected MultiCity, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn repl_parse_mcity_three_legs() {
+        let rc = parse(&[
+            "mcity",
+            "--leg",
+            "LUX,FCO,2026-09-10",
+            "--leg",
+            "FCO,MAD,2026-09-13",
+            "--leg",
+            "MAD,LUX,2026-09-17",
+        ])
+        .expect("mcity with 3 legs should parse");
+        match rc.command {
+            Commands::MultiCity(args) => assert_eq!(args.legs.len(), 3),
+            other => panic!("expected MultiCity, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn repl_parse_mcity_invalid_leg_format() {
+        let result = parse(&["mcity", "--leg", "LUX-FCO-2026-09-10"]);
+        assert!(result.is_err(), "invalid leg format should error");
     }
 
     #[test]

@@ -1150,3 +1150,137 @@ async fn invalid_iata_xxx_does_not_panic() -> Result<()> {
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Multi-city live tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn multi_city_three_legs_returns_flights() -> Result<()> {
+    require_live!();
+    use chrono::NaiveDate;
+    use gflights::requests::config::MultiCityConfig;
+
+    let client = shared_client().await;
+
+    let config = MultiCityConfig::builder()
+        .add_leg(
+            "LUX",
+            "FCO",
+            NaiveDate::from_ymd_opt(2026, 9, 10).unwrap(),
+            client,
+        )
+        .await?
+        .add_leg(
+            "FCO",
+            "MAD",
+            NaiveDate::from_ymd_opt(2026, 9, 13).unwrap(),
+            client,
+        )
+        .await?
+        .add_leg(
+            "MAD",
+            "LUX",
+            NaiveDate::from_ymd_opt(2026, 9, 17).unwrap(),
+            client,
+        )
+        .await?
+        .build()?;
+
+    let results = client.request_multi_city_flights(&config).await?;
+    let flights = results.get_all_flights();
+    assert!(
+        !flights.is_empty(),
+        "multi-city 3-leg search should return at least one flight"
+    );
+
+    for f in &flights {
+        assert!(
+            !f.itinerary.flight_by.is_empty(),
+            "airline should be non-empty"
+        );
+        assert!(
+            f.itinerary.total_time_minutes > 0,
+            "total duration should be positive"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn multi_city_four_legs_returns_flights() -> Result<()> {
+    require_live!();
+    use chrono::NaiveDate;
+    use gflights::requests::config::MultiCityConfig;
+
+    let client = shared_client().await;
+
+    let config = MultiCityConfig::builder()
+        .add_leg(
+            "LUX",
+            "FCO",
+            NaiveDate::from_ymd_opt(2026, 9, 10).unwrap(),
+            client,
+        )
+        .await?
+        .add_leg(
+            "FCO",
+            "MAD",
+            NaiveDate::from_ymd_opt(2026, 9, 13).unwrap(),
+            client,
+        )
+        .await?
+        .add_leg(
+            "MAD",
+            "LUX",
+            NaiveDate::from_ymd_opt(2026, 9, 17).unwrap(),
+            client,
+        )
+        .await?
+        .add_leg(
+            "LUX",
+            "STN",
+            NaiveDate::from_ymd_opt(2026, 9, 20).unwrap(),
+            client,
+        )
+        .await?
+        .build()?;
+
+    let results = client.request_multi_city_flights(&config).await?;
+    let flights = results.get_all_flights();
+    assert!(
+        !flights.is_empty(),
+        "multi-city 4-leg search should return at least one flight"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn multi_city_builder_rejects_single_leg() -> Result<()> {
+    require_live!();
+    use chrono::NaiveDate;
+    use gflights::requests::config::MultiCityConfig;
+
+    let result = MultiCityConfig::builder()
+        .add_leg_locations(
+            vec![gflights::parsers::common::Location {
+                loc_identifier: "LUX".to_string(),
+                loc_type: gflights::parsers::common::PlaceType::Airport,
+                location_name: Some("LUX".to_string()),
+            }],
+            vec![gflights::parsers::common::Location {
+                loc_identifier: "FCO".to_string(),
+                loc_type: gflights::parsers::common::PlaceType::Airport,
+                location_name: Some("FCO".to_string()),
+            }],
+            NaiveDate::from_ymd_opt(2026, 9, 10).unwrap(),
+        )
+        .build();
+
+    assert!(result.is_err(), "single-leg multi-city should fail");
+    assert!(result.unwrap_err().to_string().contains("2 legs"));
+    Ok(())
+}

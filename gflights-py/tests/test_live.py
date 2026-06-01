@@ -232,3 +232,35 @@ async def test_rate_limit_flag_and_reset():
             f"errors: {[str(e) for e in errors]}"
         )
         assert all(len(r) > 0 for r in successes)
+
+
+@live
+async def test_multi_city_three_legs(client):
+    """Multi-city search with 3 legs returns results."""
+    flights = await client.multi_city_search([
+        ("LUX", "FCO", "2026-09-10"),
+        ("FCO", "MAD", "2026-09-13"),
+        ("MAD", "LUX", "2026-09-17"),
+    ])
+    assert isinstance(flights, list)
+    assert len(flights) > 0
+
+
+@live
+async def test_multi_city_four_legs(client):
+    """Multi-city search with 4 legs returns results."""
+    flights = await client.multi_city_search([
+        ("LUX", "FCO", "2026-09-10"),
+        ("FCO", "MAD", "2026-09-13"),
+        ("MAD", "LUX", "2026-09-17"),
+        ("LUX", "STN", "2026-09-20"),
+    ])
+    assert isinstance(flights, list)
+    assert len(flights) > 0
+
+
+@live
+async def test_multi_city_requires_two_legs(client):
+    """multi_city_search raises ValueError for fewer than 2 legs."""
+    with pytest.raises(ValueError, match="2 legs"):
+        await client.multi_city_search([("LHR", "JFK", "2026-09-01")])

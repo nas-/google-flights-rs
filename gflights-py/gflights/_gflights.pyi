@@ -113,5 +113,18 @@ class GFlights:
         """Departure × return price matrix. Returns a coroutine."""
         ...
 
+    async def multi_city_search(
+        self,
+        legs: list[tuple[str, str, str]],
+        adults: int = ...,
+        travel_class: str = ...,
+        sort: str = ...,
+        currency: str = ...,
+        lang: str = ...,
+        country: str = ...,
+    ) -> list[FlightResult]:
+        """Multi-city (open-jaw) search. Each leg is ``(from, to, "YYYY-MM-DD")``."""
+        ...
+
     def reset_rate_limit(self) -> None: ...
     def __repr__(self) -> str: ...

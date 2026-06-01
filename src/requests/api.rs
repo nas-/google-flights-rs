@@ -2,6 +2,7 @@ use super::config::Currency;
 use crate::parsers;
 use crate::parsers::constants::{CLK_URL, FLIGHTS_MAIN_PAGE};
 use crate::requests::config::Config;
+use crate::requests::config::MultiCityConfig;
 use anyhow::Result;
 use chrono::{Duration, Months, NaiveDate};
 use governor::{DefaultDirectRateLimiter, Quota};
@@ -12,7 +13,7 @@ use parsers::city_response::ResponseInnerBodyParsed;
 use parsers::common::ToRequestBody;
 use parsers::date_grid_request::{DateGridRequestOptions, DATE_GRID_MAX_CELLS};
 use parsers::date_grid_response::{parse_date_grid_response, DateGridResponse};
-use parsers::flight_request::FlightRequestOptions;
+use parsers::flight_request::{FlightRequestOptions, MultiCityRequestOptions};
 use parsers::flight_response::{create_raw_response_vec, FlightResponseContainer};
 use parsers::offer_response::{self, OfferRawResponseContainer};
 use regex::Regex;
@@ -437,6 +438,62 @@ impl ApiClient {
             .await?
             .text()
             .await?)
+    }
+
+    /// Sends a multi-city (open-jaw) flight search request.
+    ///
+    /// Returns all flight options across all legs in a single
+    /// [`FlightResponseContainer`].  Call [`FlightResponseContainer::get_all_flights`]
+    /// to obtain the deduplicated itinerary list.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` — [`MultiCityConfig`] built via [`MultiCityConfig::builder()`].
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use gflights::requests::{api::ApiClient, config::MultiCityConfig};
+    /// use chrono::NaiveDate;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> anyhow::Result<()> {
+    ///     let client = ApiClient::new().await;
+    ///     let config = MultiCityConfig::builder()
+    ///         .add_leg("LUX", "FCO", NaiveDate::from_ymd_opt(2026, 9, 10).unwrap(), &client).await?
+    ///         .add_leg("FCO", "MAD", NaiveDate::from_ymd_opt(2026, 9, 13).unwrap(), &client).await?
+    ///         .add_leg("MAD", "LUX", NaiveDate::from_ymd_opt(2026, 9, 17).unwrap(), &client).await?
+    ///         .build()?;
+    ///     let results = client.request_multi_city_flights(&config).await?;
+    ///     let flights = results.get_all_flights();
+    ///     println!("{} itineraries found", flights.len());
+    ///     Ok(())
+    /// }
+    /// ```
+    #[tracing::instrument(skip_all, fields(
+        legs = args.legs.len(),
+        class = ?args.travel_class,
+    ))]
+    pub async fn request_multi_city_flights(
+        &self,
+        args: &MultiCityConfig,
+    ) -> Result<FlightResponseContainer> {
+        tracing::info!("Requesting multi-city flights");
+        let req_options = MultiCityRequestOptions {
+            config: args,
+            frontend_version: &self.frontend_version,
+        };
+        let body = self
+            .do_request(
+                &req_options,
+                Some(args.currency.clone()),
+                &args.language,
+                &args.country,
+            )
+            .await?
+            .text()
+            .await?;
+        create_raw_response_vec(body)
     }
 
     /// Resolves a `click_token` from an `OfferGroup` or `BookingSubOption`
