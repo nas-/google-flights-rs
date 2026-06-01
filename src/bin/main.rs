@@ -13,6 +13,7 @@
 //! ```text
 //! gflights> search --from LHR --to JFK --date 2025-08-01
 //! gflights> graph  --from MXP --to SYD --date 2025-09-01 --months 2
+//! gflights> dgrid  --from LHR --to JFK --dep-start 2025-08-01 --dep-end 2025-08-07 --ret-start 2025-08-10 --ret-end 2025-08-17
 //! gflights> quit
 //! ```
 
@@ -66,6 +67,9 @@ enum Commands {
     Search(SearchArgs),
     /// Show cheapest prices across a date range (price graph).
     Graph(GraphArgs),
+    /// Show a price grid across departure × return date windows (round trips only).
+    #[command(name = "dgrid")]
+    DateGrid(DateGridArgs),
     /// Show booking offers (with airline prices and URLs) for a specific itinerary.
     Offer(OfferArgs),
     /// Exit the interactive REPL (alias: exit).
@@ -154,6 +158,57 @@ struct GraphArgs {
 }
 
 // ---------------------------------------------------------------------------
+// Date grid
+// ---------------------------------------------------------------------------
+
+#[derive(Parser, Debug)]
+struct DateGridArgs {
+    /// Departure airport IATA code or city name.
+    #[arg(long)]
+    from: String,
+
+    /// Destination airport IATA code or city name.
+    #[arg(long)]
+    to: String,
+
+    /// First day of the outbound departure window (YYYY-MM-DD).
+    #[arg(long)]
+    dep_start: NaiveDate,
+
+    /// Last day of the outbound departure window (YYYY-MM-DD).
+    #[arg(long)]
+    dep_end: NaiveDate,
+
+    /// First day of the return window (YYYY-MM-DD).
+    #[arg(long)]
+    ret_start: NaiveDate,
+
+    /// Last day of the return window (YYYY-MM-DD).
+    #[arg(long)]
+    ret_end: NaiveDate,
+
+    /// Number of adult passengers.
+    #[arg(long, default_value = "1")]
+    adults: u32,
+
+    /// Travel class.
+    #[arg(long, default_value = "economy")]
+    class: TravelClass,
+
+    /// Stop filter.
+    #[arg(long, default_value = "all")]
+    stops: StopOptions,
+
+    /// Currency for prices.
+    #[arg(long, default_value = "euro")]
+    currency: Currency,
+
+    /// Output format.
+    #[arg(long, default_value = "table")]
+    format: OutputFormat,
+}
+
+// ---------------------------------------------------------------------------
 // Offer
 // ---------------------------------------------------------------------------
 
@@ -196,6 +251,7 @@ async fn run_command(cmd: Commands, client: &ApiClient) -> Result<()> {
     match cmd {
         Commands::Search(args) => cmd_search(args, client).await,
         Commands::Graph(args) => cmd_graph(args, client).await,
+        Commands::DateGrid(args) => cmd_date_grid(args, client).await,
         Commands::Offer(args) => cmd_offer(args, client).await,
         Commands::Quit => Ok(()),
     }
@@ -222,6 +278,7 @@ async fn run_repl(client: &ApiClient) -> Result<()> {
                     println!("Commands:");
                     println!("  search --from <CODE> --to <CODE> --date <YYYY-MM-DD> [OPTIONS]");
                     println!("  graph  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--months N]");
+                    println!("  dgrid  --from <CODE> --to <CODE> --dep-start <DATE> --dep-end <DATE> --ret-start <DATE> --ret-end <DATE>");
                     println!("  offer  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [OPTIONS]");
                     println!("  quit / exit");
                     continue;
@@ -429,6 +486,59 @@ async fn cmd_graph(args: GraphArgs, client: &ApiClient) -> Result<()> {
                     ""
                 };
                 println!("{:<12}  {:>8}{}", date, price, marker);
+            }
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// dgrid
+// ---------------------------------------------------------------------------
+
+async fn cmd_date_grid(args: DateGridArgs, client: &ApiClient) -> Result<()> {
+    let travelers = Travelers::new(vec![args.adults as i32, 0, 0, 0])?;
+
+    let config = Config::builder()
+        .departure(&args.from, client)
+        .await?
+        .destination(&args.to, client)
+        .await?
+        // Use dep_start as the nominal departing date (required by Config).
+        .departing_date(args.dep_start)
+        .return_date(args.ret_end)
+        .travelers(travelers)
+        .travel_class(args.class)
+        .stop_options(args.stops)
+        .currency(args.currency.clone())
+        .build()?;
+
+    let grid = client
+        .request_date_grid(
+            &config,
+            args.dep_start,
+            args.dep_end,
+            args.ret_start,
+            args.ret_end,
+        )
+        .await?;
+
+    if grid.entries.is_empty() {
+        eprintln!("No price data found for the requested date windows.");
+        return Ok(());
+    }
+
+    match args.format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&grid)?);
+        }
+        OutputFormat::Table => {
+            print!("{grid}");
+            if let Some(c) = grid.cheapest() {
+                println!(
+                    "\nCheapest: {} → {} at {}",
+                    c.departure_date, c.return_date, c.price
+                );
             }
         }
     }

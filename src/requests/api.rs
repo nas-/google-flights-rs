@@ -3,13 +3,15 @@ use crate::parsers;
 use crate::parsers::constants::{CLK_URL, FLIGHTS_MAIN_PAGE};
 use crate::requests::config::Config;
 use anyhow::Result;
-use chrono::Months;
+use chrono::{Duration, Months, NaiveDate};
 use governor::{DefaultDirectRateLimiter, Quota};
 use parsers::calendar_graph_request::GraphRequestOptions;
 use parsers::calendar_graph_response::GraphRawResponseContainer;
 use parsers::city_request::CityRequestOptions;
 use parsers::city_response::ResponseInnerBodyParsed;
 use parsers::common::ToRequestBody;
+use parsers::date_grid_request::{DateGridRequestOptions, DATE_GRID_MAX_CELLS};
+use parsers::date_grid_response::{parse_date_grid_response, DateGridResponse};
 use parsers::flight_request::FlightRequestOptions;
 use parsers::flight_response::{create_raw_response_vec, FlightResponseContainer};
 use parsers::offer_response::{self, OfferRawResponseContainer};
@@ -219,6 +221,131 @@ impl ApiClient {
             .text()
             .await?;
         GraphRawResponseContainer::try_from(body.as_ref())
+    }
+
+    /// Sends a request to retrieve the date-grid price matrix.
+    ///
+    /// Returns a price for every (departure_date, return_date) combination
+    /// that falls within the two supplied date windows.
+    ///
+    /// The backend rejects requests whose cell count
+    /// (`dep_window_days × ret_window_days`) exceeds [`DATE_GRID_MAX_CELLS`]
+    /// (200).  This method transparently splits large windows into multiple
+    /// sub-requests and merges the results, so callers are free to supply any
+    /// window size.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` — Config supplying route, travellers, cabin class, etc.
+    ///   `args.departing_date` / `args.return_date` are used as reference
+    ///   dates inside the itinerary body; they must fall within the respective
+    ///   windows and a return date must be set.
+    /// * `dep_start` / `dep_end` — window of candidate departure dates.
+    /// * `ret_start` / `ret_end` — window of candidate return dates.
+    #[tracing::instrument(skip_all)]
+    pub async fn request_date_grid(
+        &self,
+        args: &Config,
+        dep_start: NaiveDate,
+        dep_end: NaiveDate,
+        ret_start: NaiveDate,
+        ret_end: NaiveDate,
+    ) -> Result<DateGridResponse> {
+        args.return_date
+            .ok_or_else(|| anyhow::anyhow!("date grid requires a return date in Config"))?;
+
+        let dep_days = (dep_end - dep_start).num_days() + 1;
+        let ret_days = (ret_end - ret_start).num_days() + 1;
+        let total_cells = dep_days * ret_days;
+
+        if total_cells <= DATE_GRID_MAX_CELLS as i64 {
+            // Fits in a single request.
+            return self
+                .request_date_grid_chunk(args, dep_start, dep_end, ret_start, ret_end)
+                .await;
+        }
+
+        // Split: keep the full departure window and slice the return window
+        // into chunks whose cell count stays within the limit.
+        // If the departure window alone already exceeds the limit, each chunk
+        // covers exactly one return day (best we can do).
+        let max_ret_chunk = ((DATE_GRID_MAX_CELLS as i64) / dep_days).max(1);
+        tracing::info!(
+            dep_days,
+            ret_days,
+            max_ret_chunk,
+            "date grid too large, splitting into chunks"
+        );
+
+        let mut all_entries = Vec::new();
+        let mut chunk_ret_start = ret_start;
+
+        while chunk_ret_start <= ret_end {
+            let chunk_ret_end = (chunk_ret_start + Duration::days(max_ret_chunk - 1)).min(ret_end);
+
+            let chunk = self
+                .request_date_grid_chunk(args, dep_start, dep_end, chunk_ret_start, chunk_ret_end)
+                .await?;
+            all_entries.extend(chunk.entries);
+
+            chunk_ret_start = chunk_ret_end + Duration::days(1);
+        }
+
+        Ok(DateGridResponse {
+            entries: all_entries,
+        })
+    }
+
+    /// Single `GetCalendarGrid` request — windows must be ≤ [`DATE_GRID_MAX_CELLS`] cells.
+    ///
+    /// The return reference date is clamped to `[ret_start, ret_end]` so it
+    /// stays valid when this is called from the chunking loop.
+    async fn request_date_grid_chunk(
+        &self,
+        args: &Config,
+        dep_start: NaiveDate,
+        dep_end: NaiveDate,
+        ret_start: NaiveDate,
+        ret_end: NaiveDate,
+    ) -> Result<DateGridResponse> {
+        // Clamp the config's reference dates to lie within the supplied windows.
+        let dep_ref = args.departing_date.max(dep_start).min(dep_end);
+        let ret_ref = args
+            .return_date
+            .unwrap_or(ret_start)
+            .max(ret_start)
+            .min(ret_end);
+
+        let req_options = DateGridRequestOptions::new(
+            &args.departure,
+            &args.destination,
+            &dep_ref,
+            &ret_ref,
+            &dep_start,
+            &dep_end,
+            &ret_start,
+            &ret_end,
+            args.travellers.clone(),
+            &args.travel_class,
+            &args.stop_options,
+            &args.departing_times,
+            &args.return_times,
+            &args.stopover_max,
+            &args.duration_max,
+            &self.frontend_version,
+        );
+
+        let body = self
+            .do_request(
+                &req_options,
+                Some(args.currency.clone()),
+                &args.language,
+                &args.country,
+            )
+            .await?
+            .text()
+            .await?;
+        parse_date_grid_response(&body)
     }
 
     /// Sends a request to retrieve flight data.

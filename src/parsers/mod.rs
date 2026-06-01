@@ -26,8 +26,10 @@ pub mod response;
 // use `gflights::parsers::flight_response::…` continue to compile unchanged.
 pub use request::calendar_graph_request;
 pub use request::city_request;
+pub use request::date_grid_request;
 pub use request::flight_request;
 pub use response::calendar_graph_response;
 pub use response::city_response;
+pub use response::date_grid_response;
 pub use response::flight_response;
 pub use response::offer_response;
