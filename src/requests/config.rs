@@ -207,12 +207,21 @@ impl ConfigBuilder {
         self
     }
 
-    /// Set the departure to a single airport/city, clearing any previously
-    /// added departure airports.
+    /// Set the departure to a single airport/city from a string, clearing any previously
+    /// added departure airports.  Resolves IATA codes and city names via the network.
     pub async fn departure(mut self, location: &str, client: &ApiClient) -> Result<Self> {
         let loc = get_location(location, client).await?;
         self.departure = vec![loc];
         Ok(self)
+    }
+
+    /// Set the departure to a single [`Location`] directly, without a network lookup.
+    ///
+    /// Use this when you already have a `Location` (e.g. from a previous city lookup or
+    /// when building tests without an [`ApiClient`]).
+    pub fn departure_location(mut self, location: Location) -> Self {
+        self.departure = vec![location];
+        self
     }
 
     /// Add an additional departure airport/city (up to 4 total).
@@ -226,12 +235,21 @@ impl ConfigBuilder {
         Ok(self)
     }
 
-    /// Set the destination to a single airport/city, clearing any previously
-    /// added destination airports.
+    /// Set the destination to a single airport/city from a string, clearing any previously
+    /// added destination airports.  Resolves IATA codes and city names via the network.
     pub async fn destination(mut self, location: &str, client: &ApiClient) -> Result<Self> {
         let loc = get_location(location, client).await?;
         self.destination = vec![loc];
         Ok(self)
+    }
+
+    /// Set the destination to a single [`Location`] directly, without a network lookup.
+    ///
+    /// Use this when you already have a `Location` (e.g. from a previous city lookup or
+    /// when building tests without an [`ApiClient`]).
+    pub fn destination_location(mut self, location: Location) -> Self {
+        self.destination = vec![location];
+        self
     }
 
     /// Add an additional destination airport/city (up to 4 total).
@@ -860,6 +878,83 @@ mod tests {
             .collect();
         assert!(codes.contains(&"LHR"));
         assert!(codes.contains(&"LGW"));
+    }
+
+    /// `build()` returns an error when departure is set but destination is not.
+    #[test]
+    fn build_fails_without_destination() {
+        let lhr = Location {
+            loc_identifier: "LHR".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let result = Config::builder()
+            .departing_date(future_date(30))
+            .departure_location(lhr)
+            .build();
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("destination"),
+            "error should mention destination, got: {msg}"
+        );
+    }
+
+    /// ConfigBuilder locale setters work and Config::default() starts with en/GB.
+    #[test]
+    fn config_default_locale_is_en_gb() {
+        let cfg = Config::default();
+        assert_eq!(cfg.language, "en");
+        assert_eq!(cfg.country, "GB");
+    }
+
+    /// ConfigBuilder::language() and country() setters propagate to the built Config.
+    #[test]
+    fn builder_locale_setters_propagate() {
+        let lhr = Location {
+            loc_identifier: "LHR".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let jfk = Location {
+            loc_identifier: "JFK".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let cfg = Config::builder()
+            .departing_date(future_date(30))
+            .departure_location(lhr)
+            .destination_location(jfk)
+            .language("fr")
+            .country("FR")
+            .build()
+            .expect("valid config");
+        assert_eq!(cfg.language, "fr");
+        assert_eq!(cfg.country, "FR");
+    }
+
+    /// ConfigBuilder::sort_order() propagates the chosen sort order.
+    #[test]
+    fn builder_sort_order_setter_propagates() {
+        use crate::parsers::common::SortOrder;
+        let lhr = Location {
+            loc_identifier: "LHR".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let jfk = Location {
+            loc_identifier: "JFK".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let cfg = Config::builder()
+            .departing_date(future_date(30))
+            .departure_location(lhr)
+            .destination_location(jfk)
+            .sort_order(SortOrder::Price)
+            .build()
+            .expect("valid config");
+        assert!(matches!(cfg.sort_order, SortOrder::Price));
     }
 
     /// On a return trip the second leg swaps departure/destination,

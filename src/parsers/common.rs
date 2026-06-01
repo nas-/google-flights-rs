@@ -715,4 +715,18 @@ mod tests {
     fn travelers_new_exactly_nine_passes() {
         assert!(Travelers::new(vec![9, 0, 0, 0]).is_ok());
     }
+
+    #[test]
+    fn sort_order_discriminant_values() {
+        assert_eq!(SortOrder::Best as i32, 1);
+        assert_eq!(SortOrder::Price as i32, 2);
+        assert_eq!(SortOrder::Duration as i32, 3);
+        assert_eq!(SortOrder::DepartureTime as i32, 4);
+        assert_eq!(SortOrder::ArrivalTime as i32, 5);
+    }
+
+    #[test]
+    fn sort_order_default_is_best() {
+        assert!(matches!(SortOrder::default(), SortOrder::Best));
+    }
 }

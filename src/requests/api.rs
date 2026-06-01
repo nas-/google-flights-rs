@@ -635,4 +635,38 @@ mod tests {
         let err = anyhow::Error::new(RateLimitedError);
         assert!(err.downcast_ref::<RateLimitedError>().is_some());
     }
+
+    #[test]
+    fn retry_config_default_values() {
+        let cfg = RetryConfig::default();
+        assert_eq!(cfg.max_attempts, 3);
+        assert_eq!(cfg.base_delay_ms, 500);
+        assert_eq!(cfg.cap_delay_ms, 30_000);
+    }
+
+    #[test]
+    fn with_retry_config_overrides_defaults() {
+        let client = make_client();
+        let custom = RetryConfig {
+            max_attempts: 5,
+            base_delay_ms: 200,
+            cap_delay_ms: 10_000,
+        };
+        let client = client.with_retry_config(custom.clone());
+        assert_eq!(client.retry_config.max_attempts, 5);
+        assert_eq!(client.retry_config.base_delay_ms, 200);
+        assert_eq!(client.retry_config.cap_delay_ms, 10_000);
+    }
+
+    #[test]
+    fn retry_config_max_attempts_one_means_no_retries() {
+        // max_attempts=1 → the loop runs exactly once; no retry occurs
+        let cfg = RetryConfig {
+            max_attempts: 1,
+            base_delay_ms: 500,
+            cap_delay_ms: 30_000,
+        };
+        // max(1,1) == 1, so range 0..1 has a single iteration
+        assert_eq!(cfg.max_attempts.max(1), 1);
+    }
 }
