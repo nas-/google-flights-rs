@@ -56,16 +56,16 @@ pub struct Config {
     pub country: String,
     /// Sort order applied to the search results.
     pub sort_order: SortOrder,
-    /// Airlines / alliances to include (position [4] of the per-leg array).
+    /// Airlines / alliances to include (position \[4\] of the per-leg array).
     /// Empty = no restriction.
     pub airlines_include: Vec<AirlineFilter>,
-    /// Airlines / alliances to exclude (position [5] of the per-leg array).
+    /// Airlines / alliances to exclude (position \[5\] of the per-leg array).
     /// Empty = no restriction.
     pub airlines_exclude: Vec<AirlineFilter>,
-    /// Require a connection through these IATA airport codes (position [9]).
+    /// Require a connection through these IATA airport codes (position \[9\]).
     /// Empty = no restriction.
     pub connecting_airports: Vec<String>,
-    /// If `true`, restrict results to lower-CO₂ emissions flights (position [13]).
+    /// If `true`, restrict results to lower-CO₂ emissions flights (position \[13\]).
     pub lower_emissions: bool,
 }
 

@@ -25,7 +25,7 @@ pub struct FlightRequestOptions<'a> {
     pub departing_times: &'a FlightTimes,
     pub return_times: &'a FlightTimes,
     pub stopover_max: &'a StopoverDuration,
-    /// Minimum layover duration (position [11] in the per-leg array).
+    /// Minimum layover duration (position \[11\] in the per-leg array).
     /// Defaults to [`StopoverDuration::UNLIMITED`] (no minimum imposed).
     pub stopover_min: &'a StopoverDuration,
     pub duration_max: &'a TotalDuration,
@@ -37,16 +37,16 @@ pub struct FlightRequestOptions<'a> {
     pub country: &'a str,
     /// Result sort order sent to Google Flights.
     pub sort_order: &'a SortOrder,
-    /// Airlines / alliances to include (per-leg array position [4]).
+    /// Airlines / alliances to include (per-leg array position \[4\]).
     /// Empty = no restriction.
     pub airlines_include: &'a [AirlineFilter],
-    /// Airlines / alliances to exclude (per-leg array position [5]).
+    /// Airlines / alliances to exclude (per-leg array position \[5\]).
     /// Empty = no restriction.
     pub airlines_exclude: &'a [AirlineFilter],
-    /// Require a connection through these IATA airport codes (position [9]).
+    /// Require a connection through these IATA airport codes (position \[9\]).
     /// Empty = no restriction.
     pub connecting_airports: &'a [String],
-    /// If `true`, send `[1]` at position [13] to restrict to lower-CO₂ flights.
+    /// If `true`, send `[1]` at position \[13\] to restrict to lower-CO₂ flights.
     pub lower_emissions: bool,
 }
 
@@ -143,18 +143,18 @@ pub struct SingleLegStruct<'a> {
     pub times: &'a FlightTimes,
     pub stopover_max: &'a StopoverDuration,
     /// Minimum layover / connection duration.
-    /// Serialized to position **[11]** of the per-leg array.
+    /// Serialized to position **\[11\]** of the per-leg array.
     /// Set to [`StopoverDuration::UNLIMITED`] (default) to impose no minimum.
     pub stopover_min: &'a StopoverDuration,
     pub duration_max: &'a TotalDuration,
     pub chosen_itinerary: Option<&'a Vec<FlightInfo>>,
-    /// Airlines / alliances to include (position [4]).
+    /// Airlines / alliances to include (position \[4\]).
     pub airlines_include: &'a [AirlineFilter],
-    /// Airlines / alliances to exclude (position [5]).
+    /// Airlines / alliances to exclude (position \[5\]).
     pub airlines_exclude: &'a [AirlineFilter],
-    /// Connecting airport IATA codes (position [9]).
+    /// Connecting airport IATA codes (position \[9\]).
     pub connecting_airports: &'a [String],
-    /// Lower-emissions filter (position [13]): sends `[1]` when `true`.
+    /// Lower-emissions filter (position \[13\]): sends `[1]` when `true`.
     pub lower_emissions: bool,
 }
 

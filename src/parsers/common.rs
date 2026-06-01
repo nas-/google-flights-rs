@@ -689,7 +689,7 @@ impl std::fmt::Display for AirlineCode {
 /// The list is serialised as a flat JSON array of strings —
 /// IATA codes (`"LX"`) and alliance names (`"ONEWORLD"`) mixed together —
 /// which is exactly what the Google Flights wire format expects at indices
-/// [4] (include) and [5] (exclude) of the per-leg array.
+/// \[4\] (include) and \[5\] (exclude) of the per-leg array.
 ///
 /// # Parsing from a string
 ///
