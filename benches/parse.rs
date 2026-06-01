@@ -10,9 +10,7 @@
 //! ```
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use gflights::parsers::flight_response::{
-    create_raw_response_vec, FlightResponseContainer, RawResponse,
-};
+use gflights::parsers::flight_response::{create_raw_response_vec, FlightResponseContainer, RawResponse};
 use std::fs;
 
 // ---------------------------------------------------------------------------
@@ -24,8 +22,10 @@ fn load_fixture(path: &str) -> String {
         .unwrap_or_else(|_| panic!("benchmark fixture not found: {path} — run from project root"))
 }
 
+/// Parse a raw inner-response JSON (the already-decoded payload, not the outer wrb.fr envelope).
+/// These are the files used by the unit-test suite, e.g. `lux_tokyo_oneway.txt`.
 fn parse_inner(fixture: &str) -> RawResponse {
-    RawResponse::try_from(fixture).expect("fixture must be valid")
+    serde_json::from_str(fixture).expect("fixture must be valid")
 }
 
 fn parse_container(fixture: String) -> FlightResponseContainer {
