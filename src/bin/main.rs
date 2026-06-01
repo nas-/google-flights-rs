@@ -291,7 +291,41 @@ async fn cmd_search(args: SearchArgs, client: &ApiClient) -> Result<()> {
         .with_sort_order(args.sort);
 
     let results = client.request_flights(&config).await?;
-    let flights = results.get_all_flights();
+    let mut flights = results.get_all_flights();
+
+    // Client-side sort — guarantees the requested order regardless of what
+    // Google returns.  `Best` keeps Google's own ordering.
+    match args.sort {
+        SortOrder::Best => {}
+        SortOrder::Price => {
+            flights.sort_by_key(|f| {
+                f.itinerary_cost
+                    .trip_cost
+                    .as_ref()
+                    .map(|c| c.price)
+                    .unwrap_or(i32::MAX)
+            });
+        }
+        SortOrder::Duration => {
+            flights.sort_by_key(|f| f.itinerary.total_time_minutes);
+        }
+        SortOrder::DepartureTime => {
+            flights.sort_by_key(|f| {
+                f.itinerary
+                    .flight_details
+                    .first()
+                    .map(|d| d.departure_time.hour.unwrap_or(0) * 60 + d.departure_time.minute)
+            });
+        }
+        SortOrder::ArrivalTime => {
+            flights.sort_by_key(|f| {
+                f.itinerary
+                    .flight_details
+                    .last()
+                    .map(|d| d.arrival_time.hour.unwrap_or(0) * 60 + d.arrival_time.minute)
+            });
+        }
+    }
 
     if flights.is_empty() {
         eprintln!("No flights found.");
