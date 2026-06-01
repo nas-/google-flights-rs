@@ -37,6 +37,7 @@ impl TryFrom<&CityRequestOptions> for RequestBody {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use anyhow::Ok;
 

@@ -187,7 +187,7 @@ async fn build_config(common: &CommonArgs, client: &ApiClient) -> Result<Config>
         builder = builder.return_date(ret);
     }
 
-    Ok(builder.build()?)
+    builder.build()
 }
 
 // ---------------------------------------------------------------------------
@@ -220,8 +220,8 @@ async fn cmd_search(args: SearchArgs) -> Result<()> {
         }
         OutputFormat::Table => {
             println!(
-                "{:<8}  {:>6}  {:>5}  {:>5}  {}",
-                "AIRLINE", "PRICE", "STOPS", "MINS", "ROUTE"
+                "{:<8}  {:>6}  {:>5}  {:>5}  ROUTE",
+                "AIRLINE", "PRICE", "STOPS", "MINS"
             );
             println!("{}", "-".repeat(60));
             for f in &flights {
@@ -292,7 +292,7 @@ async fn cmd_graph(args: GraphArgs) -> Result<()> {
         }
         OutputFormat::Table => {
             let min_price = points.iter().map(|&(_, p)| p).min().unwrap_or(0);
-            println!("{:<12}  {:>8}  {}", "DATE", "PRICE", "");
+            println!("{:<12}  {:>8}", "DATE", "PRICE");
             println!("{}", "-".repeat(50));
             for (date, price) in &points {
                 let marker = if *price == min_price {
@@ -367,7 +367,7 @@ async fn cmd_offer(args: OfferArgs) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&offers.response)?);
         }
         OutputFormat::Table => {
-            println!("{:<30}  {:>8}  {}", "AIRLINE(S)", "PRICE", "URL");
+            println!("{:<30}  {:>8}  URL", "AIRLINE(S)", "PRICE");
             println!("{}", "-".repeat(80));
             for o in &groups {
                 let airlines = o.airline_names.join(", ");

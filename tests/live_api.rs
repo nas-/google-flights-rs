@@ -877,9 +877,9 @@ async fn concurrent_requests_all_succeed() -> Result<()> {
         let c = Arc::clone(&client);
         handles.push(tokio::spawn(async move {
             let config = Config::builder()
-                .departure("LHR", &*c)
+                .departure("LHR", &c)
                 .await?
-                .destination("JFK", &*c)
+                .destination("JFK", &c)
                 .await?
                 .departing_date(days_from_now(14))
                 .build()?;

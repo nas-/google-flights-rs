@@ -144,7 +144,7 @@ impl<'de> Deserialize<'de> for OfferGroup {
             .find_map(|idx| {
                 let price_arr: Vec<Value> = get_idx(&arr, idx).unwrap_or_default();
                 let price = price_arr
-                    .get(0)
+                    .first()
                     .and_then(|v| v.get(1))
                     .and_then(|v| v.as_i64())
                     .map(|v| v as i32)?;
@@ -237,7 +237,7 @@ impl<'de> Deserialize<'de> for BookingSubOption {
         // sub[7] = [[null, price], booking_token]
         let price_arr: Vec<Value> = get_idx(&arr, 7).unwrap_or_default();
         let price: Option<i32> = price_arr
-            .get(0)
+            .first()
             .and_then(|v| v.get(1))
             .and_then(|v| v.as_i64())
             .map(|v| v as i32);
@@ -260,6 +260,7 @@ impl<'de> Deserialize<'de> for BookingSubOption {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::fs;

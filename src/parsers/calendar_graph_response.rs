@@ -63,6 +63,7 @@ impl<'de> Deserialize<'de> for GraphRawResponse {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
 
     use std::fs;
