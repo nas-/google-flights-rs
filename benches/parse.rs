@@ -10,7 +10,9 @@
 //! ```
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use gflights::parsers::flight_response::{create_raw_response_vec, FlightResponseContainer, RawResponse};
+use gflights::parsers::flight_response::{
+    create_raw_response_vec, FlightResponseContainer, RawResponse,
+};
 use std::fs;
 
 // ---------------------------------------------------------------------------
@@ -87,11 +89,9 @@ fn bench_parse_size_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("parse_inner_by_size");
     for (name, path) in &fixtures {
         let fixture = load_fixture(path);
-        group.bench_with_input(
-            BenchmarkId::from_parameter(name),
-            &fixture,
-            |b, f| b.iter(|| parse_inner(black_box(f))),
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(name), &fixture, |b, f| {
+            b.iter(|| parse_inner(black_box(f)))
+        });
     }
     group.finish();
 }

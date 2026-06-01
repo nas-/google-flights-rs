@@ -41,8 +41,9 @@ fn parse_date(s: &str) -> PyResult<NaiveDate> {
 }
 
 fn parse_currency(s: &str) -> PyResult<Currency> {
-    <Currency as clap::ValueEnum>::from_str(s, true)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("unknown currency {s:?}: {e}")))
+    <Currency as clap::ValueEnum>::from_str(s, true).map_err(|e| {
+        pyo3::exceptions::PyValueError::new_err(format!("unknown currency {s:?}: {e}"))
+    })
 }
 
 fn parse_stop_options(s: &str) -> PyResult<StopOptions> {
@@ -85,7 +86,9 @@ fn parse_airline_filters(list: &[String]) -> PyResult<Vec<AirlineFilter>> {
     list.iter()
         .map(|s| {
             s.parse::<AirlineFilter>().map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!("invalid airline filter {s:?}: {e}"))
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "invalid airline filter {s:?}: {e}"
+                ))
             })
         })
         .collect()
@@ -218,13 +221,19 @@ impl FlightResult {
     /// List of layover connections between legs (empty for non-stop flights).
     #[getter]
     fn layovers(&self, py: Python<'_>) -> PyResult<Vec<Py<LayoverInfo>>> {
-        self.layovers.iter().map(|l| Py::new(py, l.clone())).collect()
+        self.layovers
+            .iter()
+            .map(|l| Py::new(py, l.clone()))
+            .collect()
     }
 
     /// CO₂ emissions data, or `None` if Google did not return it.
     #[getter]
     fn emissions(&self, py: Python<'_>) -> PyResult<Option<Py<EmissionsInfo>>> {
-        self.emissions.as_ref().map(|e| Py::new(py, e.clone())).transpose()
+        self.emissions
+            .as_ref()
+            .map(|e| Py::new(py, e.clone()))
+            .transpose()
     }
 
     fn __repr__(&self) -> String {
@@ -278,9 +287,7 @@ impl DateGridEntry {
 // Conversions from gflights types to Python types
 // ---------------------------------------------------------------------------
 
-fn flight_info_to_leg(
-    fi: &gflights::parsers::response::flight_response::FlightInfo,
-) -> LegInfo {
+fn flight_info_to_leg(fi: &gflights::parsers::response::flight_response::FlightInfo) -> LegInfo {
     let dep_h = fi.departure_time.hour.unwrap_or(0);
     let arr_h = fi.arrival_time.hour.unwrap_or(0);
     LegInfo {
@@ -307,7 +314,10 @@ fn conn_to_layover(
         connection_minutes: c.connection_time_minutes,
         arrival_airport: c.arrival_airport.clone(),
         departure_airport: c.departure_airport.clone(),
-        overnight: c.connection_warnings.as_ref().is_some_and(|w| w.contains(&1)),
+        overnight: c
+            .connection_warnings
+            .as_ref()
+            .is_some_and(|w| w.contains(&1)),
     }
 }
 
@@ -329,7 +339,12 @@ fn itinerary_container_to_flight(
         stops: ic.itinerary.stop_count(),
         price: ic.itinerary_cost.trip_cost.as_ref().map(|c| c.price),
         booking_token: ic.itinerary_cost.departure_token.clone(),
-        legs: ic.itinerary.flight_details.iter().map(flight_info_to_leg).collect(),
+        legs: ic
+            .itinerary
+            .flight_details
+            .iter()
+            .map(flight_info_to_leg)
+            .collect(),
         layovers: ic
             .itinerary
             .connection_info
@@ -555,7 +570,10 @@ impl GFlights {
                 .iter()
                 .filter_map(|g| {
                     let (date, price) = g.maybe_get_date_price()?;
-                    Some(PriceEntry { date: date.to_string(), price })
+                    Some(PriceEntry {
+                        date: date.to_string(),
+                        price,
+                    })
                 })
                 .collect();
             entries.sort_by(|a, b| a.date.cmp(&b.date));
