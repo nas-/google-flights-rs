@@ -1,0 +1,9 @@
+.venv/
+*.pyd
+*.so
+*.dll
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+target/
