@@ -298,6 +298,20 @@ pub enum SortOrder {
     ArrivalTime = 5,
 }
 
+impl SortOrder {
+    /// Returns the sort discriminant to send to the Google Flights backend.
+    ///
+    /// `DepartureTime` (4) and `ArrivalTime` (5) are not recognised as valid
+    /// sort modes by the server and cause it to return an empty response.
+    /// Fall back to `Best` for those two and handle the ordering client-side.
+    pub fn server_sort(self) -> SortOrder {
+        match self {
+            SortOrder::DepartureTime | SortOrder::ArrivalTime => SortOrder::Best,
+            other => other,
+        }
+    }
+}
+
 /// Stop options. It can be all, no stop, one or less, two or less.
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, ValueEnum, Default)]
 pub enum StopOptions {
@@ -730,6 +744,26 @@ mod tests {
     #[test]
     fn sort_order_default_is_best() {
         assert!(matches!(SortOrder::default(), SortOrder::Best));
+    }
+
+    #[test]
+    fn sort_order_server_sort_passthrough_for_best_price_duration() {
+        assert!(matches!(SortOrder::Best.server_sort(), SortOrder::Best));
+        assert!(matches!(SortOrder::Price.server_sort(), SortOrder::Price));
+        assert!(matches!(SortOrder::Duration.server_sort(), SortOrder::Duration));
+    }
+
+    #[test]
+    fn sort_order_server_sort_falls_back_to_best_for_time_based() {
+        // The backend does not accept DepartureTime/ArrivalTime; must downgrade.
+        assert!(matches!(
+            SortOrder::DepartureTime.server_sort(),
+            SortOrder::Best
+        ));
+        assert!(matches!(
+            SortOrder::ArrivalTime.server_sort(),
+            SortOrder::Best
+        ));
     }
 
     // -----------------------------------------------------------------------

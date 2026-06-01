@@ -248,4 +248,84 @@ mod tests {
         assert_eq!(grid[&dep_08][&ret_15], 66);
         Ok(())
     }
+
+    // -----------------------------------------------------------------------
+    // DateGridResponse Display (ASCII table)
+    // -----------------------------------------------------------------------
+
+    fn make_entry(dep: (i32, u32, u32), ret: (i32, u32, u32), price: i32) -> DateGridEntry {
+        DateGridEntry {
+            departure_date: NaiveDate::from_ymd_opt(dep.0, dep.1, dep.2).unwrap(),
+            return_date: NaiveDate::from_ymd_opt(ret.0, ret.1, ret.2).unwrap(),
+            price,
+            booking_token: None,
+        }
+    }
+
+    #[test]
+    fn test_display_contains_header_and_prices() {
+        let response = DateGridResponse {
+            entries: vec![
+                make_entry((2026, 6, 7), (2026, 6, 15), 84),
+                make_entry((2026, 6, 7), (2026, 6, 16), 51),
+                make_entry((2026, 6, 8), (2026, 6, 15), 82),
+                make_entry((2026, 6, 8), (2026, 6, 16), 50),
+            ],
+        };
+
+        let output = format!("{response}");
+
+        // Header
+        assert!(output.contains("dep \\ ret"), "should contain header label");
+        assert!(output.contains("06-15"), "should contain return-date column 06-15");
+        assert!(output.contains("06-16"), "should contain return-date column 06-16");
+
+        // Row labels
+        assert!(output.contains("06-07"), "should contain departure-date row 06-07");
+        assert!(output.contains("06-08"), "should contain departure-date row 06-08");
+
+        // Prices
+        assert!(output.contains("84"), "should contain price 84");
+        assert!(output.contains("51"), "should contain price 51");
+        assert!(output.contains("82"), "should contain price 82");
+        assert!(output.contains("50"), "should contain price 50");
+    }
+
+    #[test]
+    fn test_display_missing_cell_shows_dash() {
+        // dep 06-07 has only ret 06-15; dep 06-08 has only ret 06-16
+        // → the (06-07, 06-16) and (06-08, 06-15) cells are missing → "-"
+        let response = DateGridResponse {
+            entries: vec![
+                make_entry((2026, 6, 7), (2026, 6, 15), 100),
+                make_entry((2026, 6, 8), (2026, 6, 16), 200),
+            ],
+        };
+
+        let output = format!("{response}");
+        assert!(
+            output.contains('-'),
+            "missing grid cells should render as '-'"
+        );
+    }
+
+    #[test]
+    fn test_display_empty_grid() {
+        let response = DateGridResponse { entries: vec![] };
+        let output = format!("{response}");
+        // Empty: just the header with no data columns
+        assert!(output.contains("dep \\ ret"), "empty grid should still have header");
+    }
+
+    #[test]
+    fn test_display_single_cell() {
+        let response = DateGridResponse {
+            entries: vec![make_entry((2026, 8, 1), (2026, 8, 10), 999)],
+        };
+
+        let output = format!("{response}");
+        assert!(output.contains("08-01"), "single-cell dep date");
+        assert!(output.contains("08-10"), "single-cell ret date");
+        assert!(output.contains("999"), "single-cell price");
+    }
 }

@@ -401,6 +401,9 @@ impl ApiClient {
     async fn fetch_flight_body(&self, args: &Config) -> Result<String> {
         let date_start = args.departing_date.to_string();
         let date_return = args.return_date.map(|f| f.to_string());
+        // DepartureTime/ArrivalTime are client-side-only sorts; the backend does
+        // not accept those discriminants and returns an empty result if sent.
+        let server_sort = args.sort_order.server_sort();
         let req_options = FlightRequestOptions {
             departing_city: &args.departure,
             arriving_city: &args.destination,
@@ -418,7 +421,7 @@ impl ApiClient {
             fixed_flights: &args.fixed_flights,
             language: &args.language,
             country: &args.country,
-            sort_order: &args.sort_order,
+            sort_order: &server_sort,
         };
         Ok(self
             .do_request(

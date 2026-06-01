@@ -642,3 +642,172 @@ impl WithSortOrder for Config {
         self
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests for REPL command parsing (no network, pure clap)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::error::ErrorKind;
+
+    fn parse(args: &[&str]) -> Result<ReplCommand, clap::Error> {
+        let parts: Vec<String> = std::iter::once("gflights")
+            .chain(args.iter().copied())
+            .map(String::from)
+            .collect();
+        ReplCommand::try_parse_from(&parts)
+    }
+
+    #[test]
+    fn repl_parse_quit_command() {
+        let rc = parse(&["quit"]).expect("quit should parse");
+        assert!(matches!(rc.command, Commands::Quit));
+    }
+
+    #[test]
+    fn repl_parse_exit_alias() {
+        let rc = parse(&["exit"]).expect("exit should parse");
+        assert!(matches!(rc.command, Commands::Quit));
+    }
+
+    #[test]
+    fn repl_parse_search_minimal() {
+        let rc = parse(&["search", "--from", "LHR", "--to", "JFK", "--date", "2026-08-01"])
+            .expect("minimal search should parse");
+        match rc.command {
+            Commands::Search(args) => {
+                assert_eq!(args.common.from, "LHR");
+                assert_eq!(args.common.to, "JFK");
+            }
+            other => panic!("expected Search, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn repl_parse_search_with_return() {
+        let rc = parse(&[
+            "search",
+            "--from",
+            "MXP",
+            "--to",
+            "SVO",
+            "--date",
+            "2026-08-01",
+            "--return",
+            "2026-08-15",
+        ])
+        .expect("search with return should parse");
+        match rc.command {
+            Commands::Search(args) => {
+                assert!(args.common.r#return.is_some());
+            }
+            other => panic!("expected Search, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn repl_parse_dgrid_command() {
+        let rc = parse(&[
+            "dgrid",
+            "--from",
+            "LHR",
+            "--to",
+            "JFK",
+            "--dep-start",
+            "2026-08-01",
+            "--dep-end",
+            "2026-08-07",
+            "--ret-start",
+            "2026-08-15",
+            "--ret-end",
+            "2026-08-22",
+        ])
+        .expect("dgrid should parse");
+        assert!(matches!(rc.command, Commands::DateGrid(_)));
+    }
+
+    #[test]
+    fn repl_parse_graph_with_months() {
+        let rc = parse(&[
+            "graph",
+            "--from",
+            "SVO",
+            "--to",
+            "CDG",
+            "--date",
+            "2026-09-01",
+            "--months",
+            "6",
+        ])
+        .expect("graph with months should parse");
+        match rc.command {
+            Commands::Graph(args) => assert_eq!(args.months, 6),
+            other => panic!("expected Graph, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn repl_parse_offer_command() {
+        let rc = parse(&["offer", "--from", "FRA", "--to", "NRT", "--date", "2026-09-01"])
+            .expect("offer should parse");
+        assert!(matches!(rc.command, Commands::Offer(_)));
+    }
+
+    #[test]
+    fn repl_parse_invalid_command_returns_error() {
+        let result = parse(&["bogus"]);
+        assert!(result.is_err(), "unknown subcommand should error");
+    }
+
+    #[test]
+    fn repl_parse_missing_required_returns_error() {
+        // search without any arguments should error (all three of --from/--to/--date required)
+        let result = parse(&["search"]);
+        assert!(result.is_err(), "search without required args should error");
+    }
+
+    #[test]
+    fn repl_parse_help_flag_always_errors() {
+        // `disable_help_flag = true` on ReplCommand propagates to sub-parsers, so
+        // `--help` triggers UnknownArgument rather than DisplayHelp.  Either way
+        // the REPL handles it gracefully (prints and continues, no process::exit).
+        let result = parse(&["search", "--help"]);
+        assert!(result.is_err(), "--help in REPL context must always error");
+        let e = result.unwrap_err();
+        assert!(
+            matches!(
+                e.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::UnknownArgument
+            ),
+            "expected DisplayHelp or UnknownArgument, got: {:?}",
+            e.kind()
+        );
+    }
+
+    #[test]
+    fn repl_parse_invalid_date_returns_error() {
+        let result = parse(&["search", "--from", "LHR", "--to", "JFK", "--date", "not-a-date"]);
+        assert!(result.is_err(), "invalid date should error");
+    }
+
+    #[test]
+    fn repl_parse_search_accepts_sort_order_values() {
+        for sort in &["best", "price", "duration"] {
+            let rc = parse(&[
+                "search",
+                "--from",
+                "LHR",
+                "--to",
+                "JFK",
+                "--date",
+                "2026-08-01",
+                "--sort",
+                sort,
+            ])
+            .unwrap_or_else(|e| panic!("sort={sort} should parse: {e}"));
+            assert!(matches!(rc.command, Commands::Search(_)));
+        }
+    }
+}

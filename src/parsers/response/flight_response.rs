@@ -994,4 +994,122 @@ mod tests {
         };
         assert_eq!(container.get_usual_price_bound(), None);
     }
+
+    // -----------------------------------------------------------------------
+    // FlightResponseContainer::get_all_flights — deduplication
+    // -----------------------------------------------------------------------
+
+    fn make_itinerary_container(token: &str) -> ItineraryContainer {
+        ItineraryContainer {
+            itinerary: Itinerary {
+                flight_by: "LX".to_string(),
+                flight_details: vec![],
+                total_time_minutes: 120,
+                connection_info: None,
+                emissions: None,
+            },
+            itinerary_cost: ItineraryCost {
+                trip_cost: Some(TripCost {
+                    unknown: None,
+                    price: 100,
+                }),
+                departure_token: token.to_string(),
+            },
+            departure_protobuf: String::new(),
+        }
+    }
+
+    #[test]
+    fn get_all_flights_deduplicates_by_token() {
+        // Two responses share "tok_b"; only one copy should appear in the output.
+        let container = FlightResponseContainer {
+            responses: vec![
+                RawResponse {
+                    best_flights: Some(ItineraryContainerList {
+                        itinerary_list: vec![
+                            make_itinerary_container("tok_a"),
+                            make_itinerary_container("tok_b"),
+                        ],
+                    }),
+                    other_flights: None,
+                    price_graph: None,
+                    travel_cheaper_different_date: None,
+                },
+                RawResponse {
+                    best_flights: Some(ItineraryContainerList {
+                        itinerary_list: vec![
+                            make_itinerary_container("tok_b"), // duplicate
+                            make_itinerary_container("tok_c"),
+                        ],
+                    }),
+                    other_flights: None,
+                    price_graph: None,
+                    travel_cheaper_different_date: None,
+                },
+            ],
+        };
+
+        let flights = container.get_all_flights();
+        assert_eq!(flights.len(), 3, "expected 3 unique tokens, got: {}", flights.len());
+
+        let tokens: std::collections::HashSet<&str> = flights
+            .iter()
+            .map(|f| f.itinerary_cost.departure_token.as_str())
+            .collect();
+        assert!(tokens.contains("tok_a"));
+        assert!(tokens.contains("tok_b"));
+        assert!(tokens.contains("tok_c"));
+    }
+
+    #[test]
+    fn get_all_flights_empty_container_returns_empty_vec() {
+        let container = FlightResponseContainer { responses: vec![] };
+        assert!(container.get_all_flights().is_empty());
+    }
+
+    #[test]
+    fn get_all_flights_merges_best_and_other_flights() {
+        // One response with both best_flights and other_flights should return all.
+        let container = FlightResponseContainer {
+            responses: vec![RawResponse {
+                best_flights: Some(ItineraryContainerList {
+                    itinerary_list: vec![make_itinerary_container("best_1")],
+                }),
+                other_flights: Some(ItineraryContainerList {
+                    itinerary_list: vec![make_itinerary_container("other_1")],
+                }),
+                price_graph: None,
+                travel_cheaper_different_date: None,
+            }],
+        };
+
+        let flights = container.get_all_flights();
+        assert_eq!(flights.len(), 2);
+        let tokens: std::collections::HashSet<&str> = flights
+            .iter()
+            .map(|f| f.itinerary_cost.departure_token.as_str())
+            .collect();
+        assert!(tokens.contains("best_1"));
+        assert!(tokens.contains("other_1"));
+    }
+
+    #[test]
+    fn get_all_flights_all_duplicates_returns_single_copy() {
+        // Three responses all sending the same token → exactly one result.
+        let container = FlightResponseContainer {
+            responses: (0..3)
+                .map(|_| RawResponse {
+                    best_flights: Some(ItineraryContainerList {
+                        itinerary_list: vec![make_itinerary_container("only_one")],
+                    }),
+                    other_flights: None,
+                    price_graph: None,
+                    travel_cheaper_different_date: None,
+                })
+                .collect(),
+        };
+
+        let flights = container.get_all_flights();
+        assert_eq!(flights.len(), 1);
+    }
 }
