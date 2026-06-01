@@ -172,3 +172,63 @@ async def test_search_lower_emissions_filter(client):
         from_airport="LHR", to_airport="AMS", date="2026-09-01", lower_emissions=True,
     )
     assert isinstance(flights, list)
+
+
+@live
+async def test_rate_limit_flag_and_reset():
+    """
+    Fire 15 searches concurrently with a fresh client (isolated from the shared
+    fixture so a rate-limit doesn't break subsequent tests).
+
+    Verified behaviour:
+    - rate_limited starts False
+    - reset_rate_limit() is idempotent when not rate-limited
+    - after a burst, if Google returned 429 the flag is True
+    - reset_rate_limit() clears it to False
+    - requests succeed again after reset (or were never blocked to begin with)
+    """
+    burst_client = gflights.GFlights()
+    assert not burst_client.rate_limited, "should start not rate-limited"
+
+    # reset when already clear is a safe no-op
+    burst_client.reset_rate_limit()
+    assert not burst_client.rate_limited
+
+    # 15 different European → JFK routes fired simultaneously
+    routes = [
+        ("LHR", "JFK"), ("CDG", "JFK"), ("AMS", "JFK"),
+        ("MXP", "JFK"), ("FCO", "JFK"), ("MAD", "JFK"),
+        ("LIS", "JFK"), ("ZRH", "JFK"), ("FRA", "JFK"),
+        ("MUC", "JFK"), ("VIE", "JFK"), ("BRU", "JFK"),
+        ("CPH", "JFK"), ("ARN", "JFK"), ("HEL", "JFK"),
+    ]
+    results = await asyncio.gather(
+        *(burst_client.search(from_airport=dep, to_airport=arr, date="2026-09-15")
+          for dep, arr in routes),
+        return_exceptions=True,
+    )
+
+    successes = [r for r in results if isinstance(r, list)]
+    errors    = [r for r in results if isinstance(r, Exception)]
+
+    if burst_client.rate_limited:
+        # Google returned HTTP 429 — flag must be set
+        assert any("rate" in str(e).lower() or "429" in str(e) for e in errors), (
+            "rate_limited flag is True but no rate-limit error found in results"
+        )
+        # reset clears the flag
+        burst_client.reset_rate_limit()
+        assert not burst_client.rate_limited, "reset_rate_limit() must clear the flag"
+
+        # a subsequent single search should succeed after reset
+        flights = await burst_client.search(
+            from_airport="LHR", to_airport="JFK", date="2026-09-15"
+        )
+        assert isinstance(flights, list)
+    else:
+        # No 429 — all 15 should have succeeded
+        assert len(successes) == len(routes), (
+            f"Expected {len(routes)} successes, got {len(successes)}; "
+            f"errors: {[str(e) for e in errors]}"
+        )
+        assert all(len(r) > 0 for r in successes)
