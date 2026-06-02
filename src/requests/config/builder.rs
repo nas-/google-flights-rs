@@ -310,6 +310,13 @@ impl ConfigBuilder {
 
 async fn get_location(location: &str, client: &ApiClient) -> Result<Location, anyhow::Error> {
     let departure = if location.len() == 3 && location.chars().all(char::is_uppercase) {
+        if location.starts_with('X') {
+            eprintln!(
+                "Warning: '{}' looks like a rail station code. \
+                 If you meant a city, use the full name (e.g. 'Rome').",
+                location
+            );
+        }
         Location {
             loc_identifier: location.to_owned(),
             loc_type: PlaceType::Airport,
@@ -462,5 +469,32 @@ mod tests {
         assert!(cfg.lower_emissions);
         assert!(matches!(cfg.stopover_min, StopoverDuration::Minutes(60)));
         assert!(matches!(cfg.stopover_max, StopoverDuration::Minutes(180)));
+    }
+
+    /// `departure_location` accepts an X-prefixed code (e.g. a rail station code)
+    /// without error — the warning is printed to stderr but the Location is created
+    /// and the Config builds successfully.  The warning path is exercised via the
+    /// async `departure()` helper in live tests; here we verify the code path that
+    /// already has a `Location` does not reject X-prefix codes.
+    #[test]
+    fn x_prefixed_location_builds_without_error() {
+        let xrj = Location {
+            loc_identifier: "XRJ".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: Some("XRJ".to_owned()),
+        };
+        let xvq = Location {
+            loc_identifier: "XVQ".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: Some("XVQ".to_owned()),
+        };
+        let cfg = Config::builder()
+            .departing_date(future_date(30))
+            .departure_location(xrj)
+            .destination_location(xvq)
+            .build()
+            .expect("X-prefixed location codes must not be rejected by Config::build");
+        assert_eq!(cfg.departure[0].loc_identifier, "XRJ");
+        assert_eq!(cfg.destination[0].loc_identifier, "XVQ");
     }
 }
