@@ -33,9 +33,18 @@ pub struct Date {
     pub day: i32,
 }
 
+impl Date {
+    /// Convert to [`chrono::NaiveDate`], returning `None` for invalid dates
+    /// (e.g. the zero-value `Date { year: 0, month: 0, day: 0 }`).
+    pub fn to_naive(&self) -> Option<NaiveDate> {
+        NaiveDate::from_ymd_opt(self.year, self.month as u32, self.day as u32)
+    }
+}
+
 impl SerializeToWeb for Date {
     fn serialize_to_web(&self) -> Result<String> {
-        let date = NaiveDate::from_ymd_opt(self.year, self.month as u32, self.day as u32)
+        let date = self
+            .to_naive()
             .ok_or_else(|| anyhow!("Invalid date!"))?;
         Ok(date.format("%Y-%m-%d").to_string())
     }
@@ -260,6 +269,34 @@ impl Itinerary {
     /// Number of layover stops (0 = non-stop, 1 = one stop, etc.).
     pub fn stop_count(&self) -> usize {
         self.connection_info.as_ref().map_or(0, |v| v.len())
+    }
+
+    /// Returns `true` if the flight lands on a later calendar date than it
+    /// departs (i.e. a "next-day arrival" or later).
+    ///
+    /// Compares the departure date of the first leg with the arrival date of
+    /// the last leg.  Returns `false` if dates are missing or invalid.
+    pub fn arrives_next_day(&self) -> bool {
+        let Some(first) = self.flight_details.first() else {
+            return false;
+        };
+        let Some(last) = self.flight_details.last() else {
+            return false;
+        };
+        match (first.departure_date.to_naive(), last.arrival_date.to_naive()) {
+            (Some(dep), Some(arr)) => arr > dep,
+            _ => false,
+        }
+    }
+
+    /// The final arrival date of the itinerary, or `None` if unavailable.
+    pub fn arrival_date(&self) -> Option<NaiveDate> {
+        self.flight_details.last()?.arrival_date.to_naive()
+    }
+
+    /// The outbound departure date, or `None` if unavailable.
+    pub fn departure_date(&self) -> Option<NaiveDate> {
+        self.flight_details.first()?.departure_date.to_naive()
     }
 }
 
@@ -1231,5 +1268,94 @@ mod tests {
                 "total_time_minutes must be > 0"
             );
         }
+    }
+
+    // -- Date::to_naive -------------------------------------------------------
+
+    #[test]
+    fn date_to_naive_valid() {
+        use chrono::Datelike;
+        let d = Date { year: 2026, month: 9, day: 10 };
+        let naive = d.to_naive().unwrap();
+        assert_eq!(naive.year(), 2026);
+        assert_eq!(naive.month(), 9);
+        assert_eq!(naive.day(), 10);
+    }
+
+    #[test]
+    fn date_to_naive_zero_returns_none() {
+        let d = Date { year: 0, month: 0, day: 0 };
+        assert!(d.to_naive().is_none());
+    }
+
+    // -- Itinerary::arrives_next_day / arrival_date ---------------------------
+
+    fn make_flight_info(dep: (i32, i32, i32), arr: (i32, i32, i32)) -> FlightInfo {
+        FlightInfo {
+            departure_date: Date { year: dep.0, month: dep.1, day: dep.2 },
+            arrival_date: Date { year: arr.0, month: arr.1, day: arr.2 },
+            ..Default::default()
+        }
+    }
+
+    fn make_itinerary_with_legs(legs: Vec<FlightInfo>) -> Itinerary {
+        Itinerary {
+            flight_by: "LX".to_string(),
+            flight_details: legs,
+            total_time_minutes: 0,
+            connection_info: None,
+            emissions: None,
+        }
+    }
+
+    #[test]
+    fn arrives_next_day_same_day_is_false() {
+        let it = make_itinerary_with_legs(vec![
+            make_flight_info((2026, 9, 10), (2026, 9, 10)),
+        ]);
+        assert!(!it.arrives_next_day());
+    }
+
+    #[test]
+    fn arrives_next_day_next_day_is_true() {
+        let it = make_itinerary_with_legs(vec![
+            make_flight_info((2026, 9, 10), (2026, 9, 11)),
+        ]);
+        assert!(it.arrives_next_day());
+    }
+
+    #[test]
+    fn arrives_next_day_multi_leg_uses_last_arrival() {
+        // Two legs: dep 9-10, conn same day, arr 9-11 (overnight)
+        let it = make_itinerary_with_legs(vec![
+            make_flight_info((2026, 9, 10), (2026, 9, 10)),
+            make_flight_info((2026, 9, 10), (2026, 9, 11)),
+        ]);
+        assert!(it.arrives_next_day());
+    }
+
+    #[test]
+    fn arrives_next_day_empty_legs_is_false() {
+        let it = make_itinerary_with_legs(vec![]);
+        assert!(!it.arrives_next_day());
+    }
+
+    #[test]
+    fn arrival_date_returns_last_leg_arrival() {
+        let it = make_itinerary_with_legs(vec![
+            make_flight_info((2026, 9, 10), (2026, 9, 10)),
+            make_flight_info((2026, 9, 10), (2026, 9, 11)),
+        ]);
+        let arr = it.arrival_date().unwrap();
+        assert_eq!(arr, NaiveDate::from_ymd_opt(2026, 9, 11).unwrap());
+    }
+
+    #[test]
+    fn departure_date_returns_first_leg_departure() {
+        let it = make_itinerary_with_legs(vec![
+            make_flight_info((2026, 9, 10), (2026, 9, 10)),
+        ]);
+        let dep = it.departure_date().unwrap();
+        assert_eq!(dep, NaiveDate::from_ymd_opt(2026, 9, 10).unwrap());
     }
 }
