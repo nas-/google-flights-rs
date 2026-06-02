@@ -110,7 +110,13 @@ mod tests {
     #[test]
     fn cheap_args_parse_one_way() {
         let args = CheapArgs::try_parse_from([
-            "cheap", "--from", "LUX", "--to", "JFK", "--date", "2026-09-01",
+            "cheap",
+            "--from",
+            "LUX",
+            "--to",
+            "JFK",
+            "--date",
+            "2026-09-01",
         ])
         .unwrap();
         assert_eq!(args.from, "LUX");
@@ -122,8 +128,17 @@ mod tests {
     #[test]
     fn cheap_args_parse_round_trip() {
         let args = CheapArgs::try_parse_from([
-            "cheap", "--from", "LUX", "--to", "JFK", "--date", "2026-09-01",
-            "--trip-days", "7", "--months", "6",
+            "cheap",
+            "--from",
+            "LUX",
+            "--to",
+            "JFK",
+            "--date",
+            "2026-09-01",
+            "--trip-days",
+            "7",
+            "--months",
+            "6",
         ])
         .unwrap();
         assert_eq!(args.trip_days, Some(7));

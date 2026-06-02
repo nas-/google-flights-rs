@@ -68,9 +68,9 @@ pub mod parsers;
 pub mod protos;
 pub mod requests;
 
+/// Result type from [`requests::api::ApiClient::cheapest_dates`].
+pub use parsers::response::date_grid_response::CheapDate;
 /// Re-exported for downcasting: `err.downcast_ref::<RateLimitedError>()`.
 pub use requests::api::RateLimitedError;
 /// Re-exported for configuring retry behaviour on [`requests::api::ApiClient`].
 pub use requests::api::RetryConfig;
-/// Result type from [`requests::api::ApiClient::cheapest_dates`].
-pub use parsers::response::date_grid_response::CheapDate;

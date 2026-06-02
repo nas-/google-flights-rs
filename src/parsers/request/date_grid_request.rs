@@ -115,6 +115,8 @@ impl TryFrom<&DateGridRequestOptions<'_>> for RequestBody {
                 options.duration_max,
                 false,
                 SortOrder::Best,
+                None,
+                None,
             ),
             dep_start: &options.dep_start.to_string(),
             dep_end: &options.dep_end.to_string(),

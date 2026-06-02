@@ -29,6 +29,11 @@ pub struct LegFilters {
     /// If `true`, only return flights with below-average CO₂ emissions.
     pub lower_emissions: bool,
     pub departing_times: FlightTimes,
+    /// Maximum price filter (outer itinerary array position \[7\]). `None` = no price cap.
+    pub max_price: Option<i32>,
+    /// Baggage filter `(carry_on_count, checked_count)` (outer itinerary array position \[10\]).
+    /// `None` = no restriction.
+    pub baggage: Option<(u8, u8)>,
 }
 
 impl Default for LegFilters {
@@ -43,6 +48,8 @@ impl Default for LegFilters {
             duration_max: TotalDuration::default(),
             lower_emissions: false,
             departing_times: FlightTimes::default(),
+            max_price: None,
+            baggage: None,
         }
     }
 }
@@ -67,6 +74,11 @@ pub struct MultiCityLeg {
     /// If `true`, only return flights with below-average CO₂ emissions.
     pub lower_emissions: bool,
     pub departing_times: FlightTimes,
+    /// Maximum price filter (outer itinerary array position \[7\]). `None` = no price cap.
+    pub max_price: Option<i32>,
+    /// Baggage filter `(carry_on_count, checked_count)` (outer itinerary array position \[10\]).
+    /// `None` = no restriction.
+    pub baggage: Option<(u8, u8)>,
 }
 
 /// Configuration for a multi-city (open-jaw) flight search.
@@ -88,6 +100,11 @@ pub struct MultiCityConfig {
     pub language: String,
     /// ISO 3166-1 alpha-2 country code, e.g. `"GB"`, `"US"`.
     pub country: String,
+    /// Maximum price filter (outer itinerary array position \[7\]). `None` = no price cap.
+    pub max_price: Option<i32>,
+    /// Baggage filter `(carry_on_count, checked_count)` (outer itinerary array position \[10\]).
+    /// `None` = no restriction.
+    pub baggage: Option<(u8, u8)>,
 }
 
 impl MultiCityConfig {
@@ -106,6 +123,8 @@ pub struct MultiCityConfigBuilder {
     currency: Option<Currency>,
     language: String,
     country: String,
+    max_price: Option<i32>,
+    baggage: Option<(u8, u8)>,
 }
 
 impl MultiCityConfigBuilder {
@@ -133,6 +152,8 @@ impl MultiCityConfigBuilder {
             duration_max: filters.duration_max,
             lower_emissions: filters.lower_emissions,
             departing_times: filters.departing_times,
+            max_price: filters.max_price,
+            baggage: filters.baggage,
         });
         Ok(self)
     }
@@ -161,6 +182,8 @@ impl MultiCityConfigBuilder {
             duration_max: filters.duration_max,
             lower_emissions: filters.lower_emissions,
             departing_times: filters.departing_times,
+            max_price: filters.max_price,
+            baggage: filters.baggage,
         });
         Ok(self)
     }
@@ -186,6 +209,8 @@ impl MultiCityConfigBuilder {
             duration_max: filters.duration_max,
             lower_emissions: filters.lower_emissions,
             departing_times: filters.departing_times,
+            max_price: filters.max_price,
+            baggage: filters.baggage,
         });
         self
     }
@@ -222,6 +247,22 @@ impl MultiCityConfigBuilder {
         self
     }
 
+    /// Set a maximum price cap (in the search currency).
+    ///
+    /// Defaults to `None` (no cap).
+    pub fn max_price(mut self, price: i32) -> Self {
+        self.max_price = Some(price);
+        self
+    }
+
+    /// Set the baggage filter `(carry_on_count, checked_count)`.
+    ///
+    /// Defaults to `None` (no restriction).
+    pub fn baggage(mut self, carry_on: u8, checked: u8) -> Self {
+        self.baggage = Some((carry_on, checked));
+        self
+    }
+
     pub fn build(self) -> Result<MultiCityConfig> {
         if self.legs.len() < 2 {
             return Err(anyhow!("multi-city requires at least 2 legs"));
@@ -250,11 +291,13 @@ impl MultiCityConfigBuilder {
             } else {
                 self.country
             },
+            max_price: self.max_price,
+            baggage: self.baggage,
         })
     }
 }
 
-/// Leg `tail` classifier used in the per-leg wire array (position [14]).
+/// Leg `tail` classifier used in the per-leg wire array (position 14).
 ///
 /// Observed rule from captured requests:
 /// - `1` for the first leg, and for any leg whose departure airport matches
@@ -390,6 +433,8 @@ mod tests {
             duration_max: filters.duration_max,
             lower_emissions: filters.lower_emissions,
             departing_times: filters.departing_times,
+            max_price: filters.max_price,
+            baggage: filters.baggage,
         }
     }
 
@@ -484,6 +529,8 @@ mod tests {
             currency: Currency::default(),
             language: "en".to_string(),
             country: "GB".to_string(),
+            max_price: None,
+            baggage: None,
         };
 
         let opts = MultiCityRequestOptions {

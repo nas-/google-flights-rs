@@ -39,6 +39,10 @@ pub struct ConfigBuilder {
     pub(super) connecting_airports: Vec<String>,
     /// Restrict to lower-CO₂ emissions flights. Default: `false`.
     pub(super) lower_emissions: bool,
+    /// Maximum price filter. `None` = no price cap.
+    pub(super) max_price: Option<i32>,
+    /// Baggage filter `(carry_on_count, checked_count)`. `None` = no restriction.
+    pub(super) baggage: Option<(u8, u8)>,
 }
 
 impl Default for ConfigBuilder {
@@ -64,6 +68,8 @@ impl Default for ConfigBuilder {
             airlines_exclude: Vec::new(),
             connecting_airports: Vec::new(),
             lower_emissions: false,
+            max_price: None,
+            baggage: None,
         }
     }
 }
@@ -261,6 +267,22 @@ impl ConfigBuilder {
         self
     }
 
+    /// Set a maximum price cap (in the search currency).
+    ///
+    /// Defaults to `None` (no cap).
+    pub fn max_price(mut self, price: i32) -> Self {
+        self.max_price = Some(price);
+        self
+    }
+
+    /// Set the baggage filter `(carry_on_count, checked_count)`.
+    ///
+    /// Defaults to `None` (no restriction).
+    pub fn baggage(mut self, carry_on: u8, checked: u8) -> Self {
+        self.baggage = Some((carry_on, checked));
+        self
+    }
+
     pub fn build(self) -> Result<Config> {
         let departing_date = self
             .departing_date
@@ -304,6 +326,8 @@ impl ConfigBuilder {
             airlines_exclude: self.airlines_exclude,
             connecting_airports: self.connecting_airports,
             lower_emissions: self.lower_emissions,
+            max_price: self.max_price,
+            baggage: self.baggage,
         })
     }
 }

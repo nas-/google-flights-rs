@@ -283,7 +283,7 @@ impl DateGridEntry {
     }
 }
 
-/// One result from [`GFlights.cheapest_dates`].
+/// One result from `GFlights.cheapest_dates`.
 ///
 /// `return_date` is `None` for one-way searches and set for round-trip searches.
 #[pyclass(get_all)]
@@ -437,6 +437,9 @@ impl GFlights {
     /// :param airlines_exclude: IATA codes or alliances to exclude.
     /// :param via:          Require a connection through these airports.
     /// :param lower_emissions: Restrict to below-average CO₂ flights.
+    /// :param max_price:    Maximum price cap (in the search currency). ``None`` for no cap.
+    /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
+    /// :param checked_bags: Number of checked bags required (0 = no restriction).
     /// :param currency:     Currency name (e.g. ``"euro"``, ``"us-dollar"``).
     /// :param lang:         BCP-47 language subtag (default ``"en"``).
     /// :param country:      ISO 3166-1 alpha-2 country code (default ``"GB"``).
@@ -454,6 +457,9 @@ impl GFlights {
         airlines_exclude = vec![],
         via = vec![],
         lower_emissions = false,
+        max_price = None,
+        carry_on = 0,
+        checked_bags = 0,
         currency = "euro",
         lang = "en",
         country = "GB",
@@ -474,6 +480,9 @@ impl GFlights {
         airlines_exclude: Vec<String>,
         via: Vec<String>,
         lower_emissions: bool,
+        max_price: Option<i32>,
+        carry_on: u8,
+        checked_bags: u8,
         currency: &str,
         lang: &str,
         country: &str,
@@ -515,6 +524,12 @@ impl GFlights {
                 .airlines_exclude(exc)
                 .lower_emissions(lower_emissions);
 
+            if let Some(p) = max_price {
+                builder = builder.max_price(p);
+            }
+            if carry_on > 0 || checked_bags > 0 {
+                builder = builder.baggage(carry_on, checked_bags);
+            }
             for airport in &via {
                 builder = builder.add_connecting_airport(airport);
             }
@@ -709,6 +724,9 @@ impl GFlights {
     /// :param adults:       Number of adult passengers (default 1).
     /// :param travel_class: ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
     /// :param sort:         ``"best"`` / ``"price"`` / ``"duration"`` / etc.
+    /// :param max_price:    Maximum price cap (in the search currency). ``None`` for no cap.
+    /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
+    /// :param checked_bags: Number of checked bags required (0 = no restriction).
     /// :param currency:     Currency name (e.g. ``"euro"``).
     /// :param lang:         BCP-47 language subtag (default ``"en"``).
     /// :param country:      ISO 3166-1 alpha-2 country code (default ``"GB"``).
@@ -718,6 +736,9 @@ impl GFlights {
         adults = 1,
         travel_class = "economy",
         sort = "best",
+        max_price = None,
+        carry_on = 0,
+        checked_bags = 0,
         currency = "euro",
         lang = "en",
         country = "GB",
@@ -730,6 +751,9 @@ impl GFlights {
         adults: u8,
         travel_class: &str,
         sort: &str,
+        max_price: Option<i32>,
+        carry_on: u8,
+        checked_bags: u8,
         currency: &str,
         lang: &str,
         country: &str,
@@ -764,6 +788,13 @@ impl GFlights {
                 .currency(currency)
                 .language(&lang)
                 .country(&country);
+
+            if let Some(p) = max_price {
+                builder = builder.max_price(p);
+            }
+            if carry_on > 0 || checked_bags > 0 {
+                builder = builder.baggage(carry_on, checked_bags);
+            }
 
             for (from, to, date) in &parsed_legs {
                 builder = builder
