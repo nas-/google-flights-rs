@@ -26,11 +26,25 @@ impl std::str::FromStr for LegArg {
             anyhow::bail!("leg must be FROM,TO,DATE (e.g. LUX,FCO,2026-09-10), got: {s}");
         }
         Ok(LegArg {
-            from: parts[0].trim().to_uppercase(),
-            to: parts[1].trim().to_uppercase(),
+            from: normalize_location(parts[0].trim()),
+            to: normalize_location(parts[1].trim()),
             date: NaiveDate::parse_from_str(parts[2].trim(), "%Y-%m-%d")
                 .map_err(|e| anyhow::anyhow!("invalid date '{}': {e}", parts[2]))?,
         })
+    }
+}
+
+/// Normalize a location string for use with [`MultiCityConfigBuilder::add_leg`].
+///
+/// 3-char all-alphabetic tokens are treated as IATA airport codes and uppercased
+/// (e.g. `"lux"` → `"LUX"`).  Anything else is a city or region name and is
+/// preserved as-is so the city-lookup API can match it correctly
+/// (e.g. `"London"` stays `"London"`, not `"LONDON"`).
+fn normalize_location(s: &str) -> String {
+    if s.len() == 3 && s.chars().all(|c| c.is_ascii_alphabetic()) {
+        s.to_uppercase()
+    } else {
+        s.to_string()
     }
 }
 
@@ -159,10 +173,26 @@ mod tests {
     }
 
     #[test]
-    fn leg_arg_uppercases_codes() {
+    fn leg_arg_uppercases_iata_codes() {
+        // lowercase 3-char codes → uppercased IATA
         let leg: LegArg = "lux,fco,2026-09-10".parse().unwrap();
         assert_eq!(leg.from, "LUX");
         assert_eq!(leg.to, "FCO");
+    }
+
+    #[test]
+    fn leg_arg_preserves_city_names() {
+        // city names (>3 chars) must keep original case for the city-lookup API
+        let leg: LegArg = "MXP,London,2026-09-12".parse().unwrap();
+        assert_eq!(leg.from, "MXP");
+        assert_eq!(leg.to, "London");
+    }
+
+    #[test]
+    fn leg_arg_preserves_mixed_case_city() {
+        let leg: LegArg = "lux,New York,2026-12-01".parse().unwrap();
+        assert_eq!(leg.from, "LUX");
+        assert_eq!(leg.to, "New York");
     }
 
     #[test]
