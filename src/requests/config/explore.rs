@@ -70,6 +70,8 @@ pub mod Interest {
     pub const HISTORY: &str = "/m/03g3w";
     /// Skiing.
     pub const SKIING: &str = "/m/071k0";
+    /// Rock climbing.
+    pub const CLIMBING: &str = "/m/01rwk";
 }
 
 // ---------------------------------------------------------------------------

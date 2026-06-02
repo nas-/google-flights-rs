@@ -48,6 +48,7 @@ pub enum InterestArg {
     Museums,
     History,
     Skiing,
+    Climbing,
 }
 
 impl InterestArg {
@@ -58,6 +59,7 @@ impl InterestArg {
             InterestArg::Museums => Interest::MUSEUMS,
             InterestArg::History => Interest::HISTORY,
             InterestArg::Skiing => Interest::SKIING,
+            InterestArg::Climbing => Interest::CLIMBING,
         }
     }
 }
@@ -169,7 +171,10 @@ pub async fn cmd_explore(args: ExploreArgs, client: &ApiClient) -> Result<()> {
         country: args.country,
     };
 
-    let results = client.request_explore(&config).await?;
+    let mut results = client.request_explore(&config).await?;
+
+    // Drop destinations with no price — they have no actionable flight info.
+    results.retain(|r| r.price.is_some());
 
     if results.is_empty() {
         eprintln!("No destinations found.");
@@ -181,6 +186,9 @@ pub async fn cmd_explore(args: ExploreArgs, client: &ApiClient) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&results)?);
         }
         OutputFormat::Table => {
+            // Sort by price ascending.
+            results.sort_by_key(|r| r.price.unwrap_or(i32::MAX));
+
             println!(
                 "{:<20}  {:<12}  {:<5}  {:>6}  {:<8}  {:>5}  DATES",
                 "DESTINATION", "COUNTRY", "ARPT", "PRICE", "AIRLINE", "STOPS"
