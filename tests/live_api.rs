@@ -1150,3 +1150,42 @@ async fn invalid_iata_xxx_does_not_panic() -> Result<()> {
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Rail station / non-airport IATA codes
+// ---------------------------------------------------------------------------
+
+/// Rail station codes (Amadeus X-prefix convention, e.g. XRJ = Rome Termini,
+/// XVQ = Venice Santa Lucia) must not cause panics or unrecoverable errors.
+///
+/// Google Flights does not know about rail codes so results will typically be
+/// empty, but the API call must succeed (or return a graceful typed error) and
+/// `get_all_flights()` must return an empty `Vec` rather than panicking.
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn train_station_iata_returns_empty_or_graceful() -> Result<()> {
+    require_live!();
+    let client = shared_client().await;
+
+    // XRJ = Rome Termini rail code; XVQ = Venice Santa Lucia rail code.
+    let config = Config::builder()
+        .departure("XRJ", client)
+        .await?
+        .destination("XVQ", client)
+        .await?
+        .departing_date(days_from_now(14))
+        .build()?;
+
+    // The request must not panic; either an Ok (possibly empty) or a typed Err.
+    match client.request_flights(&config).await {
+        Ok(r) => {
+            // Accessing get_all_flights() must not panic even for empty results.
+            let _ = r.get_all_flights();
+        }
+        Err(_) => {
+            // A graceful typed error is also an acceptable outcome.
+        }
+    }
+
+    Ok(())
+}
