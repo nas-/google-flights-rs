@@ -61,6 +61,9 @@ gflights search --from MXP --to NRT --date 2026-09-01 --return 2026-09-15 \
   --min-layover 60 --max-layover 180 \
   --lower-emissions --sort price --format json
 
+# Multi-city (open-jaw) search
+gflights mcity --leg LUX FCO 2026-09-10 --leg FCO MAD 2026-09-13 --leg MAD LUX 2026-09-17
+
 # Price graph (cheapest fare per day over 3 months)
 gflights graph --from LHR --to JFK --date 2026-08-01 --months 3
 
@@ -209,6 +212,35 @@ Run with:
 
 ```sh
 cargo run --example graph
+```
+
+### Multi-city (open-jaw) search
+
+```rust
+use gflights::requests::{api::ApiClient, config::MultiCityConfig};
+use chrono::NaiveDate;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let client = ApiClient::new().await;
+
+    let config = MultiCityConfig::builder()
+        .add_leg("LUX", "FCO", NaiveDate::from_ymd_opt(2026, 9, 10).unwrap(), &client).await?
+        .add_leg("FCO", "MAD", NaiveDate::from_ymd_opt(2026, 9, 13).unwrap(), &client).await?
+        .add_leg("MAD", "LUX", NaiveDate::from_ymd_opt(2026, 9, 17).unwrap(), &client).await?
+        .build()?;
+
+    let results = client.request_multi_city_flights(&config).await?;
+    let flights = results.get_all_flights();
+    println!("Found {} flight options across {} legs", flights.len(), config.legs.len());
+    Ok(())
+}
+```
+
+Run with:
+
+```sh
+cargo run --example multi_city
 ```
 
 ---

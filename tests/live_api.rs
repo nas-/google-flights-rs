@@ -43,7 +43,7 @@
 
 use anyhow::Result;
 use chrono::{Duration, Months, Utc};
-use gflights::parsers::common::{AirlineCode, AirlineFilter, Alliance};
+use gflights::parsers::common::{AirlineCode, AirlineFilter, Alliance, Location, PlaceType};
 use gflights::requests::{api::ApiClient, config::Config};
 use std::sync::Arc;
 
@@ -1282,5 +1282,105 @@ async fn multi_city_builder_rejects_single_leg() -> Result<()> {
 
     assert!(result.is_err(), "single-leg multi-city should fail");
     assert!(result.unwrap_err().to_string().contains("2 legs"));
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Locale-equivalence
+// ---------------------------------------------------------------------------
+
+/// Changing locale (language + country) must not change which airlines are
+/// returned for the same route and date — only presentation may differ.
+#[tokio::test]
+#[ignore]
+async fn locale_does_not_affect_flight_results() {
+    let c = shared_client().await;
+    let lhr = Location {
+        loc_identifier: "LHR".to_owned(),
+        loc_type: PlaceType::Airport,
+        location_name: None,
+    };
+    let txl = Location {
+        loc_identifier: "TXL".to_owned(),
+        loc_type: PlaceType::Airport,
+        location_name: None,
+    };
+    let date = chrono::NaiveDate::from_ymd_opt(2026, 9, 15).unwrap();
+
+    let config_en = Config::builder()
+        .departure_location(lhr.clone())
+        .destination_location(txl.clone())
+        .departing_date(date)
+        .language("en")
+        .country("GB")
+        .build()
+        .unwrap();
+
+    let config_de = Config::builder()
+        .departure_location(lhr)
+        .destination_location(txl)
+        .departing_date(date)
+        .language("de")
+        .country("DE")
+        .build()
+        .unwrap();
+
+    let en = c.request_flights(&config_en).await.unwrap();
+    let de = c.request_flights(&config_de).await.unwrap();
+
+    let en_airlines: std::collections::BTreeSet<_> = en
+        .get_all_flights()
+        .iter()
+        .map(|f| f.itinerary.flight_by.clone())
+        .collect();
+    let de_airlines: std::collections::BTreeSet<_> = de
+        .get_all_flights()
+        .iter()
+        .map(|f| f.itinerary.flight_by.clone())
+        .collect();
+
+    assert!(!en_airlines.is_empty(), "en results should not be empty");
+    assert_eq!(
+        en_airlines, de_airlines,
+        "locale should not change which airlines are returned"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Rail station / non-airport IATA codes
+// ---------------------------------------------------------------------------
+
+/// Rail station codes (Amadeus X-prefix convention, e.g. XRJ = Rome Termini,
+/// XVQ = Venice Santa Lucia) must not cause panics or unrecoverable errors.
+///
+/// Google Flights does not know about rail codes so results will typically be
+/// empty, but the API call must succeed (or return a graceful typed error) and
+/// `get_all_flights()` must return an empty `Vec` rather than panicking.
+#[tokio::test]
+#[ignore = "requires live network"]
+async fn train_station_iata_returns_empty_or_graceful() -> Result<()> {
+    require_live!();
+    let client = shared_client().await;
+
+    // XRJ = Rome Termini rail code; XVQ = Venice Santa Lucia rail code.
+    let config = Config::builder()
+        .departure("XRJ", client)
+        .await?
+        .destination("XVQ", client)
+        .await?
+        .departing_date(days_from_now(14))
+        .build()?;
+
+    // The request must not panic; either an Ok (possibly empty) or a typed Err.
+    match client.request_flights(&config).await {
+        Ok(r) => {
+            // Accessing get_all_flights() must not panic even for empty results.
+            let _ = r.get_all_flights();
+        }
+        Err(_) => {
+            // A graceful typed error is also an acceptable outcome.
+        }
+    }
+
     Ok(())
 }

@@ -433,22 +433,38 @@ fn build_multi_city_legs(cfg: &MultiCityConfig) -> Result<String> {
             let departure: Vec<Vec<&Location>> = vec![leg.from.iter().collect()];
             let arrival: Vec<Vec<&Location>> = vec![leg.to.iter().collect()];
             let tail = leg_tail(i, leg, first_leg);
-            let dummy_times = FlightTimes::default();
-            let unlimited_stop = StopoverDuration::UNLIMITED;
-            let unlimited_dur = TotalDuration::UNLIMITED;
 
-            // Reuse SingleLegStruct for consistent serialization, then override tail.
-            // We build the 15-element array manually to set our own tail value.
+            // Build the 15-element per-leg wire array using the per-leg filter values.
+            // Positions:
+            //   [0]  departure airports
+            //   [1]  arrival airports
+            //   [2]  time-of-day filter or null
+            //   [3]  stops option
+            //   [4]  airline/alliance include filter or null
+            //   [5]  airline/alliance exclude filter or null
+            //   [6]  departure date string
+            //   [7]  max total duration or null
+            //   [8]  pre-selected itinerary (always null for multi-city)
+            //   [9]  connecting airport IATA codes or null
+            //   [10] unknown (always null)
+            //   [11] min layover minutes or null
+            //   [12] max layover minutes or null
+            //   [13] lower-emissions flag [1] or null
+            //   [14] tail classifier
             Ok(format!(
-                r#"[{dep},{arr},{times},{stops},null,null,\"{date}\",{dur},null,null,null,{min_stop},{max_stop},null,{tail}]"#,
+                r#"[{dep},{arr},{times},{stops},{inc},{exc},\"{date}\",{dur},null,{conn},null,{min_stop},{max_stop},{emissions},{tail}]"#,
                 dep = departure.serialize_to_web()?,
                 arr = arrival.serialize_to_web()?,
-                times = dummy_times.serialize_to_web()?,
-                stops = StopOptions::All.serialize_to_web()?,
+                times = leg.departing_times.serialize_to_web()?,
+                stops = leg.stop_options.serialize_to_web()?,
+                inc = serialize_airline_filters(&leg.airlines_include),
+                exc = serialize_airline_filters(&leg.airlines_exclude),
                 date = leg.date,
-                dur = unlimited_dur.serialize_to_web()?,
-                min_stop = unlimited_stop.serialize_to_web()?,
-                max_stop = unlimited_stop.serialize_to_web()?,
+                dur = leg.duration_max.serialize_to_web()?,
+                conn = serialize_airport_list(&leg.connecting_airports),
+                min_stop = leg.stopover_min.serialize_to_web()?,
+                max_stop = leg.stopover_max.serialize_to_web()?,
+                emissions = if leg.lower_emissions { "[1]" } else { "null" },
                 tail = tail,
             ))
         })

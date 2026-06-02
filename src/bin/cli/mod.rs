@@ -213,18 +213,13 @@ pub async fn run_repl(client: &ApiClient) -> Result<()> {
                             eprintln!("Error: {e:#}");
                         }
                     }
-                    // clap would normally call process::exit for --help / --version;
-                    // intercept those kinds and just print without exiting the REPL.
-                    Err(e)
-                        if matches!(
-                            e.kind(),
-                            clap::error::ErrorKind::DisplayHelp
-                                | clap::error::ErrorKind::DisplayVersion
-                        ) =>
-                    {
-                        print!("{e}");
+                    // For all clap errors (missing required args, --help, --version,
+                    // unknown flags, …) use clap's own formatter so the user sees
+                    // coloured output with a "Usage:" hint instead of a raw error
+                    // string.  We never call process::exit here so the REPL continues.
+                    Err(e) => {
+                        e.print().unwrap_or_default();
                     }
-                    Err(e) => eprintln!("{e}"),
                 }
             }
             Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
@@ -376,6 +371,12 @@ mod tests {
         // search without any arguments should error (all three of --from/--to/--date required)
         let result = parse(&["search"]);
         assert!(result.is_err(), "search without required args should error");
+        let e = result.unwrap_err();
+        assert!(
+            matches!(e.kind(), ErrorKind::MissingRequiredArgument),
+            "expected MissingRequiredArgument, got: {:?}",
+            e.kind()
+        );
     }
 
     #[test]
