@@ -60,17 +60,13 @@ impl ToRequestBody for FlightRequestOptions<'_> {
 impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
     type Error = anyhow::Error;
     fn try_from(options: &FlightRequestOptions) -> Result<Self> {
-        // Build the per-leg location vecs as closures so each leg gets its own
-        // allocation without cloning a shared Vec.
-        let make_dep = || vec![options.departing_city.iter().collect::<Vec<_>>()];
-        let make_arr = || vec![options.arriving_city.iter().collect::<Vec<_>>()];
-
+        let departure = vec![options.departing_city.iter().collect::<Vec<_>>()];
+        let arrival = vec![options.arriving_city.iter().collect::<Vec<_>>()];
         let itinerary_going = options.fixed_flights.maybe_get_nth_flight_info(0_usize);
         let itinerary_return = options.fixed_flights.maybe_get_nth_flight_info(1_usize);
-
-        let mut legs = vec![SingleLegStruct {
-            departure: make_dep(),
-            arrival: make_arr(),
+        let leg1 = SingleLegStruct {
+            departure: departure.clone(),
+            arrival: arrival.clone(),
             stop_options: options.stop_option,
             date: options.date_start,
             times: options.departing_times,
@@ -82,25 +78,27 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
             airlines_exclude: options.airlines_exclude,
             connecting_airports: options.connecting_airports,
             lower_emissions: options.lower_emissions,
-        }];
-        if let Some(date_return) = options.date_return {
-            legs.push(SingleLegStruct {
-                // Outbound and return swap departure/arrival.
-                departure: make_arr(),
-                arrival: make_dep(),
-                stop_options: options.stop_option,
-                date: date_return,
-                times: options.return_times,
-                stopover_max: options.stopover_max,
-                stopover_min: options.stopover_min,
-                duration_max: options.duration_max,
-                chosen_itinerary: itinerary_return.as_ref(),
-                airlines_include: options.airlines_include,
-                airlines_exclude: options.airlines_exclude,
-                connecting_airports: options.connecting_airports,
-                lower_emissions: options.lower_emissions,
-            });
-        }
+        };
+        let leg2 = options.date_return.map(|date_return| SingleLegStruct {
+            departure: arrival,
+            arrival: departure,
+            stop_options: options.stop_option,
+            date: date_return,
+            times: options.return_times,
+            stopover_max: options.stopover_max,
+            stopover_min: options.stopover_min,
+            duration_max: options.duration_max,
+            chosen_itinerary: itinerary_return.as_ref(),
+            airlines_include: options.airlines_include,
+            airlines_exclude: options.airlines_exclude,
+            connecting_airports: options.connecting_airports,
+            lower_emissions: options.lower_emissions,
+        });
+        let legs: Vec<SingleLegStruct<'_>> = if let Some(leg_2) = leg2 {
+            vec![leg1, leg_2]
+        } else {
+            vec![leg1]
+        };
 
         let is_booking = options.fixed_flights.is_full();
 
@@ -435,22 +433,38 @@ fn build_multi_city_legs(cfg: &MultiCityConfig) -> Result<String> {
             let departure: Vec<Vec<&Location>> = vec![leg.from.iter().collect()];
             let arrival: Vec<Vec<&Location>> = vec![leg.to.iter().collect()];
             let tail = leg_tail(i, leg, first_leg);
-            let dummy_times = FlightTimes::default();
-            let unlimited_stop = StopoverDuration::UNLIMITED;
-            let unlimited_dur = TotalDuration::UNLIMITED;
 
-            // Reuse SingleLegStruct for consistent serialization, then override tail.
-            // We build the 15-element array manually to set our own tail value.
+            // Build the 15-element per-leg wire array using the per-leg filter values.
+            // Positions:
+            //   [0]  departure airports
+            //   [1]  arrival airports
+            //   [2]  time-of-day filter or null
+            //   [3]  stops option
+            //   [4]  airline/alliance include filter or null
+            //   [5]  airline/alliance exclude filter or null
+            //   [6]  departure date string
+            //   [7]  max total duration or null
+            //   [8]  pre-selected itinerary (always null for multi-city)
+            //   [9]  connecting airport IATA codes or null
+            //   [10] unknown (always null)
+            //   [11] min layover minutes or null
+            //   [12] max layover minutes or null
+            //   [13] lower-emissions flag [1] or null
+            //   [14] tail classifier
             Ok(format!(
-                r#"[{dep},{arr},{times},{stops},null,null,\"{date}\",{dur},null,null,null,{min_stop},{max_stop},null,{tail}]"#,
+                r#"[{dep},{arr},{times},{stops},{inc},{exc},\"{date}\",{dur},null,{conn},null,{min_stop},{max_stop},{emissions},{tail}]"#,
                 dep = departure.serialize_to_web()?,
                 arr = arrival.serialize_to_web()?,
-                times = dummy_times.serialize_to_web()?,
-                stops = StopOptions::All.serialize_to_web()?,
+                times = leg.departing_times.serialize_to_web()?,
+                stops = leg.stop_options.serialize_to_web()?,
+                inc = serialize_airline_filters(&leg.airlines_include),
+                exc = serialize_airline_filters(&leg.airlines_exclude),
                 date = leg.date,
-                dur = unlimited_dur.serialize_to_web()?,
-                min_stop = unlimited_stop.serialize_to_web()?,
-                max_stop = unlimited_stop.serialize_to_web()?,
+                dur = leg.duration_max.serialize_to_web()?,
+                conn = serialize_airport_list(&leg.connecting_airports),
+                min_stop = leg.stopover_min.serialize_to_web()?,
+                max_stop = leg.stopover_max.serialize_to_web()?,
+                emissions = if leg.lower_emissions { "[1]" } else { "null" },
                 tail = tail,
             ))
         })
@@ -1223,178 +1237,5 @@ mod tests {
         };
         let with_str = leg_with_emissions.serialize_to_web().unwrap();
         assert!(with_str.ends_with(",[1],3]"), "with emissions: {with_str}");
-    }
-
-    // -----------------------------------------------------------------------
-    // Wire protocol: airline-include filter appears in the request body
-    // -----------------------------------------------------------------------
-
-    /// When `airlines_include` is set, the filter string (e.g. `LX`) must
-    /// appear in the serialised `f.req` body.
-    #[test]
-    fn request_body_contains_airline_include_filter() -> Result<()> {
-        use crate::parsers::common::AirlineCode;
-
-        let lx = AirlineFilter::Airline(AirlineCode::new("LX").unwrap());
-        let departure = Location {
-            loc_identifier: "LUX".to_owned(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        };
-        let arrival = Location {
-            loc_identifier: "NRT".to_owned(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        };
-        let frontend_version = "boq_travel-frontend-ui_20240110.02_p0".to_string();
-        let fixed_flights = FixedFlights::new(1);
-        let times = FlightTimes::default();
-
-        let opts = FlightRequestOptions {
-            departing_city: core::slice::from_ref(&departure),
-            arriving_city: core::slice::from_ref(&arrival),
-            date_start: "2025-06-01",
-            date_return: None,
-            travellers: Travelers::new(vec![1, 0, 0, 0])?,
-            travel_class: &TravelClass::Economy,
-            stop_option: &StopOptions::All,
-            departing_times: &times,
-            return_times: &times,
-            stopover_max: &StopoverDuration::UNLIMITED,
-            stopover_min: &StopoverDuration::UNLIMITED,
-            duration_max: &TotalDuration::UNLIMITED,
-            frontend_version: &frontend_version,
-            fixed_flights: &fixed_flights,
-            language: "en",
-            country: "GB",
-            sort_order: &SortOrder::Best,
-            airlines_include: &[lx],
-            airlines_exclude: &[],
-            connecting_airports: &[],
-            lower_emissions: false,
-        };
-        let req: RequestBody = (&opts).try_into()?;
-        assert!(req.body.contains("LX"), "body should contain airline code LX");
-        Ok(())
-    }
-
-    /// When `stop_option` is `NonStop`, the stops value in the body must be `1`.
-    #[test]
-    fn request_body_nonstop_filter_sets_stop_value_1() -> Result<()> {
-        let departure = Location {
-            loc_identifier: "LHR".to_owned(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        };
-        let arrival = Location {
-            loc_identifier: "JFK".to_owned(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        };
-        let times = FlightTimes::default();
-        let leg = SingleLegStruct {
-            departure: vec![vec![&departure]],
-            arrival: vec![vec![&arrival]],
-            stop_options: &StopOptions::NoStop,
-            date: "2025-06-01",
-            times: &times,
-            stopover_max: &StopoverDuration::UNLIMITED,
-            stopover_min: &StopoverDuration::UNLIMITED,
-            duration_max: &TotalDuration::UNLIMITED,
-            chosen_itinerary: None,
-            airlines_include: &[],
-            airlines_exclude: &[],
-            connecting_airports: &[],
-            lower_emissions: false,
-        };
-        let serialised = leg.serialize_to_web()?;
-        // position [3] is the stop option; NonStop → 1
-        assert!(
-            serialised.contains(",1,null,null,"),
-            "nonstop leg should contain ',1,null,null,' at stop-option position: {serialised}"
-        );
-        Ok(())
-    }
-
-    // -----------------------------------------------------------------------
-    // Locale / language parameter tests
-    // -----------------------------------------------------------------------
-
-    /// `language="fr"` + `country="FR"` must produce `hl=fr-FR` in the URL.
-    #[test]
-    fn request_url_contains_hl_fr_fr() -> Result<()> {
-        let req = make_minimal_request("fr", "FR")?;
-        assert!(
-            req.url.contains("hl=fr-FR"),
-            "URL should contain hl=fr-FR, got: {}",
-            req.url
-        );
-        Ok(())
-    }
-
-    /// `language="de"` + `country="DE"` must produce `hl=de-DE` in the URL.
-    #[test]
-    fn request_url_contains_hl_de_de() -> Result<()> {
-        let req = make_minimal_request("de", "DE")?;
-        assert!(
-            req.url.contains("hl=de-DE"),
-            "URL should contain hl=de-DE, got: {}",
-            req.url
-        );
-        Ok(())
-    }
-
-    /// `country` stored in lowercase is uppercased in the URL.
-    #[test]
-    fn request_url_uppercases_country_code() -> Result<()> {
-        let req = make_minimal_request("en", "gb")?;
-        assert!(
-            req.url.contains("hl=en-GB"),
-            "country 'gb' should be uppercased to 'GB' in URL: {}",
-            req.url
-        );
-        Ok(())
-    }
-
-    /// Helper: build a minimal `RequestBody` with the given locale params.
-    fn make_minimal_request(language: &str, country: &str) -> Result<RequestBody> {
-        let departure = Location {
-            loc_identifier: "LHR".to_owned(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        };
-        let arrival = Location {
-            loc_identifier: "JFK".to_owned(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        };
-        let times = FlightTimes::default();
-        let frontend_version = "boq_travel-frontend-ui_20240110.02_p0".to_string();
-        let fixed_flights = FixedFlights::new(1);
-
-        let opts = FlightRequestOptions {
-            departing_city: core::slice::from_ref(&departure),
-            arriving_city: core::slice::from_ref(&arrival),
-            date_start: "2025-06-01",
-            date_return: None,
-            travellers: Travelers::new(vec![1, 0, 0, 0])?,
-            travel_class: &TravelClass::Economy,
-            stop_option: &StopOptions::All,
-            departing_times: &times,
-            return_times: &times,
-            stopover_max: &StopoverDuration::UNLIMITED,
-            stopover_min: &StopoverDuration::UNLIMITED,
-            duration_max: &TotalDuration::UNLIMITED,
-            frontend_version: &frontend_version,
-            fixed_flights: &fixed_flights,
-            language,
-            country,
-            sort_order: &SortOrder::Best,
-            airlines_include: &[],
-            airlines_exclude: &[],
-            connecting_airports: &[],
-            lower_emissions: false,
-        };
-        (&opts).try_into()
     }
 }

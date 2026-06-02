@@ -1,12 +1,51 @@
 use anyhow::{anyhow, Result};
 use chrono::NaiveDate;
 
-use crate::parsers::common::{Location, PlaceType, SortOrder, TravelClass, Travelers};
+use crate::parsers::common::{
+    AirlineFilter, FlightTimes, Location, PlaceType, SortOrder, StopOptions, StopoverDuration,
+    TotalDuration, TravelClass, Travelers,
+};
 use crate::protos::urls::{ItineraryUrl, Leg};
 use crate::requests::api::ApiClient;
 
 use super::builder::get_location_pub;
 use super::currency::Currency;
+
+/// Per-leg filter overrides for multi-city searches.
+///
+/// All fields default to "unrestricted" (same as `Config`'s defaults).
+/// Obtain a default value via [`LegFilters::default()`] and override
+/// only the fields you need.
+#[derive(Debug, Clone)]
+pub struct LegFilters {
+    pub stop_options: StopOptions,
+    pub airlines_include: Vec<AirlineFilter>,
+    pub airlines_exclude: Vec<AirlineFilter>,
+    /// IATA airport codes required as connection points.
+    pub connecting_airports: Vec<String>,
+    pub stopover_min: StopoverDuration,
+    pub stopover_max: StopoverDuration,
+    pub duration_max: TotalDuration,
+    /// If `true`, only return flights with below-average CO₂ emissions.
+    pub lower_emissions: bool,
+    pub departing_times: FlightTimes,
+}
+
+impl Default for LegFilters {
+    fn default() -> Self {
+        Self {
+            stop_options: StopOptions::All,
+            airlines_include: Vec::new(),
+            airlines_exclude: Vec::new(),
+            connecting_airports: Vec::new(),
+            stopover_min: StopoverDuration::default(),
+            stopover_max: StopoverDuration::default(),
+            duration_max: TotalDuration::default(),
+            lower_emissions: false,
+            departing_times: FlightTimes::default(),
+        }
+    }
+}
 
 /// A single leg in a multi-city itinerary.
 #[derive(Debug, Clone)]
@@ -16,6 +55,18 @@ pub struct MultiCityLeg {
     /// One to four destination airports / city identifiers.
     pub to: Vec<Location>,
     pub date: NaiveDate,
+    // Per-leg filters — default to "unrestricted".
+    pub stop_options: StopOptions,
+    pub airlines_include: Vec<AirlineFilter>,
+    pub airlines_exclude: Vec<AirlineFilter>,
+    /// IATA airport codes required as connection points.
+    pub connecting_airports: Vec<String>,
+    pub stopover_min: StopoverDuration,
+    pub stopover_max: StopoverDuration,
+    pub duration_max: TotalDuration,
+    /// If `true`, only return flights with below-average CO₂ emissions.
+    pub lower_emissions: bool,
+    pub departing_times: FlightTimes,
 }
 
 /// Configuration for a multi-city (open-jaw) flight search.
@@ -68,10 +119,48 @@ impl MultiCityConfigBuilder {
     ) -> Result<Self> {
         let from_loc = get_location_pub(from, client).await?;
         let to_loc = get_location_pub(to, client).await?;
+        let filters = LegFilters::default();
         self.legs.push(MultiCityLeg {
             from: vec![from_loc],
             to: vec![to_loc],
             date,
+            stop_options: filters.stop_options,
+            airlines_include: filters.airlines_include,
+            airlines_exclude: filters.airlines_exclude,
+            connecting_airports: filters.connecting_airports,
+            stopover_min: filters.stopover_min,
+            stopover_max: filters.stopover_max,
+            duration_max: filters.duration_max,
+            lower_emissions: filters.lower_emissions,
+            departing_times: filters.departing_times,
+        });
+        Ok(self)
+    }
+
+    /// Resolve `from` and `to` via the API and append a leg with per-leg filters.
+    pub async fn add_leg_with_filters(
+        mut self,
+        from: &str,
+        to: &str,
+        date: NaiveDate,
+        client: &ApiClient,
+        filters: LegFilters,
+    ) -> Result<Self> {
+        let from_loc = get_location_pub(from, client).await?;
+        let to_loc = get_location_pub(to, client).await?;
+        self.legs.push(MultiCityLeg {
+            from: vec![from_loc],
+            to: vec![to_loc],
+            date,
+            stop_options: filters.stop_options,
+            airlines_include: filters.airlines_include,
+            airlines_exclude: filters.airlines_exclude,
+            connecting_airports: filters.connecting_airports,
+            stopover_min: filters.stopover_min,
+            stopover_max: filters.stopover_max,
+            duration_max: filters.duration_max,
+            lower_emissions: filters.lower_emissions,
+            departing_times: filters.departing_times,
         });
         Ok(self)
     }
@@ -83,7 +172,21 @@ impl MultiCityConfigBuilder {
         to: Vec<Location>,
         date: NaiveDate,
     ) -> Self {
-        self.legs.push(MultiCityLeg { from, to, date });
+        let filters = LegFilters::default();
+        self.legs.push(MultiCityLeg {
+            from,
+            to,
+            date,
+            stop_options: filters.stop_options,
+            airlines_include: filters.airlines_include,
+            airlines_exclude: filters.airlines_exclude,
+            connecting_airports: filters.connecting_airports,
+            stopover_min: filters.stopover_min,
+            stopover_max: filters.stopover_max,
+            duration_max: filters.duration_max,
+            lower_emissions: filters.lower_emissions,
+            departing_times: filters.departing_times,
+        });
         self
     }
 
@@ -272,36 +375,35 @@ mod tests {
         assert_eq!(cfg.legs.len(), 2);
     }
 
+    fn leg(from: &str, to: &str, d: &str) -> MultiCityLeg {
+        let filters = LegFilters::default();
+        MultiCityLeg {
+            from: vec![airport(from)],
+            to: vec![airport(to)],
+            date: date(d),
+            stop_options: filters.stop_options,
+            airlines_include: filters.airlines_include,
+            airlines_exclude: filters.airlines_exclude,
+            connecting_airports: filters.connecting_airports,
+            stopover_min: filters.stopover_min,
+            stopover_max: filters.stopover_max,
+            duration_max: filters.duration_max,
+            lower_emissions: filters.lower_emissions,
+            departing_times: filters.departing_times,
+        }
+    }
+
     #[test]
     fn leg_tail_first_is_one() {
-        let first = MultiCityLeg {
-            from: vec![airport("LUX")],
-            to: vec![airport("FCO")],
-            date: date("2026-09-10"),
-        };
+        let first = leg("LUX", "FCO", "2026-09-10");
         assert_eq!(leg_tail(0, &first, &first), 1);
     }
 
     #[test]
     fn leg_tail_three_leg_pattern() {
-        let lux = airport("LUX");
-        let fco = airport("FCO");
-        let mad = airport("MAD");
-        let leg0 = MultiCityLeg {
-            from: vec![lux.clone()],
-            to: vec![fco.clone()],
-            date: date("2026-09-10"),
-        };
-        let leg1 = MultiCityLeg {
-            from: vec![fco.clone()],
-            to: vec![mad.clone()],
-            date: date("2026-09-13"),
-        };
-        let leg2 = MultiCityLeg {
-            from: vec![mad.clone()],
-            to: vec![lux.clone()],
-            date: date("2026-09-17"),
-        };
+        let leg0 = leg("LUX", "FCO", "2026-09-10");
+        let leg1 = leg("FCO", "MAD", "2026-09-13");
+        let leg2 = leg("MAD", "LUX", "2026-09-17");
 
         // 3-leg: LUX→FCO→MAD→LUX   tails should be [1, 3, 3]
         assert_eq!(leg_tail(0, &leg0, &leg0), 1);
@@ -311,30 +413,10 @@ mod tests {
 
     #[test]
     fn leg_tail_four_leg_pattern() {
-        let lux = airport("LUX");
-        let fco = airport("FCO");
-        let mad = airport("MAD");
-        let stn = airport("STN");
-        let leg0 = MultiCityLeg {
-            from: vec![lux.clone()],
-            to: vec![fco.clone()],
-            date: date("2026-09-10"),
-        };
-        let leg1 = MultiCityLeg {
-            from: vec![fco.clone()],
-            to: vec![mad.clone()],
-            date: date("2026-09-13"),
-        };
-        let leg2 = MultiCityLeg {
-            from: vec![mad.clone()],
-            to: vec![lux.clone()],
-            date: date("2026-09-17"),
-        };
-        let leg3 = MultiCityLeg {
-            from: vec![lux.clone()],
-            to: vec![stn.clone()],
-            date: date("2026-09-20"),
-        };
+        let leg0 = leg("LUX", "FCO", "2026-09-10");
+        let leg1 = leg("FCO", "MAD", "2026-09-13");
+        let leg2 = leg("MAD", "LUX", "2026-09-17");
+        let leg3 = leg("LUX", "STN", "2026-09-20");
 
         // 4-leg: LUX→FCO→MAD→LUX→STN   tails should be [1, 3, 3, 1]
         assert_eq!(leg_tail(0, &leg0, &leg0), 1);
@@ -361,5 +443,75 @@ mod tests {
         let url = ItineraryUrl::from(&cfg);
         assert_eq!(url.trip_type, 3);
         assert_eq!(url.legs.len(), 2);
+    }
+
+    /// Verify that `LegFilters::default()` produces all-unrestricted values.
+    #[test]
+    fn leg_filters_default_is_unrestricted() {
+        let f = LegFilters::default();
+        assert!(matches!(f.stop_options, StopOptions::All));
+        assert!(f.airlines_include.is_empty());
+        assert!(f.airlines_exclude.is_empty());
+        assert!(f.connecting_airports.is_empty());
+        assert!(!f.lower_emissions);
+    }
+
+    /// Verify that `StopOptions::NoStop` on leg 0 produces a non-null value at
+    /// wire position [3] in the serialised multi-city leg array.
+    ///
+    /// Wire format:
+    ///   [dep, arr, times, stops(3), inc(4), exc(5), date(6), dur(7),
+    ///    null, conn(9), null, min_stop(11), max_stop(12), emissions(13), tail(14)]
+    #[test]
+    fn multi_city_nonstop_leg_serializes_at_position_3() {
+        use crate::parsers::common::ToRequestBody;
+        use crate::parsers::request::flight_request::MultiCityRequestOptions;
+
+        let filters = LegFilters {
+            stop_options: StopOptions::NoStop,
+            ..LegFilters::default()
+        };
+        let mut leg0 = leg("LUX", "FCO", "2026-09-10");
+        leg0.stop_options = filters.stop_options;
+
+        let leg1 = leg("FCO", "MAD", "2026-09-13");
+
+        let cfg = MultiCityConfig {
+            legs: vec![leg0, leg1],
+            travellers: Travelers::new(vec![1, 0, 0, 0]).unwrap(),
+            travel_class: TravelClass::Economy,
+            sort_order: SortOrder::Best,
+            currency: Currency::default(),
+            language: "en".to_string(),
+            country: "GB".to_string(),
+        };
+
+        let opts = MultiCityRequestOptions {
+            config: &cfg,
+            frontend_version: "test-version",
+        };
+        let body = opts.to_request_body().unwrap();
+
+        // The serialised body is percent-encoded; decode it to inspect positions.
+        let decoded = percent_encoding::percent_decode_str(&body.body)
+            .decode_utf8_lossy()
+            .to_string();
+
+        // `StopOptions::NoStop` serialises to `1` (non-zero), while `StopOptions::All`
+        // serialises to `0`.  Confirm that `1` appears in the first leg's array and
+        // that `0` appears in the second leg's (which uses the default `All`).
+        //
+        // The decoded body contains the raw wire arrays — both legs are present.
+        // We check that the non-stop value (1) appears somewhere before the second
+        // leg (which starts at the second date marker "2026-09-13").
+        let first_leg_section = decoded
+            .split("2026-09-13")
+            .next()
+            .expect("date separator not found in body");
+        assert!(
+            first_leg_section.contains(",1,"),
+            "NoStop (value 1) should appear in position [3] of the first leg wire array; \
+             decoded first-leg section: {first_leg_section}"
+        );
     }
 }
