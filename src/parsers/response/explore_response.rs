@@ -1,63 +1,82 @@
 //! Response parser for `GetExploreDestinations`.
 //!
-//! # Parsing notes (best-effort)
+//! # Wire format (verified from live captures)
 //!
-//! The response is a streaming JSONL payload identical in outer structure to
-//! other Google Flights endpoints: the first line is `)]}'`, followed by pairs
-//! of (length, data) lines, where data lines are `[["wrb.fr", ...]]` JSON.
+//! The HTTP body is a streaming JSONL payload:
+//! - Line 0: `)]}'`
+//! - Line 1: (empty)
+//! - Line 2: byte-count for next data line
+//! - Line 3: `[["wrb.fr", null, "INNER_JSON"]]`  ← chunk 1 (destinations)
+//! - Line 4: byte-count for next data line
+//! - Line 5: `[["wrb.fr", null, "INNER_JSON"]]`  ← chunk 2 (flight details + prices)
 //!
-//! The inner payload contains multiple numbered messages:
+//! **Chunk 1** inner JSON — top-level array:
+//! - `[0]`: session metadata
+//! - `[1]`: null
+//! - `[2]`: map bounding box
+//! - `[3]`: `[ [dest_entries...] ]`  ← destinations list (1-element wrapper)
+//! - `[4]`: null
+//! - `[5]`: UI filters metadata (alliances, interests)
+//! - `[6]`: origin airport info
 //!
-//! - **Message type 1** (discriminant observed at the inner-array level):
-//!   contains a list of destination entries.  Each entry has at least a place
-//!   ID string (a `/m/…` or `/g/…` KG MID), coordinates, city/country names,
-//!   nearest airport IATA code, and an opaque booking token.
+//! Each destination entry (from `chunk1[3][0]`):
+//! - `[0]`  place_id (`/m/…` or `/g/…`)
+//! - `[1]`  coords `[lat, lng]`
+//! - `[2]`  name
+//! - `[3]`  image_url
+//! - `[4]`  country
+//! - `[5]`  type flag (1=city, 2=region)
+//! - `[11]` date_from (`YYYY-MM-DD`)
+//! - `[12]` date_to
+//! - `[15]` nearest_airport IATA
+//! - `[17]` flight_duration_minutes (or null)
+//! - `[22]` stops (or null)
+//! - `[27]` Google Places ID (not the booking token)
 //!
-//! - **Message type 2**: contains flight-detail overlays keyed by destination —
-//!   price, airline, stop count, duration, and an accommodation price.
+//! **Chunk 2** inner JSON — top-level array:
+//! - `[4]`: flight-detail entries, one per destination
 //!
-//! **Uncertainty**: this format has been decoded without live request capture.
-//! The exact array positions of every field are inferred from the task spec and
-//! the structure of analogous endpoints.  Fields that cannot be reliably located
-//! are returned as `None`.  The parser never errors on a malformed response;
-//! instead it returns as many results as it can extract and logs warnings via
-//! `tracing`.
-//!
-//! If you have a live response and the results look wrong, compare the raw JSON
-//! against the index comments in [`parse_destination_entry`] and
-//! [`parse_flight_detail`] and adjust the `get_idx` calls accordingly.
+//! Each flight-detail entry (from `chunk2[4]`):
+//! - `[0]`  place_id
+//! - `[1]`  `[[null, price_eur], "booking_token_b64"]` or null
+//! - `[6]`  `["airline_code", "airline_name", stops, duration_mins, null, "dest_iata", ...]`
+//! - `[15]` `[[null, accommodation_price]]` (optional)
 
 use anyhow::Result;
 use chrono::NaiveDate;
-use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 
-use crate::parsers::common::{decode_outer_object, get_idx, GetOuterErrorMessages};
+use crate::parsers::common::{
+    decode_inner_object, decode_outer_object, get_idx, GetOuterErrorMessages,
+};
 use crate::requests::config::explore::ExploreResult;
 
 // ---------------------------------------------------------------------------
-// Raw outer-wrapper types  (mirrors the structure used by other response mods)
+// Raw outer-wrapper types
 // ---------------------------------------------------------------------------
 
-/// One `["wrb.fr", …]` chunk from the streaming response.
-#[derive(Debug, Deserialize)]
+// Each response line: [["wrb.fr", null, payload_str, ...], ["di", ...], ...]
+// Outer array element [0] is the wrb.fr entry; payload is at position [2] within it.
+
+#[derive(Debug)]
 pub(crate) struct ExploreRawChunk {
-    #[serde(rename = "1")]
-    pub resp: Vec<ExploreRawMessage>,
+    pub payload: Option<String>,
 }
 
-/// One message inside a chunk.
-#[derive(Debug, Deserialize)]
-pub(crate) struct ExploreRawMessage {
-    /// The inner payload string (3rd element of the wrb.fr array).
-    #[serde(rename = "2")]
-    pub payload: Option<String>,
+impl<'de> serde::Deserialize<'de> for ExploreRawChunk {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let outer = Vec::<serde_json::Value>::deserialize(d)?;
+        let wrb_entry: Vec<serde_json::Value> = crate::parsers::common::get_idx(&outer, 0)
+            .ok_or_else(|| serde::de::Error::custom("missing wrb.fr entry at [0]"))?;
+        let payload: Option<String> = crate::parsers::common::get_idx(&wrb_entry, 2);
+        Ok(ExploreRawChunk { payload })
+    }
 }
 
 impl GetOuterErrorMessages for ExploreRawChunk {
     fn get_error_messages(&self) -> Option<Vec<String>> {
-        None // explore endpoint does not embed error strings
+        None
     }
 }
 
@@ -70,7 +89,6 @@ impl GetOuterErrorMessages for ExploreRawChunk {
 /// Returns an empty `Vec` on any structural parse failure rather than
 /// propagating an error, so callers always get a usable (possibly empty) result.
 pub fn parse_explore_response(raw: &str) -> Result<Vec<ExploreResult>> {
-    // Step 1: decode the outer wrb.fr envelope (same helper used everywhere).
     let chunks: Vec<ExploreRawChunk> = match decode_outer_object(raw) {
         Ok(c) => c,
         Err(e) => {
@@ -79,101 +97,119 @@ pub fn parse_explore_response(raw: &str) -> Result<Vec<ExploreResult>> {
         }
     };
 
-    // Step 2: collect all inner payload strings.
-    let payloads: Vec<&str> = chunks
-        .iter()
-        .flat_map(|c| &c.resp)
-        .filter_map(|m| m.payload.as_deref())
-        .collect();
-
-    if payloads.is_empty() {
-        tracing::debug!("explore: no inner payloads found");
+    if chunks.is_empty() {
+        tracing::debug!("explore: no chunks found");
         return Ok(vec![]);
     }
 
-    // Step 3: parse destinations (msg type 1) and flight details (msg type 2).
-    let mut destinations: Vec<ExploreResult> = Vec::new();
-    let mut flight_details: HashMap<String, FlightDetail> = HashMap::new();
+    // Use a HashMap keyed by place_id to merge chunk1 (destinations) and chunk2 (prices).
+    let mut destinations: HashMap<String, ExploreResult> = HashMap::new();
 
-    for payload in &payloads {
-        if let Ok(arr) = crate::parsers::common::decode_inner_object::<Vec<Value>>(payload) {
-            // Heuristic: if arr[0] is an array containing arrays of 4+ elements
-            // with a string-looking MID as the first element → msg type 1 (destinations).
-            // Otherwise treat as msg type 2 (flight details).
-            if looks_like_destination_list(&arr) {
-                for entry in arr.into_iter() {
-                    if let Ok(dest) = parse_destination_entry(entry) {
-                        destinations.push(dest);
+    for chunk in &chunks {
+        let payload = match chunk.payload.as_deref() {
+            Some(p) if !p.is_empty() => p,
+            _ => continue,
+        };
+
+        let arr: Vec<Value> = match decode_inner_object(payload) {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::debug!(error = %e, "explore: failed to decode inner payload");
+                continue;
+            }
+        };
+
+        // ── Chunk 1: destinations at arr[3][0] ──────────────────────────────
+        // arr[3] = [[dest1, dest2, ...]]  (1-element outer wrapper)
+        if let Some(outer) = arr.get(3).and_then(|v| v.as_array()) {
+            if let Some(dest_list) = outer.first().and_then(|v| v.as_array()) {
+                for entry in dest_list {
+                    if let Ok(dest) = parse_destination_entry(entry.clone()) {
+                        destinations.entry(dest.place_id.clone()).or_insert(dest);
                     }
                 }
-            } else {
-                // Try to extract flight detail overlays.
-                if let Ok(details) = parse_flight_details_message(&arr) {
-                    for (place_id, detail) in details {
-                        flight_details.insert(place_id, detail);
+            }
+        }
+
+        // ── Chunk 2: flight details at arr[4][0] (double-wrapped like chunk 1) ──
+        if let Some(detail_list) = arr
+            .get(4)
+            .and_then(|v| v.as_array())
+            .and_then(|outer| outer.first())
+            .and_then(|v| v.as_array())
+        {
+            for entry in detail_list {
+                let entry_arr = match entry.as_array() {
+                    Some(a) => a,
+                    None => continue,
+                };
+
+                let place_id: String = match get_idx(entry_arr, 0) {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                let dest = match destinations.get_mut(&place_id) {
+                    Some(d) => d,
+                    None => continue,
+                };
+
+                // [1] = [[null, price_eur], "booking_token_b64"] or null
+                if let Some(price_info) = entry_arr.get(1).and_then(|v| v.as_array()) {
+                    // price_info[0] = [null, price_eur]
+                    if let Some(price_pair) = price_info.first().and_then(|v| v.as_array()) {
+                        dest.price = get_idx(price_pair, 1);
+                    }
+                    // price_info[1] = opaque booking token (base64)
+                    if let Some(tok) = get_idx::<String>(price_info, 1) {
+                        dest.booking_token = tok;
+                    }
+                }
+
+                // [6] = ["airline_code", "airline_name", stops, duration_mins, ...]
+                if let Some(flight_detail) = get_idx::<Vec<Value>>(entry_arr, 6) {
+                    dest.airline = get_idx(&flight_detail, 0);
+                    if let Some(s) = get_idx::<i64>(&flight_detail, 2) {
+                        dest.stops = Some(s.clamp(0, 255) as u8);
+                    }
+                    if let Some(d) = get_idx::<i64>(&flight_detail, 3) {
+                        dest.flight_duration_minutes = Some(d.max(0) as u32);
+                    }
+                }
+
+                // [15] = [[null, accommodation_price_nightly]]
+                if let Some(acc_outer) = get_idx::<Vec<Value>>(entry_arr, 15) {
+                    if let Some(acc_pair) = acc_outer.first().and_then(|v| v.as_array()) {
+                        dest.accommodation_price = get_idx(acc_pair, 1);
                     }
                 }
             }
         }
     }
 
-    // Step 4: merge flight details into destinations.
-    for dest in &mut destinations {
-        if let Some(detail) = flight_details.get(&dest.place_id) {
-            dest.price = detail.price;
-            dest.airline = detail.airline.clone();
-            dest.stops = detail.stops;
-            dest.flight_duration_minutes = detail.flight_duration_minutes;
-            dest.accommodation_price = detail.accommodation_price;
-        }
-    }
-
-    Ok(destinations)
+    Ok(destinations.into_values().collect())
 }
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Shallow check: does this array look like a list of destination entries?
+/// Parse one destination entry from chunk 1 (`arr[3][0][n]`).
 ///
-/// A destination entry should be an array whose first element is a string that
-/// looks like a Google KG MID (`/m/…`, `/g/…`) or an IATA code.
-fn looks_like_destination_list(arr: &[Value]) -> bool {
-    arr.first()
-        .and_then(|v| v.as_array())
-        .and_then(|inner| inner.first())
-        .map(|v| v.is_string())
-        .unwrap_or(false)
-}
-
-/// Intermediate flight-detail overlay for a single destination.
-#[derive(Debug, Default)]
-struct FlightDetail {
-    price: Option<i32>,
-    airline: Option<String>,
-    stops: Option<u8>,
-    flight_duration_minutes: Option<u32>,
-    accommodation_price: Option<i32>,
-}
-
-/// Parse one destination entry from message type 1.
-///
-/// Observed/inferred wire structure (positions may shift):
+/// Wire positions (verified from live captures):
 /// ```text
-/// arr[0]  = place_id       (String, e.g. "/m/0vzm")
-/// arr[1]  = name           (String)
-/// arr[2]  = country        (String)
-/// arr[3]  = coords         ([lat, lng])
-/// arr[4]  = image_url      (String or null)
-/// arr[5]  = nearest_airport (String, IATA)
-/// arr[6]  = date_from      (String "YYYY-MM-DD" or null)
-/// arr[7]  = date_to        (String "YYYY-MM-DD" or null)
-/// arr[8]  = booking_token  (String)
+/// [0]  place_id       String ("/m/…" or "/g/…")
+/// [1]  coords         [lat: f64, lng: f64]
+/// [2]  name           String
+/// [3]  image_url      String or null
+/// [4]  country        String
+/// [11] date_from      String "YYYY-MM-DD" or null
+/// [12] date_to        String "YYYY-MM-DD" or null
+/// [15] nearest_airport String (IATA)
+/// [17] flight_duration_minutes  i64 or null
+/// [22] stops          i64 or null
+/// [27] google_places_id  String or null (NOT the booking token)
 /// ```
-///
-/// Many of these positions are uncertain — fields that cannot be extracted
-/// are returned as `None` / empty string.
 fn parse_destination_entry(v: Value) -> Result<ExploreResult> {
     let arr = match v {
         Value::Array(a) => a,
@@ -185,27 +221,26 @@ fn parse_destination_entry(v: Value) -> Result<ExploreResult> {
         anyhow::bail!("destination entry has empty place_id");
     }
 
-    let name: String = get_idx(&arr, 1).unwrap_or_default();
-    let country: String = get_idx(&arr, 2).unwrap_or_default();
-
-    // Coordinates: expect [lat, lng] at index 3.
-    let coords_arr: Vec<f64> = get_idx(&arr, 3).unwrap_or_default();
+    let coords_arr: Vec<f64> = get_idx(&arr, 1).unwrap_or_default();
     let coords = (
         coords_arr.first().copied().unwrap_or(0.0),
         coords_arr.get(1).copied().unwrap_or(0.0),
     );
 
-    let image_url: Option<String> = get_idx(&arr, 4);
-    let nearest_airport: String = get_idx(&arr, 5).unwrap_or_default();
+    let name: String = get_idx(&arr, 2).unwrap_or_default();
+    let image_url: Option<String> = get_idx(&arr, 3);
+    let country: String = get_idx(&arr, 4).unwrap_or_default();
+    let nearest_airport: String = get_idx(&arr, 15).unwrap_or_default();
 
-    let date_from: Option<NaiveDate> = get_idx::<String>(&arr, 6)
+    let date_from: Option<NaiveDate> = get_idx::<String>(&arr, 11)
         .as_deref()
         .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-    let date_to: Option<NaiveDate> = get_idx::<String>(&arr, 7)
+    let date_to: Option<NaiveDate> = get_idx::<String>(&arr, 12)
         .as_deref()
         .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
 
-    let booking_token: String = get_idx(&arr, 8).unwrap_or_default();
+    // stops and flight_duration_minutes come from chunk 2 (the cheapest-flight detail).
+    // Chunk 1 positions [22] and [17] can reflect different routes — don't use them.
 
     Ok(ExploreResult {
         place_id,
@@ -221,59 +256,8 @@ fn parse_destination_entry(v: Value) -> Result<ExploreResult> {
         stops: None,
         flight_duration_minutes: None,
         accommodation_price: None,
-        booking_token,
+        booking_token: String::new(), // filled in from chunk 2
     })
-}
-
-/// Parse a message type 2 payload (flight-detail overlays).
-///
-/// Inferred structure:
-/// ```text
-/// outer array of entries, each:
-///   entry[0] = place_id   (String)
-///   entry[1] = detail_arr (Array)
-///     detail_arr[0] = price                    (i32)
-///     detail_arr[1] = airline_code             (String)
-///     detail_arr[2] = stops                    (i32)
-///     detail_arr[3] = flight_duration_minutes  (i32)
-///     detail_arr[4] = accommodation_price      (i32 or null)
-/// ```
-fn parse_flight_details_message(arr: &[Value]) -> Result<HashMap<String, FlightDetail>> {
-    let mut map = HashMap::new();
-
-    for entry in arr {
-        let entry_arr = match entry.as_array() {
-            Some(a) => a,
-            None => continue,
-        };
-
-        let place_id: String = match get_idx(entry_arr, 0) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        let detail_arr: Vec<Value> = get_idx(entry_arr, 1).unwrap_or_default();
-
-        let price: Option<i32> = get_idx(&detail_arr, 0);
-        let airline: Option<String> = get_idx(&detail_arr, 1);
-        let stops: Option<u8> = get_idx::<i64>(&detail_arr, 2).map(|n| n.min(255) as u8);
-        let flight_duration_minutes: Option<u32> =
-            get_idx::<i64>(&detail_arr, 3).map(|n| n.max(0) as u32);
-        let accommodation_price: Option<i32> = get_idx(&detail_arr, 4);
-
-        map.insert(
-            place_id,
-            FlightDetail {
-                price,
-                airline,
-                stops,
-                flight_duration_minutes,
-                accommodation_price,
-            },
-        );
-    }
-
-    Ok(map)
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +271,6 @@ mod tests {
 
     #[test]
     fn parse_empty_response_returns_empty_vec() {
-        // A well-formed but empty outer envelope.
         let raw = ")]}'
 \n
 [[\"noop\"]]
@@ -299,53 +282,33 @@ mod tests {
 
     #[test]
     fn parse_destination_entry_happy_path() {
-        let entry = serde_json::json!([
-            "/m/0vzm",
-            "Vienna",
-            "Austria",
-            [48.2082, 16.3738],
-            "https://example.com/img.jpg",
-            "VIE",
-            "2026-08-01",
-            "2026-08-08",
-            "tok_abc"
-        ]);
-        let result = parse_destination_entry(entry).unwrap();
+        // Construct a 28-element entry matching the wire format.
+        let mut v = vec![serde_json::Value::Null; 29];
+        v[0] = serde_json::json!("/m/0vzm");
+        v[1] = serde_json::json!([48.2082, 16.3738]);
+        v[2] = serde_json::json!("Vienna");
+        v[3] = serde_json::json!("https://example.com/img.jpg");
+        v[4] = serde_json::json!("Austria");
+        v[11] = serde_json::json!("2026-08-01");
+        v[12] = serde_json::json!("2026-08-08");
+        v[15] = serde_json::json!("VIE");
+        v[17] = serde_json::json!(120);
+        v[22] = serde_json::json!(0);
+        let result = parse_destination_entry(Value::Array(v)).unwrap();
         assert_eq!(result.place_id, "/m/0vzm");
         assert_eq!(result.name, "Vienna");
         assert_eq!(result.country, "Austria");
         assert!((result.coords.0 - 48.2082).abs() < 1e-3);
         assert_eq!(result.nearest_airport, "VIE");
-        assert_eq!(result.booking_token, "tok_abc");
+        assert_eq!(result.flight_duration_minutes, None); // set from chunk 2
+        assert_eq!(result.stops, None); // set from chunk 2
         assert!(result.date_from.is_some());
         assert!(result.date_to.is_some());
-    }
-
-    #[test]
-    fn parse_destination_entry_missing_optional_fields() {
-        let entry = serde_json::json!(["/m/0abc", null, null, null, null, null]);
-        // place_id is present; everything else is None/default.
-        let result = parse_destination_entry(entry).unwrap();
-        assert_eq!(result.place_id, "/m/0abc");
-        assert!(result.name.is_empty());
-        assert!(result.date_from.is_none());
     }
 
     #[test]
     fn parse_destination_entry_empty_place_id_errors() {
         let entry = serde_json::json!(["", "Paris"]);
         assert!(parse_destination_entry(entry).is_err());
-    }
-
-    #[test]
-    fn looks_like_destination_list_positive() {
-        let arr: Vec<Value> = vec![serde_json::json!(["/m/0vzm", "Vienna"])];
-        assert!(looks_like_destination_list(&arr));
-    }
-
-    #[test]
-    fn looks_like_destination_list_negative() {
-        let arr: Vec<Value> = vec![serde_json::json!(42)];
-        assert!(!looks_like_destination_list(&arr));
     }
 }

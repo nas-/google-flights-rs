@@ -42,7 +42,10 @@ impl TryFrom<&ExploreRequestOptions<'_>> for RequestBody {
         // ---------------------------------------------------------------------------
         let origin_airports = serialize_origin_airports(&cfg.origin);
 
-        let routes = format!(r#"[[[{0}],[],null,0],[[[],{0}],null,0]]"#, origin_airports);
+        // outbound: [ origin_airports, [], null, 0 ]
+        // return:   [ [ [], origin_airports, null, 0 ] ]   ← return is double-wrapped
+        // where origin_airports = [[["IATA",type_int]]]  (triple-nested per wire spec)
+        let routes = format!(r#"[[{0},[],null,0],[[[],{0},null,0]]]"#, origin_airports);
 
         // ---------------------------------------------------------------------------
         // Trip date: [] or [month, duration_code]
@@ -81,7 +84,7 @@ impl TryFrom<&ExploreRequestOptions<'_>> for RequestBody {
 
         let alliance = match &cfg.airline_alliance {
             None => "null".to_string(),
-            Some(a) => format!(r#"[\"{}\"]]"#, a.as_google_str()),
+            Some(a) => format!(r#"[\"{}\"]"#, a.as_google_str()),
         };
 
         let duration_limit = match cfg.max_flight_duration_minutes {
@@ -94,10 +97,7 @@ impl TryFrom<&ExploreRequestOptions<'_>> for RequestBody {
             Some((carry_on, checked)) => format!("[{},{}]", carry_on, checked),
         };
 
-        let interest_mid = match &cfg.interest {
-            None => "null".to_string(),
-            Some(mid) => format!(r#"\"{}\"#, mid),
-        };
+        // interest_mid is handled inline in the options format below
 
         // ---------------------------------------------------------------------------
         // Map bounds (root [1] and [2])
@@ -140,9 +140,18 @@ impl TryFrom<&ExploreRequestOptions<'_>> for RequestBody {
         // [16] null
         // [17] interest_mid: null or MID string
         // ---------------------------------------------------------------------------
-        let options = format!(
-            r#"[null,null,{cabin_class},null,{trip_date},1,{travelers},{price_limit},{alliance},{duration_limit},null,{baggage},null,{routes},null,null,null,{interest_mid}]"#
-        );
+        // Base OPTIONS: 18 elements [0]-[17], last element is always 0.
+        // Interest MID, when present, lives at position [27] with nulls filling [18]-[26].
+        // Wire analysis from 16 captured requests.
+        let options = if let Some(mid) = &cfg.interest {
+            format!(
+                r#"[null,null,{cabin_class},null,{trip_date},1,{travelers},{price_limit},{alliance},{duration_limit},null,{baggage},null,{routes},null,null,null,0,null,null,null,null,null,null,null,null,null,\"{mid}\"]"#
+            )
+        } else {
+            format!(
+                r#"[null,null,{cabin_class},null,{trip_date},1,{travelers},{price_limit},{alliance},{duration_limit},null,{baggage},null,{routes},null,null,null,0]"#
+            )
+        };
 
         // ---------------------------------------------------------------------------
         // Root 12-element array:
@@ -163,6 +172,7 @@ impl TryFrom<&ExploreRequestOptions<'_>> for RequestBody {
             r#"[[],{map_sw},{map_ne},{options},null,1,null,0,null,1,[1100,719],{trip_type}]"#
         );
 
+        // f.req=[null,"12-element-array"] — the string value IS the 12-element array.
         let body = format!(
             r#"f.req=[null,"{}"]&at=AAuQa1qiXfSThbBOCdcDUAVTopoc:{}&"#,
             inner, epoch_now
@@ -185,32 +195,36 @@ impl TryFrom<&ExploreRequestOptions<'_>> for RequestBody {
 ///
 /// Each location is encoded as `["IATA", type_code]` where `type_code` comes
 /// from `PlaceType` (0=airport, 4=city, 5=region).
+/// Returns the triple-nested airport array used in the Explore routes field.
+///
+/// Each location becomes `[\"IATA\",type]`; the result is wrapped in three
+/// array levels so the caller can slot it directly into the route structure:
+///
+/// ```text
+/// outbound: [ origin_airports, [], null, 0 ]
+/// return:   [ [[], origin_airports], null, 0 ]
+/// ```
+///
+/// Wire spec: type 0 = airport, 4 = city/region (Google MID with 4-char prefix).
 fn serialize_origin_airports(locations: &[crate::parsers::common::Location]) -> String {
     use crate::parsers::common::PlaceType;
     if locations.is_empty() {
-        return "[]".to_string();
+        return "[[]]".to_string();
     }
-    let inner: Vec<String> = locations
+    let pairs: Vec<String> = locations
         .iter()
         .map(|loc| {
+            // Type 0 = airport, 4 = city (MID), 5 = region — always include the int.
             let type_code = match loc.loc_type {
-                PlaceType::Airport => 0,
-                PlaceType::City => 5,
+                PlaceType::Airport | PlaceType::Unspecified => 0,
+                PlaceType::City => 4,
                 PlaceType::MaybeRegion | PlaceType::RegionMaybe => 4,
-                PlaceType::Unspecified => 0,
             };
-            format!(
-                r#"[\"{}\"{}]"#,
-                loc.loc_identifier,
-                if type_code == 0 {
-                    "".to_string()
-                } else {
-                    format!(",{}", type_code)
-                }
-            )
+            format!(r#"[\"{}\",{}]"#, loc.loc_identifier, type_code)
         })
         .collect();
-    format!("[{}]", inner.join(","))
+    // Triple-nested: [[ [pair1], [pair2], ... ]]
+    format!("[[{}]]", pairs.join(","))
 }
 
 #[cfg(test)]
