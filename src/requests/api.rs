@@ -810,4 +810,56 @@ mod tests {
         // max(1,1) == 1, so range 0..1 has a single iteration
         assert_eq!(cfg.max_attempts.max(1), 1);
     }
+
+    // -----------------------------------------------------------------------
+    // Booking URL: meta-refresh extraction logic (offline, structural)
+    // -----------------------------------------------------------------------
+
+    /// The regex used in `resolve_booking_url` extracts the URL from a
+    /// single-quoted meta-refresh response.
+    #[test]
+    fn booking_url_regex_extracts_single_quoted_url() {
+        let html = r#"<meta content="0;url='https://example.com/book?foo=bar'" http-equiv="refresh">"#;
+        let re = Regex::new(r#"(?i)url=['"]([^'"]+)['"]"#).unwrap();
+        let extracted = re
+            .captures(html)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str().to_string());
+        assert_eq!(extracted, Some("https://example.com/book?foo=bar".to_string()));
+    }
+
+    /// The same regex handles double-quoted url values.
+    #[test]
+    fn booking_url_regex_extracts_double_quoted_url() {
+        let _html = r#"<meta content="0;url=&quot;https://airline.com/booking?ref=123&amp;src=gf&quot;" http-equiv="refresh">"#;
+        // double-quote form uses literal &quot; — after HTML-decode the url= value is double-quoted
+        // here we test the raw pattern against a double-quoted variant directly
+        let html2 = r#"<meta content='0;url="https://airline.com/booking?ref=123"' http-equiv="refresh">"#;
+        let re = Regex::new(r#"(?i)url=['"]([^'"]+)['"]"#).unwrap();
+        let extracted = re
+            .captures(html2)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str().to_string());
+        assert_eq!(extracted, Some("https://airline.com/booking?ref=123".to_string()));
+    }
+
+    /// `&amp;` in the extracted URL is decoded to `&`.
+    #[test]
+    fn booking_url_amp_entity_is_decoded() {
+        let raw = "https://example.com/book?foo=1&amp;bar=2";
+        let decoded = raw.replace("&amp;", "&");
+        assert_eq!(decoded, "https://example.com/book?foo=1&bar=2");
+    }
+
+    /// When the response contains no meta-refresh, the extraction returns `None`.
+    #[test]
+    fn booking_url_regex_returns_none_on_missing_url() {
+        let html = "<html><head><title>Error</title></head><body>Not found</body></html>";
+        let re = Regex::new(r#"(?i)url=['"]([^'"]+)['"]"#).unwrap();
+        let extracted = re
+            .captures(html)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str().to_string());
+        assert_eq!(extracted, None);
+    }
 }

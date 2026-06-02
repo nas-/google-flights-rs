@@ -1120,4 +1120,116 @@ mod tests {
         let flights = container.get_all_flights();
         assert_eq!(flights.len(), 1);
     }
+
+    // -----------------------------------------------------------------------
+    // Structural regression tests: parse real fixtures and check invariants
+    //
+    // The `lux_*_oneway.txt` fixtures are already-decoded inner JSON
+    // (RawResponse format), not the raw multi-line wrb.fr envelope.
+    // We parse them with serde_json directly and exercise the helper methods.
+    // -----------------------------------------------------------------------
+
+    fn parse_fixture(path: &str) -> RawResponse {
+        let body = fs::read_to_string(path)
+            .unwrap_or_else(|_| panic!("cannot read fixture: {path}"));
+        serde_json::from_str(&body)
+            .unwrap_or_else(|e| panic!("failed to parse {path}: {e}"))
+    }
+
+    /// `lux_tokyo_oneway.txt` parses without error and contains at least one flight.
+    #[test]
+    fn fixture_lux_tokyo_oneway_non_empty_flights() {
+        let resp = parse_fixture("test_files/lux_tokyo_oneway.txt");
+        let flights = resp.maybe_get_all_flights().unwrap_or_default();
+        assert!(!flights.is_empty(), "expected at least one flight in lux_tokyo fixture");
+    }
+
+    /// All airline codes in the Tokyo fixture are non-empty.
+    #[test]
+    fn fixture_lux_tokyo_oneway_all_airlines_non_empty() {
+        let resp = parse_fixture("test_files/lux_tokyo_oneway.txt");
+        for flight in resp.maybe_get_all_flights().unwrap_or_default() {
+            assert!(
+                !flight.itinerary.flight_by.is_empty(),
+                "flight_by should be non-empty"
+            );
+        }
+    }
+
+    /// All departure tokens in the Tokyo fixture are non-empty.
+    #[test]
+    fn fixture_lux_tokyo_oneway_all_departure_tokens_non_empty() {
+        let resp = parse_fixture("test_files/lux_tokyo_oneway.txt");
+        for flight in resp.maybe_get_all_flights().unwrap_or_default() {
+            assert!(
+                !flight.itinerary_cost.departure_token.is_empty(),
+                "departure_token should be non-empty"
+            );
+        }
+    }
+
+    /// All total_time_minutes values in the Tokyo fixture are positive.
+    #[test]
+    fn fixture_lux_tokyo_oneway_total_time_positive() {
+        let resp = parse_fixture("test_files/lux_tokyo_oneway.txt");
+        for flight in resp.maybe_get_all_flights().unwrap_or_default() {
+            assert!(
+                flight.itinerary.total_time_minutes > 0,
+                "total_time_minutes must be > 0"
+            );
+        }
+    }
+
+    /// All airport codes in the Tokyo fixture are 3-char uppercase ASCII.
+    #[test]
+    fn fixture_lux_tokyo_oneway_airport_codes_are_3char_uppercase() {
+        let resp = parse_fixture("test_files/lux_tokyo_oneway.txt");
+        for flight in resp.maybe_get_all_flights().unwrap_or_default() {
+            for leg in &flight.itinerary.flight_details {
+                let dep = &leg.departure_airport_code;
+                let arr = &leg.destination_airport_code;
+                // Airport codes are 3-char uppercase ASCII; city identifiers start with /
+                if !dep.starts_with('/') {
+                    assert_eq!(dep.len(), 3, "departure code '{dep}' should be 3 chars");
+                    assert!(dep.chars().all(|c| c.is_ascii_uppercase()), "departure code '{dep}' should be uppercase ASCII");
+                }
+                if !arr.starts_with('/') {
+                    assert_eq!(arr.len(), 3, "arrival code '{arr}' should be 3 chars");
+                    assert!(arr.chars().all(|c| c.is_ascii_uppercase()), "arrival code '{arr}' should be uppercase ASCII");
+                }
+            }
+        }
+    }
+
+    /// `lux_dubai_oneway.txt` parses without error and contains at least one flight.
+    #[test]
+    fn fixture_lux_dubai_oneway_non_empty_flights() {
+        let resp = parse_fixture("test_files/lux_dubai_oneway.txt");
+        let flights = resp.maybe_get_all_flights().unwrap_or_default();
+        assert!(!flights.is_empty(), "expected at least one flight in lux_dubai fixture");
+    }
+
+    /// All departure tokens in the Dubai fixture are non-empty.
+    #[test]
+    fn fixture_lux_dubai_oneway_all_departure_tokens_non_empty() {
+        let resp = parse_fixture("test_files/lux_dubai_oneway.txt");
+        for flight in resp.maybe_get_all_flights().unwrap_or_default() {
+            assert!(
+                !flight.itinerary_cost.departure_token.is_empty(),
+                "departure_token should be non-empty"
+            );
+        }
+    }
+
+    /// All total_time_minutes values in the Dubai fixture are positive.
+    #[test]
+    fn fixture_lux_dubai_oneway_total_time_positive() {
+        let resp = parse_fixture("test_files/lux_dubai_oneway.txt");
+        for flight in resp.maybe_get_all_flights().unwrap_or_default() {
+            assert!(
+                flight.itinerary.total_time_minutes > 0,
+                "total_time_minutes must be > 0"
+            );
+        }
+    }
 }

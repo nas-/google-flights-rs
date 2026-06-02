@@ -1126,4 +1126,177 @@ mod tests {
         let with_str = leg_with_emissions.serialize_to_web().unwrap();
         assert!(with_str.ends_with(",[1],3]"), "with emissions: {with_str}");
     }
+
+    // -----------------------------------------------------------------------
+    // Wire protocol: airline-include filter appears in the request body
+    // -----------------------------------------------------------------------
+
+    /// When `airlines_include` is set, the filter string (e.g. `LX`) must
+    /// appear in the serialised `f.req` body.
+    #[test]
+    fn request_body_contains_airline_include_filter() -> Result<()> {
+        use crate::parsers::common::AirlineCode;
+
+        let lx = AirlineFilter::Airline(AirlineCode::new("LX").unwrap());
+        let departure = Location {
+            loc_identifier: "LUX".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "NRT".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let frontend_version = "boq_travel-frontend-ui_20240110.02_p0".to_string();
+        let fixed_flights = FixedFlights::new(1);
+        let times = FlightTimes::default();
+
+        let opts = FlightRequestOptions {
+            departing_city: core::slice::from_ref(&departure),
+            arriving_city: core::slice::from_ref(&arrival),
+            date_start: "2025-06-01",
+            date_return: None,
+            travellers: Travelers::new(vec![1, 0, 0, 0])?,
+            travel_class: &TravelClass::Economy,
+            stop_option: &StopOptions::All,
+            departing_times: &times,
+            return_times: &times,
+            stopover_max: &StopoverDuration::UNLIMITED,
+            stopover_min: &StopoverDuration::UNLIMITED,
+            duration_max: &TotalDuration::UNLIMITED,
+            frontend_version: &frontend_version,
+            fixed_flights: &fixed_flights,
+            language: "en",
+            country: "GB",
+            sort_order: &SortOrder::Best,
+            airlines_include: &[lx],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
+        };
+        let req: RequestBody = (&opts).try_into()?;
+        assert!(req.body.contains("LX"), "body should contain airline code LX");
+        Ok(())
+    }
+
+    /// When `stop_option` is `NonStop`, the stops value in the body must be `1`.
+    #[test]
+    fn request_body_nonstop_filter_sets_stop_value_1() -> Result<()> {
+        let departure = Location {
+            loc_identifier: "LHR".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "JFK".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let times = FlightTimes::default();
+        let leg = SingleLegStruct {
+            departure: vec![vec![&departure]],
+            arrival: vec![vec![&arrival]],
+            stop_options: &StopOptions::NoStop,
+            date: "2025-06-01",
+            times: &times,
+            stopover_max: &StopoverDuration::UNLIMITED,
+            stopover_min: &StopoverDuration::UNLIMITED,
+            duration_max: &TotalDuration::UNLIMITED,
+            chosen_itinerary: None,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
+        };
+        let serialised = leg.serialize_to_web()?;
+        // position [3] is the stop option; NonStop → 1
+        assert!(
+            serialised.contains(",1,null,null,"),
+            "nonstop leg should contain ',1,null,null,' at stop-option position: {serialised}"
+        );
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Locale / language parameter tests
+    // -----------------------------------------------------------------------
+
+    /// `language="fr"` + `country="FR"` must produce `hl=fr-FR` in the URL.
+    #[test]
+    fn request_url_contains_hl_fr_fr() -> Result<()> {
+        let req = make_minimal_request("fr", "FR")?;
+        assert!(
+            req.url.contains("hl=fr-FR"),
+            "URL should contain hl=fr-FR, got: {}",
+            req.url
+        );
+        Ok(())
+    }
+
+    /// `language="de"` + `country="DE"` must produce `hl=de-DE` in the URL.
+    #[test]
+    fn request_url_contains_hl_de_de() -> Result<()> {
+        let req = make_minimal_request("de", "DE")?;
+        assert!(
+            req.url.contains("hl=de-DE"),
+            "URL should contain hl=de-DE, got: {}",
+            req.url
+        );
+        Ok(())
+    }
+
+    /// `country` stored in lowercase is uppercased in the URL.
+    #[test]
+    fn request_url_uppercases_country_code() -> Result<()> {
+        let req = make_minimal_request("en", "gb")?;
+        assert!(
+            req.url.contains("hl=en-GB"),
+            "country 'gb' should be uppercased to 'GB' in URL: {}",
+            req.url
+        );
+        Ok(())
+    }
+
+    /// Helper: build a minimal `RequestBody` with the given locale params.
+    fn make_minimal_request(language: &str, country: &str) -> Result<RequestBody> {
+        let departure = Location {
+            loc_identifier: "LHR".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let arrival = Location {
+            loc_identifier: "JFK".to_owned(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let times = FlightTimes::default();
+        let frontend_version = "boq_travel-frontend-ui_20240110.02_p0".to_string();
+        let fixed_flights = FixedFlights::new(1);
+
+        let opts = FlightRequestOptions {
+            departing_city: core::slice::from_ref(&departure),
+            arriving_city: core::slice::from_ref(&arrival),
+            date_start: "2025-06-01",
+            date_return: None,
+            travellers: Travelers::new(vec![1, 0, 0, 0])?,
+            travel_class: &TravelClass::Economy,
+            stop_option: &StopOptions::All,
+            departing_times: &times,
+            return_times: &times,
+            stopover_max: &StopoverDuration::UNLIMITED,
+            stopover_min: &StopoverDuration::UNLIMITED,
+            duration_max: &TotalDuration::UNLIMITED,
+            frontend_version: &frontend_version,
+            fixed_flights: &fixed_flights,
+            language,
+            country,
+            sort_order: &SortOrder::Best,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &[],
+            lower_emissions: false,
+        };
+        (&opts).try_into()
+    }
 }
