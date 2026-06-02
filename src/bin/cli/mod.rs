@@ -7,12 +7,14 @@ use gflights::requests::config::{Config, Currency};
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
+pub mod cheap;
 pub mod date_grid;
 pub mod graph;
 pub mod multi_city;
 pub mod offer;
 pub mod search;
 
+use cheap::{cmd_cheap, CheapArgs};
 use date_grid::{cmd_date_grid, DateGridArgs};
 use graph::{cmd_graph, GraphArgs};
 use multi_city::{cmd_multi_city, MultiCityArgs};
@@ -72,6 +74,12 @@ pub enum Commands {
     /// Example: gflights mcity --leg LUX,FCO,2026-09-10 --leg FCO,MAD,2026-09-13 --leg MAD,LUX,2026-09-17
     #[command(name = "mcity")]
     MultiCity(MultiCityArgs),
+    /// Find the cheapest departure dates for a route over a range of months.
+    ///
+    /// Use --trip-days N to search for round trips of exactly N nights.
+    /// Omit --trip-days for one-way date discovery.
+    #[command(name = "cheap")]
+    Cheap(CheapArgs),
     /// Exit the interactive REPL (alias: exit).
     #[command(alias = "exit")]
     Quit,
@@ -167,6 +175,7 @@ pub async fn run_command(cmd: Commands, client: &ApiClient) -> Result<()> {
         Commands::DateGrid(args) => cmd_date_grid(args, client).await,
         Commands::Offer(args) => cmd_offer(args, client).await,
         Commands::MultiCity(args) => cmd_multi_city(args, client).await,
+        Commands::Cheap(args) => cmd_cheap(args, client).await,
         Commands::Quit => Ok(()),
     }
 }
@@ -194,8 +203,11 @@ pub async fn run_repl(client: &ApiClient) -> Result<()> {
                     println!("  graph  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--months N]");
                     println!("  dgrid  --from <CODE> --to <CODE> --dep-start <DATE> --dep-end <DATE> --ret-start <DATE> --ret-end <DATE>");
                     println!("  offer  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [OPTIONS]");
+                    println!("  cheap  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--months N] [--trip-days N]");
                     println!("  mcity  --leg FROM,TO,DATE [--leg FROM,TO,DATE ...] [OPTIONS]");
                     println!("  quit / exit");
+                    println!();
+                    println!("Tip: append --help to any command for full option details.");
                     continue;
                 }
 

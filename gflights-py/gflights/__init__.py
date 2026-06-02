@@ -27,6 +27,7 @@ Quick start::
 from __future__ import annotations
 
 from gflights._gflights import (  # noqa: F401
+    CheapDate,
     DateGridEntry,
     EmissionsInfo,
     FlightResult,
@@ -45,6 +46,7 @@ __all__ = [
     "EmissionsInfo",
     "PriceEntry",
     "DateGridEntry",
+    "CheapDate",
     "TravelClass",
     "StopFilter",
     "SortOrder",

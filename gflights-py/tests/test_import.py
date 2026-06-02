@@ -10,7 +10,7 @@ import gflights
 def test_module_exports_expected_classes():
     expected = {
         "GFlights", "FlightResult", "LegInfo", "LayoverInfo",
-        "EmissionsInfo", "PriceEntry", "DateGridEntry",
+        "EmissionsInfo", "PriceEntry", "DateGridEntry", "CheapDate",
     }
     assert expected.issubset(set(dir(gflights)))
 
@@ -80,3 +80,24 @@ async def test_multi_city_search_raises_for_single_leg():
     client = gflights.GFlights()
     with pytest.raises(ValueError, match="2 legs"):
         client.multi_city_search([("LHR", "JFK", "2026-08-01")])
+
+
+async def test_cheapest_dates_returns_awaitable():
+    client = gflights.GFlights()
+    fut = client.cheapest_dates(from_airport="LHR", to_airport="JFK", date="2026-08-01")
+    assert inspect.isawaitable(fut)
+    fut.cancel()
+
+
+async def test_cheapest_dates_round_trip_returns_awaitable():
+    client = gflights.GFlights()
+    fut = client.cheapest_dates(
+        from_airport="LHR", to_airport="JFK",
+        date="2026-08-01", months=3, trip_duration_days=7,
+    )
+    assert inspect.isawaitable(fut)
+    fut.cancel()
+
+
+def test_cheap_date_class_exported():
+    assert hasattr(gflights, "CheapDate")

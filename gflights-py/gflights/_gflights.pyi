@@ -51,6 +51,16 @@ class DateGridEntry:
     price: int
     def __repr__(self) -> str: ...
 
+class CheapDate:
+    """One result from :meth:`GFlights.cheapest_dates`, sorted cheapest-first.
+
+    ``return_date`` is ``None`` for one-way results and set for round-trip results.
+    """
+    departure_date: str
+    return_date: Optional[str]
+    price: int
+    def __repr__(self) -> str: ...
+
 class GFlights:
     """Async Python client for Google Flights, backed by Rust/tokio.
 
@@ -124,6 +134,25 @@ class GFlights:
         country: str = ...,
     ) -> list[FlightResult]:
         """Multi-city (open-jaw) search. Each leg is ``(from, to, "YYYY-MM-DD")``."""
+        ...
+
+    async def cheapest_dates(
+        self,
+        from_airport: str,
+        to_airport: str,
+        date: str,
+        months: int = ...,
+        trip_duration_days: Optional[int] = ...,
+        currency: str = ...,
+        lang: str = ...,
+        country: str = ...,
+    ) -> list[CheapDate]:
+        """Find cheapest departure dates sorted by price.
+
+        Pass ``trip_duration_days=N`` for round-trip fixed-length results;
+        omit (or pass ``None``) for one-way date discovery.
+        Returns a coroutine.
+        """
         ...
 
     def reset_rate_limit(self) -> None: ...

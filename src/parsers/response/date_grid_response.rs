@@ -24,6 +24,19 @@ pub struct DateGridEntry {
     pub booking_token: Option<String>,
 }
 
+/// A single result from [`crate::requests::api::ApiClient::cheapest_dates`].
+///
+/// For one-way searches `return_date` is `None`.  For fixed-duration
+/// round trips it holds `departure_date + trip_duration_days`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheapDate {
+    pub departure_date: NaiveDate,
+    /// `None` for one-way results; `Some` for round-trip results.
+    pub return_date: Option<NaiveDate>,
+    /// Price in the currency requested.
+    pub price: i32,
+}
+
 /// Parsed response from `GetCalendarGrid`.
 ///
 /// Contains a flat list of [`DateGridEntry`] values covering all
@@ -178,6 +191,44 @@ fn parse_entry(v: Value) -> Result<DateGridEntry> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    // -- CheapDate ------------------------------------------------------------
+
+    #[test]
+    fn cheap_date_one_way_has_no_return() {
+        let d = CheapDate {
+            departure_date: NaiveDate::from_ymd_opt(2026, 9, 1).unwrap(),
+            return_date: None,
+            price: 150,
+        };
+        assert!(d.return_date.is_none());
+        assert_eq!(d.price, 150);
+    }
+
+    #[test]
+    fn cheap_date_round_trip_has_return() {
+        let dep = NaiveDate::from_ymd_opt(2026, 9, 1).unwrap();
+        let ret = dep + chrono::Duration::days(7);
+        let d = CheapDate {
+            departure_date: dep,
+            return_date: Some(ret),
+            price: 350,
+        };
+        assert_eq!(d.return_date.unwrap(), ret);
+        assert_eq!((d.return_date.unwrap() - d.departure_date).num_days(), 7);
+    }
+
+    #[test]
+    fn cheap_date_serialises_to_json() {
+        let d = CheapDate {
+            departure_date: NaiveDate::from_ymd_opt(2026, 9, 1).unwrap(),
+            return_date: None,
+            price: 99,
+        };
+        let json = serde_json::to_string(&d).unwrap();
+        assert!(json.contains("2026-09-01"));
+        assert!(json.contains("99"));
+    }
 
     /// Minimal synthetic inner payload — two entries, one cheaper.
     #[test]

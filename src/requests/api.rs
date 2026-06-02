@@ -1,8 +1,8 @@
 use super::config::Currency;
 use crate::parsers;
 use crate::parsers::constants::{CLK_URL, FLIGHTS_MAIN_PAGE};
-use crate::requests::config::Config;
-use crate::requests::config::MultiCityConfig;
+use crate::parsers::common::FixedFlights;
+use crate::requests::config::{Config, MultiCityConfig, TripType};
 use anyhow::Result;
 use chrono::{Duration, Months, NaiveDate};
 use governor::{DefaultDirectRateLimiter, Quota};
@@ -12,7 +12,7 @@ use parsers::city_request::CityRequestOptions;
 use parsers::city_response::ResponseInnerBodyParsed;
 use parsers::common::ToRequestBody;
 use parsers::date_grid_request::{DateGridRequestOptions, DATE_GRID_MAX_CELLS};
-use parsers::date_grid_response::{parse_date_grid_response, DateGridResponse};
+use parsers::date_grid_response::{parse_date_grid_response, CheapDate, DateGridResponse};
 use parsers::flight_request::{FlightRequestOptions, MultiCityRequestOptions};
 use parsers::flight_response::{create_raw_response_vec, FlightResponseContainer};
 use parsers::offer_response::{self, OfferRawResponseContainer};
@@ -503,6 +503,105 @@ impl ApiClient {
     /// (`/travel/clk/f`) and extracts the redirect URL from the HTML
     /// `<meta http-equiv="refresh">` response.
     ///
+    /// Find the cheapest departure dates for a route over a date range.
+    ///
+    /// * `trip_duration_days = None` — one-way mode: scans the price calendar
+    ///   over `months` from `config.departing_date` and returns dates sorted by
+    ///   price ascending.
+    /// * `trip_duration_days = Some(n)` — round-trip mode: queries the date
+    ///   grid for all departure dates in the range and returns only
+    ///   `(dep, dep + n)` pairs, sorted by price ascending.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # tokio_test::block_on(async {
+    /// use gflights::requests::api::ApiClient;
+    /// use gflights::parsers::common::{Location, PlaceType};
+    /// use gflights::requests::config::Config;
+    /// use chrono::{Months, NaiveDate};
+    ///
+    /// let client = ApiClient::new();
+    /// let config = Config::builder()
+    ///     .departure_location(Location {
+    ///         loc_identifier: "LUX".into(),
+    ///         loc_type: PlaceType::Airport,
+    ///         location_name: None,
+    ///     })
+    ///     .destination_location(Location {
+    ///         loc_identifier: "JFK".into(),
+    ///         loc_type: PlaceType::Airport,
+    ///         location_name: None,
+    ///     })
+    ///     .departing_date(NaiveDate::from_ymd_opt(2026, 9, 1).unwrap())
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// // Cheapest one-way days over the next 3 months
+    /// let oneway = client.cheapest_dates(&config, Months::new(3), None).await.unwrap();
+    ///
+    /// // Cheapest 7-night round trips over the next 3 months
+    /// let roundtrip = client.cheapest_dates(&config, Months::new(3), Some(7)).await.unwrap();
+    /// # });
+    /// ```
+    #[tracing::instrument(skip_all)]
+    pub async fn cheapest_dates(
+        &self,
+        config: &Config,
+        months: Months,
+        trip_duration_days: Option<u32>,
+    ) -> Result<Vec<CheapDate>> {
+        match trip_duration_days {
+            None => {
+                let graph = self.request_graph(config, months).await?;
+                let mut results: Vec<CheapDate> = graph
+                    .get_all_graphs()
+                    .into_iter()
+                    .filter_map(|e| {
+                        e.proposed_trip_cost.as_ref().map(|c| CheapDate {
+                            departure_date: e.proposed_departure_date,
+                            return_date: e.proposed_return_date,
+                            price: c.trip_cost.price,
+                        })
+                    })
+                    .collect();
+                results.sort_by_key(|e| e.price);
+                Ok(results)
+            }
+            Some(n) => {
+                let dep_start = config.departing_date;
+                let n_duration = Duration::days(i64::from(n));
+                let dep_end = dep_start + months;
+                let ret_start = dep_start + n_duration;
+                let ret_end = dep_end + n_duration;
+
+                // request_date_grid requires a round-trip config with return_date set.
+                let rt_config = Config {
+                    return_date: Some(dep_start + n_duration),
+                    trip_type: TripType::Return,
+                    fixed_flights: FixedFlights::new(2),
+                    ..config.clone()
+                };
+
+                let grid = self
+                    .request_date_grid(&rt_config, dep_start, dep_end, ret_start, ret_end)
+                    .await?;
+
+                let mut results: Vec<CheapDate> = grid
+                    .entries
+                    .into_iter()
+                    .filter(|e| e.return_date - e.departure_date == n_duration)
+                    .map(|e| CheapDate {
+                        departure_date: e.departure_date,
+                        return_date: Some(e.return_date),
+                        price: e.price,
+                    })
+                    .collect();
+                results.sort_by_key(|e| e.price);
+                Ok(results)
+            }
+        }
+    }
+
     /// # Example
     /// ```no_run
     /// # async fn example(client: gflights::requests::api::ApiClient, token: &str) {
