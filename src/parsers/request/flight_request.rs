@@ -59,13 +59,17 @@ impl ToRequestBody for FlightRequestOptions<'_> {
 impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
     type Error = anyhow::Error;
     fn try_from(options: &FlightRequestOptions) -> Result<Self> {
-        let departure = vec![options.departing_city.iter().collect::<Vec<_>>()];
-        let arrival = vec![options.arriving_city.iter().collect::<Vec<_>>()];
+        // Build the per-leg location vecs as closures so each leg gets its own
+        // allocation without cloning a shared Vec.
+        let make_dep = || vec![options.departing_city.iter().collect::<Vec<_>>()];
+        let make_arr = || vec![options.arriving_city.iter().collect::<Vec<_>>()];
+
         let itinerary_going = options.fixed_flights.maybe_get_nth_flight_info(0_usize);
         let itinerary_return = options.fixed_flights.maybe_get_nth_flight_info(1_usize);
-        let leg1 = SingleLegStruct {
-            departure: departure.clone(),
-            arrival: arrival.clone(),
+
+        let mut legs = vec![SingleLegStruct {
+            departure: make_dep(),
+            arrival: make_arr(),
             stop_options: options.stop_option,
             date: options.date_start,
             times: options.departing_times,
@@ -77,27 +81,25 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
             airlines_exclude: options.airlines_exclude,
             connecting_airports: options.connecting_airports,
             lower_emissions: options.lower_emissions,
-        };
-        let leg2 = options.date_return.map(|date_return| SingleLegStruct {
-            departure: arrival,
-            arrival: departure,
-            stop_options: options.stop_option,
-            date: date_return,
-            times: options.return_times,
-            stopover_max: options.stopover_max,
-            stopover_min: options.stopover_min,
-            duration_max: options.duration_max,
-            chosen_itinerary: itinerary_return.as_ref(),
-            airlines_include: options.airlines_include,
-            airlines_exclude: options.airlines_exclude,
-            connecting_airports: options.connecting_airports,
-            lower_emissions: options.lower_emissions,
-        });
-        let legs: Vec<SingleLegStruct<'_>> = if let Some(leg_2) = leg2 {
-            vec![leg1, leg_2]
-        } else {
-            vec![leg1]
-        };
+        }];
+        if let Some(date_return) = options.date_return {
+            legs.push(SingleLegStruct {
+                // Outbound and return swap departure/arrival.
+                departure: make_arr(),
+                arrival: make_dep(),
+                stop_options: options.stop_option,
+                date: date_return,
+                times: options.return_times,
+                stopover_max: options.stopover_max,
+                stopover_min: options.stopover_min,
+                duration_max: options.duration_max,
+                chosen_itinerary: itinerary_return.as_ref(),
+                airlines_include: options.airlines_include,
+                airlines_exclude: options.airlines_exclude,
+                connecting_airports: options.connecting_airports,
+                lower_emissions: options.lower_emissions,
+            });
+        }
 
         let is_booking = options.fixed_flights.is_full();
 
