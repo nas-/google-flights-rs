@@ -115,12 +115,43 @@ pub async fn cmd_multi_city(args: MultiCityArgs, client: &ApiClient) -> Result<(
         return Ok(());
     }
 
+    // Build the planned-route banner from the resolved leg identifiers.
+    let route_banner: String = config
+        .legs
+        .iter()
+        .flat_map(|leg| {
+            leg.from
+                .iter()
+                .map(|l| l.loc_identifier.as_str())
+                .chain(std::iter::once(
+                    leg.to
+                        .first()
+                        .map(|l| l.loc_identifier.as_str())
+                        .unwrap_or("?"),
+                ))
+        })
+        .collect::<Vec<_>>()
+        // deduplicate consecutive identical codes (e.g. MXP appears as dest of
+        // leg 1 and origin of leg 2)
+        .windows(2)
+        .filter_map(|w| if w[0] != w[1] { Some(w[0]) } else { None })
+        .chain(
+            config
+                .legs
+                .last()
+                .and_then(|l| l.to.first())
+                .map(|l| l.loc_identifier.as_str()),
+        )
+        .collect::<Vec<_>>()
+        .join(" → ");
+
     match args.format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&flights)?);
         }
         OutputFormat::Table => {
-            // Print each flight with its leg route for context.
+            println!("Route: {route_banner}");
+            println!();
             println!(
                 "{:<8}  {:>6}  {:>5}  {:>5}  ROUTE",
                 "AIRLINE", "PRICE", "STOPS", "MINS"
@@ -133,26 +164,28 @@ pub async fn cmd_multi_city(args: MultiCityArgs, client: &ApiClient) -> Result<(
                     .as_ref()
                     .map(|c| c.price.to_string())
                     .unwrap_or_else(|| "—".into());
-                let from = f
-                    .itinerary
-                    .flight_details
-                    .first()
-                    .map(|d| d.departure_airport_code.as_str())
-                    .unwrap_or("?");
-                let to = f
-                    .itinerary
-                    .flight_details
-                    .last()
-                    .map(|d| d.destination_airport_code.as_str())
-                    .unwrap_or("?");
+                // Build full segment chain: DEP → CONN1 → … → ARR
+                let route = {
+                    let details = &f.itinerary.flight_details;
+                    let mut parts: Vec<&str> = details
+                        .iter()
+                        .map(|d| d.departure_airport_code.as_str())
+                        .collect();
+                    if let Some(last) = details.last() {
+                        parts.push(last.destination_airport_code.as_str());
+                    }
+                    if parts.is_empty() {
+                        "?".to_string()
+                    } else {
+                        parts.join("→")
+                    }
+                };
                 println!(
-                    "{:<8}  {:>6}  {:>5}  {:>5}  {}→{}",
+                    "{:<8}  {:>6}  {:>5}  {:>5}  {route}",
                     f.itinerary.flight_by,
                     price,
                     f.itinerary.stop_count(),
                     f.itinerary.total_time_minutes,
-                    from,
-                    to,
                 );
             }
         }
