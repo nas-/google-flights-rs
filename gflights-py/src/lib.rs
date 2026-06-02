@@ -283,6 +283,36 @@ impl DateGridEntry {
     }
 }
 
+/// One result from [`GFlights.cheapest_dates`].
+///
+/// `return_date` is `None` for one-way searches and set for round-trip searches.
+#[pyclass(get_all)]
+#[derive(Clone, Debug)]
+pub struct CheapDate {
+    /// Cheapest outbound departure date as `"YYYY-MM-DD"`.
+    pub departure_date: String,
+    /// Return date as `"YYYY-MM-DD"`, or `None` for one-way results.
+    pub return_date: Option<String>,
+    /// Cheapest fare in the requested currency.
+    pub price: i32,
+}
+
+#[pymethods]
+impl CheapDate {
+    fn __repr__(&self) -> String {
+        match &self.return_date {
+            Some(ret) => format!(
+                "CheapDate(dep={:?}, ret={:?}, price={})",
+                self.departure_date, ret, self.price,
+            ),
+            None => format!(
+                "CheapDate(dep={:?}, price={})",
+                self.departure_date, self.price,
+            ),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Conversions from gflights types to Python types
 // ---------------------------------------------------------------------------
@@ -709,7 +739,6 @@ impl GFlights {
                 "multi_city_search requires at least 2 legs",
             ));
         }
-        // Parse each leg date synchronously — raises ValueError immediately.
         let parsed_legs: Vec<(String, String, chrono::NaiveDate)> = legs
             .iter()
             .map(|(from, to, date)| {
@@ -759,6 +788,85 @@ impl GFlights {
         })
     }
 
+    /// Find the cheapest departure dates for a route over a range of months.
+    ///
+    /// :param from_airport:       Origin IATA code or city name.
+    /// :param to_airport:         Destination IATA code or city name.
+    /// :param date:               Start of the search window as ``"YYYY-MM-DD"``.
+    /// :param months:             Number of months to scan. Default ``3``.
+    /// :param trip_duration_days: Round-trip length in days. ``None`` for one-way
+    ///                            date discovery.
+    /// :param currency:           Currency code (default ``"euro"``).
+    /// :param lang:               BCP-47 language subtag (default ``"en"``).
+    /// :param country:            ISO 3166-1 alpha-2 country code (default ``"GB"``).
+    /// :returns:                  Coroutine → ``list[CheapDate]``, sorted cheapest first.
+    #[pyo3(signature = (
+        from_airport,
+        to_airport,
+        date,
+        months = 3,
+        trip_duration_days = None,
+        currency = "euro",
+        lang = "en",
+        country = "GB",
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn cheapest_dates<'py>(
+        &self,
+        py: Python<'py>,
+        from_airport: String,
+        to_airport: String,
+        date: String,
+        months: u32,
+        trip_duration_days: Option<u32>,
+        currency: &str,
+        lang: &str,
+        country: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let dep_start = parse_date(&date)?;
+        let currency = parse_currency(currency)?;
+        let lang = lang.to_string();
+        let country = country.to_string();
+        let client = self.client.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let config = Config::builder()
+                .departure(&from_airport, &client)
+                .await
+                .map_err(anyhow_to_py)?
+                .destination(&to_airport, &client)
+                .await
+                .map_err(anyhow_to_py)?
+                .departing_date(dep_start)
+                .currency(currency)
+                .language(&lang)
+                .country(&country)
+                .build()
+                .map_err(anyhow_to_py)?;
+
+            let results = client
+                .cheapest_dates(&config, chrono::Months::new(months), trip_duration_days)
+                .await
+                .map_err(anyhow_to_py)?;
+
+            Python::with_gil(|py| {
+                results
+                    .into_iter()
+                    .map(|r| {
+                        Py::new(
+                            py,
+                            CheapDate {
+                                departure_date: r.departure_date.to_string(),
+                                return_date: r.return_date.map(|d| d.to_string()),
+                                price: r.price,
+                            },
+                        )
+                    })
+                    .collect::<PyResult<Vec<_>>>()
+            })
+        })
+    }
+
     /// `True` if the last request was rate-limited by Google (HTTP 429).
     #[getter]
     fn rate_limited(&self) -> bool {
@@ -795,5 +903,6 @@ fn _gflights(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<EmissionsInfo>()?;
     m.add_class::<PriceEntry>()?;
     m.add_class::<DateGridEntry>()?;
+    m.add_class::<CheapDate>()?;
     Ok(())
 }

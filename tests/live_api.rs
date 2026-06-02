@@ -1157,17 +1157,11 @@ async fn invalid_iata_xxx_does_not_panic() -> Result<()> {
 
 /// Rail station codes (Amadeus X-prefix convention, e.g. XRJ = Rome Termini,
 /// XVQ = Venice Santa Lucia) must not cause panics or unrecoverable errors.
-///
-/// Google Flights does not know about rail codes so results will typically be
-/// empty, but the API call must succeed (or return a graceful typed error) and
-/// `get_all_flights()` must return an empty `Vec` rather than panicking.
 #[tokio::test]
 #[ignore = "requires live network"]
 async fn train_station_iata_returns_empty_or_graceful() -> Result<()> {
     require_live!();
     let client = shared_client().await;
-
-    // XRJ = Rome Termini rail code; XVQ = Venice Santa Lucia rail code.
     let config = Config::builder()
         .departure("XRJ", client)
         .await?
@@ -1175,18 +1169,88 @@ async fn train_station_iata_returns_empty_or_graceful() -> Result<()> {
         .await?
         .departing_date(days_from_now(14))
         .build()?;
-
-    // The request must not panic; either an Ok (possibly empty) or a typed Err.
     match client.request_flights(&config).await {
-        Ok(r) => {
-            // Accessing get_all_flights() must not panic even for empty results.
-            let _ = r.get_all_flights();
-        }
-        Err(_) => {
-            // A graceful typed error is also an acceptable outcome.
-        }
+        Ok(r) => { let _ = r.get_all_flights(); }
+        Err(_) => {}
     }
+    Ok(())
+}
 
+// ---------------------------------------------------------------------------
+// cheapest_dates
+// ---------------------------------------------------------------------------
+
+/// One-way: cheapest dates should be non-empty and sorted by price.
+#[tokio::test]
+#[ignore]
+async fn cheapest_dates_oneway_returns_sorted_results() -> Result<()> {
+    require_live!();
+    use gflights::parsers::common::{Location, PlaceType};
+
+    let c = shared_client().await;
+    let lhr = Location {
+        loc_identifier: "LHR".to_owned(),
+        loc_type: PlaceType::Airport,
+        location_name: None,
+    };
+    let jfk = Location {
+        loc_identifier: "JFK".to_owned(),
+        loc_type: PlaceType::Airport,
+        location_name: None,
+    };
+    let config = Config::builder()
+        .departure_location(lhr)
+        .destination_location(jfk)
+        .departing_date(days_from_now(60))
+        .build()?;
+
+    let results = c.cheapest_dates(&config, Months::new(2), None).await?;
+    assert!(!results.is_empty(), "should return some cheap dates");
+    let prices: Vec<i32> = results.iter().map(|r| r.price).collect();
+    let mut sorted = prices.clone();
+    sorted.sort();
+    assert_eq!(prices, sorted, "results must be sorted cheapest-first");
+    for r in &results {
+        assert!(r.return_date.is_none(), "one-way results must have no return_date");
+    }
+    Ok(())
+}
+
+/// Round-trip: cheapest 7-day trips should pair dep + dep+7 and be sorted by price.
+#[tokio::test]
+#[ignore]
+async fn cheapest_dates_roundtrip_returns_paired_dates() -> Result<()> {
+    require_live!();
+    use gflights::parsers::common::{Location, PlaceType};
+
+    let c = shared_client().await;
+    let lux = Location {
+        loc_identifier: "LUX".to_owned(),
+        loc_type: PlaceType::Airport,
+        location_name: None,
+    };
+    let fco = Location {
+        loc_identifier: "FCO".to_owned(),
+        loc_type: PlaceType::Airport,
+        location_name: None,
+    };
+    let config = Config::builder()
+        .departure_location(lux)
+        .destination_location(fco)
+        .departing_date(days_from_now(30))
+        .build()?;
+
+    let results = c.cheapest_dates(&config, Months::new(2), Some(7)).await?;
+    assert!(!results.is_empty(), "should return some cheap dates for 7-night trips");
+    for r in &results {
+        let ret = r.return_date.expect("round-trip results must have return_date");
+        assert_eq!((ret - r.departure_date).num_days(), 7, "return must be dep+7");
+        assert!(r.price > 0);
+    }
+    let prices: Vec<i32> = results.iter().map(|r| r.price).collect();
+    let mut sorted = prices.clone();
+    sorted.sort();
+    assert_eq!(prices, sorted, "results must be sorted cheapest-first");
     Ok(())
 }
 

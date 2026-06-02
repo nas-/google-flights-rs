@@ -72,3 +72,5 @@ pub mod requests;
 pub use requests::api::RateLimitedError;
 /// Re-exported for configuring retry behaviour on [`requests::api::ApiClient`].
 pub use requests::api::RetryConfig;
+/// Result type from [`requests::api::ApiClient::cheapest_dates`].
+pub use parsers::response::date_grid_response::CheapDate;
