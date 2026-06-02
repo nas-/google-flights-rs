@@ -1169,9 +1169,8 @@ async fn train_station_iata_returns_empty_or_graceful() -> Result<()> {
         .await?
         .departing_date(days_from_now(14))
         .build()?;
-    match client.request_flights(&config).await {
-        Ok(r) => { let _ = r.get_all_flights(); }
-        Err(_) => {}
+    if let Ok(r) = client.request_flights(&config).await {
+        let _ = r.get_all_flights();
     }
     Ok(())
 }

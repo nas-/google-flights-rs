@@ -613,6 +613,13 @@ impl ApiClient {
     pub async fn resolve_booking_url(&self, click_token: &str) -> Result<String> {
         use std::time::{SystemTime, UNIX_EPOCH};
 
+        // Honour the shared rate-limit flag — same guard as do_request().
+        if self.rate_limited.load(Ordering::SeqCst) {
+            return Err(anyhow::Error::new(RateLimitedError));
+        }
+        // Consume one rate-limiter slot.
+        let _permit = self.rate_limiter.until_n_ready(NonZeroU32::MIN).await;
+
         let t = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
 
         let url = format!("{CLK_URL}?t={t}");
