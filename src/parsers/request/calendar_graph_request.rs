@@ -63,6 +63,8 @@ impl TryFrom<&GraphRequestOptions<'_>> for RequestBody {
             options.duration_max,
             true,
             *options.sort_order,
+            None,
+            None,
         );
         let graph_req = GraphRequest {
             itinerary,
@@ -204,6 +206,8 @@ mod tests {
             &duration_max,
             true,
             SortOrder::Best,
+            None,
+            None,
         );
 
         let x = GraphRequest {

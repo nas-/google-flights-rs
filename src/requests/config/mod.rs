@@ -68,6 +68,11 @@ pub struct Config {
     pub connecting_airports: Vec<String>,
     /// If `true`, restrict results to lower-CO₂ emissions flights (position \[13\]).
     pub lower_emissions: bool,
+    /// Maximum price filter (outer itinerary array position \[7\]). `None` = no price cap.
+    pub max_price: Option<i32>,
+    /// Baggage filter `(carry_on_count, checked_count)` (outer itinerary array position \[10\]).
+    /// `None` = no restriction.
+    pub baggage: Option<(u8, u8)>,
 }
 
 impl Default for Config {
@@ -95,6 +100,8 @@ impl Default for Config {
             airlines_exclude: Vec::new(),
             connecting_airports: Vec::new(),
             lower_emissions: false,
+            max_price: None,
+            baggage: None,
         }
     }
 }
@@ -154,6 +161,8 @@ impl Config {
             airlines_exclude: Vec::new(),
             connecting_airports: Vec::new(),
             lower_emissions: false,
+            max_price: None,
+            baggage: None,
         }
     }
 
