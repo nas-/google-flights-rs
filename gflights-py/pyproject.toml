@@ -18,7 +18,7 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = ["pytest>=9.0.3", "pytest-asyncio>=1.4.0", "maturin>=1.4,<2.0"]
 
 [tool.pytest.ini_options]
