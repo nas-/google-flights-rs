@@ -1,6 +1,6 @@
 //! Request builder for `GetExploreDestinations`.
 //!
-//! Wire format: the `f.req` inner JSON is a 12-element root array; element [3]
+//! Wire format: the `f.req` inner JSON is a 12-element root array; element \[3\]
 //! is an 18-element OPTIONS array encoding all search parameters.
 
 use std::time::{SystemTime, UNIX_EPOCH};
