@@ -51,6 +51,7 @@ enum TripType {
   unknown_trip_type = 0;
   round_trip = 1;
   one_way = 2;
+  multi_city = 3;
 }
 
 enum StopOptions {

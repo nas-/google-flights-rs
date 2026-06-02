@@ -2,6 +2,8 @@
 
 import inspect
 
+import pytest
+
 import gflights
 
 
@@ -60,3 +62,21 @@ async def test_date_grid_returns_awaitable():
     )
     assert inspect.isawaitable(fut)
     fut.cancel()
+
+
+async def test_multi_city_search_returns_awaitable():
+    """multi_city_search returns an awaitable when called inside an event loop."""
+    client = gflights.GFlights()
+    fut = client.multi_city_search([
+        ("LHR", "JFK", "2026-08-01"),
+        ("JFK", "LHR", "2026-08-15"),
+    ])
+    assert inspect.isawaitable(fut)
+    fut.cancel()
+
+
+async def test_multi_city_search_raises_for_single_leg():
+    """multi_city_search raises ValueError synchronously for 1 leg."""
+    client = gflights.GFlights()
+    with pytest.raises(ValueError, match="2 legs"):
+        client.multi_city_search([("LHR", "JFK", "2026-08-01")])

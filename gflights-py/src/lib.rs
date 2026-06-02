@@ -25,7 +25,7 @@ use gflights::{
     parsers::common::{AirlineFilter, SortOrder, StopOptions, TravelClass},
     requests::{
         api::ApiClient,
-        config::{Config, Currency},
+        config::{Config, Currency, MultiCityConfig},
     },
 };
 use pyo3::prelude::*;
@@ -667,6 +667,93 @@ impl GFlights {
                             },
                         )
                     })
+                    .collect::<PyResult<Vec<_>>>()
+            })
+        })
+    }
+
+    /// Search for flights across multiple legs (open-jaw / multi-city).
+    ///
+    /// :param legs:         List of ``(from_airport, to_airport, "YYYY-MM-DD")`` tuples.
+    ///                      Minimum 2 legs.
+    /// :param adults:       Number of adult passengers (default 1).
+    /// :param travel_class: ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
+    /// :param sort:         ``"best"`` / ``"price"`` / ``"duration"`` / etc.
+    /// :param currency:     Currency name (e.g. ``"euro"``).
+    /// :param lang:         BCP-47 language subtag (default ``"en"``).
+    /// :param country:      ISO 3166-1 alpha-2 country code (default ``"GB"``).
+    /// :returns:            Coroutine → ``list[FlightResult]``
+    #[pyo3(signature = (
+        legs,
+        adults = 1,
+        travel_class = "economy",
+        sort = "best",
+        currency = "euro",
+        lang = "en",
+        country = "GB",
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn multi_city_search<'py>(
+        &self,
+        py: Python<'py>,
+        legs: Vec<(String, String, String)>,
+        adults: u8,
+        travel_class: &str,
+        sort: &str,
+        currency: &str,
+        lang: &str,
+        country: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        if legs.len() < 2 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "multi_city_search requires at least 2 legs",
+            ));
+        }
+        // Parse each leg date synchronously — raises ValueError immediately.
+        let parsed_legs: Vec<(String, String, chrono::NaiveDate)> = legs
+            .iter()
+            .map(|(from, to, date)| {
+                let d = parse_date(date)?;
+                Ok((from.clone(), to.clone(), d))
+            })
+            .collect::<PyResult<_>>()?;
+
+        let currency = parse_currency(currency)?;
+        let class = parse_travel_class(travel_class)?;
+        let sort_ord = parse_sort_order(sort)?;
+        let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let lang = lang.to_string();
+        let country = country.to_string();
+        let client = self.client.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let mut builder = MultiCityConfig::builder()
+                .travellers(travelers)
+                .travel_class(class)
+                .sort_order(sort_ord)
+                .currency(currency)
+                .language(&lang)
+                .country(&country);
+
+            for (from, to, date) in &parsed_legs {
+                builder = builder
+                    .add_leg(from, to, *date, &client)
+                    .await
+                    .map_err(anyhow_to_py)?;
+            }
+
+            let config = builder.build().map_err(anyhow_to_py)?;
+            let flights = client
+                .request_multi_city_flights(&config)
+                .await
+                .map_err(anyhow_to_py)?
+                .get_all_flights();
+
+            Python::with_gil(|py| {
+                flights
+                    .iter()
+                    .map(|ic| Py::new(py, itinerary_container_to_flight(ic)))
                     .collect::<PyResult<Vec<_>>>()
             })
         })
