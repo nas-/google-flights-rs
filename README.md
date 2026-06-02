@@ -410,3 +410,15 @@ cargo fmt
 # Security audit
 cargo audit
 ```
+
+---
+
+## Contributing
+
+Install the pre-commit hook once per clone:
+```sh
+git config core.hooksPath hooks
+chmod +x hooks/pre-commit  # Unix/macOS only
+```
+The hook runs `cargo fmt`, `cargo clippy`, `rustdoc`, `cargo test --lib`, and offline pytest
+before every commit. Requires `maturin develop` to have been run at least once for the Python check.
