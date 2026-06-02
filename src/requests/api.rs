@@ -2,7 +2,8 @@ use super::config::Currency;
 use crate::parsers;
 use crate::parsers::common::FixedFlights;
 use crate::parsers::constants::{CLK_URL, FLIGHTS_MAIN_PAGE};
-use crate::requests::config::{Config, MultiCityConfig, TripType};
+use crate::requests::config::explore::ExploreResult;
+use crate::requests::config::{Config, ExploreConfig, MultiCityConfig, TripType};
 use anyhow::Result;
 use chrono::{Duration, Months, NaiveDate};
 use governor::{DefaultDirectRateLimiter, Quota};
@@ -13,6 +14,8 @@ use parsers::city_response::ResponseInnerBodyParsed;
 use parsers::common::ToRequestBody;
 use parsers::date_grid_request::{DateGridRequestOptions, DATE_GRID_MAX_CELLS};
 use parsers::date_grid_response::{parse_date_grid_response, CheapDate, DateGridResponse};
+use parsers::explore_request::ExploreRequestOptions;
+use parsers::explore_response::parse_explore_response;
 use parsers::flight_request::{FlightRequestOptions, MultiCityRequestOptions};
 use parsers::flight_response::{create_raw_response_vec, FlightResponseContainer};
 use parsers::offer_response::{self, OfferRawResponseContainer};
@@ -496,6 +499,72 @@ impl ApiClient {
             .text()
             .await?;
         create_raw_response_vec(body)
+    }
+
+    /// Search for cheap flight destinations from a given origin.
+    ///
+    /// Uses the `GetExploreDestinations` Google Flights endpoint, which powers
+    /// the "Explore" mode on the website.  Given an origin, it returns a list
+    /// of destinations ranked by price, optionally filtered by month, duration,
+    /// budget, interest category, and more.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` — An [`ExploreConfig`] describing the search parameters.
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<ExploreResult>` sorted by the server's relevance ordering.
+    /// Returns an empty vec if the response cannot be parsed rather than
+    /// propagating a parse error (the streaming format is partially reverse-
+    /// engineered — see `explore_response` for uncertainty notes).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use gflights::requests::{api::ApiClient, config::{ExploreConfig, ExploreDuration}};
+    /// use gflights::parsers::common::{Location, PlaceType, TravelClass};
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> anyhow::Result<()> {
+    ///     let client = ApiClient::new().await;
+    ///     let config = ExploreConfig {
+    ///         origin: vec![Location {
+    ///             loc_identifier: "LUX".into(),
+    ///             loc_type: PlaceType::Airport,
+    ///             location_name: None,
+    ///         }],
+    ///         trip_duration: ExploreDuration::OneWeek,
+    ///         ..Default::default()
+    ///     };
+    ///     let destinations = client.request_explore(&config).await?;
+    ///     for d in &destinations {
+    ///         println!("{} ({}) — {:?}", d.name, d.nearest_airport, d.price);
+    ///     }
+    ///     Ok(())
+    /// }
+    /// ```
+    #[tracing::instrument(skip_all, fields(
+        origin = ?config.origin.iter().map(|l| l.loc_identifier.as_str()).collect::<Vec<_>>(),
+        duration = ?config.trip_duration,
+    ))]
+    pub async fn request_explore(&self, config: &ExploreConfig) -> Result<Vec<ExploreResult>> {
+        tracing::info!("Requesting explore destinations");
+        let req_options = ExploreRequestOptions {
+            config,
+            frontend_version: &self.frontend_version,
+        };
+        let body = self
+            .do_request(
+                &req_options,
+                Some(config.currency.clone()),
+                &config.language,
+                &config.country,
+            )
+            .await?
+            .text()
+            .await?;
+        parse_explore_response(&body)
     }
 
     /// Resolves a `click_token` from an `OfferGroup` or `BookingSubOption`

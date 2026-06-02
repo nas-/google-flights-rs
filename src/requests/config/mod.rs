@@ -11,10 +11,14 @@ use protos::urls::{ItineraryUrl, Leg};
 
 mod builder;
 mod currency;
+pub mod explore;
 pub mod multi_city;
 
 pub use builder::ConfigBuilder;
 pub use currency::Currency;
+pub use explore::{
+    ExploreConfig, ExploreDate, ExploreDuration, ExploreResult, Interest, MapBounds,
+};
 pub use multi_city::{LegFilters, MultiCityConfig, MultiCityConfigBuilder, MultiCityLeg};
 
 /// The `TripType` enum is used to specify the type of trip.

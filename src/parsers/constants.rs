@@ -8,3 +8,5 @@ pub const FLIGHTS_MAIN_PAGE: &str = "https://www.google.com/travel/flights";
 /// Click-tracker endpoint: POST `u=<click_token>` to get an HTML meta-refresh
 /// that redirects to the actual airline / OTA booking page.
 pub const CLK_URL: &str = "https://www.google.com/travel/clk/f";
+/// Explore-destinations endpoint: returns cheap destinations from a given origin.
+pub const EXPLORE_URL: &str = "https://www.google.com/_/FlightsFrontendUi/data/travel.frontend.flights.FlightsFrontendService/GetExploreDestinations";

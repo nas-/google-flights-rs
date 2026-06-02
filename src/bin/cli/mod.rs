@@ -9,6 +9,7 @@ use rustyline::DefaultEditor;
 
 pub mod cheap;
 pub mod date_grid;
+pub mod explore;
 pub mod graph;
 pub mod multi_city;
 pub mod offer;
@@ -16,6 +17,7 @@ pub mod search;
 
 use cheap::{cmd_cheap, CheapArgs};
 use date_grid::{cmd_date_grid, DateGridArgs};
+use explore::{cmd_explore, ExploreArgs};
 use graph::{cmd_graph, GraphArgs};
 use multi_city::{cmd_multi_city, MultiCityArgs};
 use offer::{cmd_offer, OfferArgs};
@@ -80,6 +82,11 @@ pub enum Commands {
     /// Omit --trip-days for one-way date discovery.
     #[command(name = "cheap")]
     Cheap(CheapArgs),
+    /// Explore cheap destinations from an origin airport (Google Flights Explore).
+    ///
+    /// Example: gflights explore --from LUX --month 7 --duration week --budget 300
+    #[command(name = "explore")]
+    Explore(ExploreArgs),
     /// Exit the interactive REPL (alias: exit).
     #[command(alias = "exit")]
     Quit,
@@ -176,6 +183,7 @@ pub async fn run_command(cmd: Commands, client: &ApiClient) -> Result<()> {
         Commands::Offer(args) => cmd_offer(args, client).await,
         Commands::MultiCity(args) => cmd_multi_city(args, client).await,
         Commands::Cheap(args) => cmd_cheap(args, client).await,
+        Commands::Explore(args) => cmd_explore(args, client).await,
         Commands::Quit => Ok(()),
     }
 }
@@ -203,8 +211,9 @@ pub async fn run_repl(client: &ApiClient) -> Result<()> {
                     println!("  graph  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--months N]");
                     println!("  dgrid  --from <CODE> --to <CODE> --dep-start <DATE> --dep-end <DATE> --ret-start <DATE> --ret-end <DATE>");
                     println!("  offer  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [OPTIONS]");
-                    println!("  cheap  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--months N] [--trip-days N]");
-                    println!("  mcity  --leg FROM,TO,DATE [--leg FROM,TO,DATE ...] [OPTIONS]");
+                    println!("  cheap   --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--months N] [--trip-days N]");
+                    println!("  mcity   --leg FROM,TO,DATE [--leg FROM,TO,DATE ...] [OPTIONS]");
+                    println!("  explore --from <CODE> [--month N] [--duration week|weekend|2weeks] [--budget N]");
                     println!("  quit / exit");
                     println!();
                     println!("Tip: append --help to any command for full option details.");

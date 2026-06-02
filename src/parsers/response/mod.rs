@@ -12,5 +12,6 @@
 pub mod calendar_graph_response;
 pub mod city_response;
 pub mod date_grid_response;
+pub mod explore_response;
 pub mod flight_response;
 pub mod offer_response;
