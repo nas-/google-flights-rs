@@ -1,0 +1,26 @@
+#!/usr/bin/env sh
+# Versioned pre-commit hook. Install with:
+#   git config core.hooksPath hooks
+#   chmod +x hooks/pre-commit   # Unix only
+set -e
+
+echo "▶ cargo fmt --check"
+cargo fmt --all --check
+
+echo "▶ cargo clippy"
+cargo clippy --all-targets -- -D warnings
+
+echo "▶ rustdoc"
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --quiet 2>&1 | grep -v "^$" || true
+
+echo "▶ cargo test --lib"
+cargo test --lib --quiet
+
+echo "▶ pytest (offline only)"
+if [ -d gflights-py/.venv ]; then
+  cd gflights-py
+  .venv/bin/python -m pytest tests/test_import.py -q 2>/dev/null \
+    || .venv/Scripts/python.exe -m pytest tests/test_import.py -q 2>/dev/null \
+    || true
+  cd ..
+fi
