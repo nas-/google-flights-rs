@@ -1,7 +1,7 @@
 use super::config::Currency;
 use crate::parsers;
-use crate::parsers::constants::{CLK_URL, FLIGHTS_MAIN_PAGE};
 use crate::parsers::common::FixedFlights;
+use crate::parsers::constants::{CLK_URL, FLIGHTS_MAIN_PAGE};
 use crate::requests::config::{Config, MultiCityConfig, TripType};
 use anyhow::Result;
 use chrono::{Duration, Months, NaiveDate};
@@ -427,6 +427,8 @@ impl ApiClient {
             airlines_exclude: &args.airlines_exclude,
             connecting_airports: &args.connecting_airports,
             lower_emissions: args.lower_emissions,
+            max_price: args.max_price,
+            baggage: args.baggage,
         };
         Ok(self
             .do_request(
@@ -982,13 +984,17 @@ mod tests {
     /// single-quoted meta-refresh response.
     #[test]
     fn booking_url_regex_extracts_single_quoted_url() {
-        let html = r#"<meta content="0;url='https://example.com/book?foo=bar'" http-equiv="refresh">"#;
+        let html =
+            r#"<meta content="0;url='https://example.com/book?foo=bar'" http-equiv="refresh">"#;
         let re = Regex::new(r#"(?i)url=['"]([^'"]+)['"]"#).unwrap();
         let extracted = re
             .captures(html)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string());
-        assert_eq!(extracted, Some("https://example.com/book?foo=bar".to_string()));
+        assert_eq!(
+            extracted,
+            Some("https://example.com/book?foo=bar".to_string())
+        );
     }
 
     /// The same regex handles double-quoted url values.
@@ -997,13 +1003,17 @@ mod tests {
         let _html = r#"<meta content="0;url=&quot;https://airline.com/booking?ref=123&amp;src=gf&quot;" http-equiv="refresh">"#;
         // double-quote form uses literal &quot; — after HTML-decode the url= value is double-quoted
         // here we test the raw pattern against a double-quoted variant directly
-        let html2 = r#"<meta content='0;url="https://airline.com/booking?ref=123"' http-equiv="refresh">"#;
+        let html2 =
+            r#"<meta content='0;url="https://airline.com/booking?ref=123"' http-equiv="refresh">"#;
         let re = Regex::new(r#"(?i)url=['"]([^'"]+)['"]"#).unwrap();
         let extracted = re
             .captures(html2)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string());
-        assert_eq!(extracted, Some("https://airline.com/booking?ref=123".to_string()));
+        assert_eq!(
+            extracted,
+            Some("https://airline.com/booking?ref=123".to_string())
+        );
     }
 
     /// `&amp;` in the extracted URL is decoded to `&`.

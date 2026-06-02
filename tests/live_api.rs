@@ -1210,7 +1210,10 @@ async fn cheapest_dates_oneway_returns_sorted_results() -> Result<()> {
     sorted.sort();
     assert_eq!(prices, sorted, "results must be sorted cheapest-first");
     for r in &results {
-        assert!(r.return_date.is_none(), "one-way results must have no return_date");
+        assert!(
+            r.return_date.is_none(),
+            "one-way results must have no return_date"
+        );
     }
     Ok(())
 }
@@ -1240,10 +1243,19 @@ async fn cheapest_dates_roundtrip_returns_paired_dates() -> Result<()> {
         .build()?;
 
     let results = c.cheapest_dates(&config, Months::new(2), Some(7)).await?;
-    assert!(!results.is_empty(), "should return some cheap dates for 7-night trips");
+    assert!(
+        !results.is_empty(),
+        "should return some cheap dates for 7-night trips"
+    );
     for r in &results {
-        let ret = r.return_date.expect("round-trip results must have return_date");
-        assert_eq!((ret - r.departure_date).num_days(), 7, "return must be dep+7");
+        let ret = r
+            .return_date
+            .expect("round-trip results must have return_date");
+        assert_eq!(
+            (ret - r.departure_date).num_days(),
+            7,
+            "return must be dep+7"
+        );
         assert!(r.price > 0);
     }
     let prices: Vec<i32> = results.iter().map(|r| r.price).collect();

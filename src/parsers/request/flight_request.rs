@@ -49,6 +49,11 @@ pub struct FlightRequestOptions<'a> {
     pub connecting_airports: &'a [String],
     /// If `true`, send `[1]` at position \[13\] to restrict to lower-CO₂ flights.
     pub lower_emissions: bool,
+    /// Maximum price filter (outer itinerary array position \[7\]). `None` = no price cap.
+    pub max_price: Option<i32>,
+    /// Baggage filter `(carry_on_count, checked_count)` (outer itinerary array position \[10\]).
+    /// `None` = no restriction.
+    pub baggage: Option<(u8, u8)>,
 }
 
 impl ToRequestBody for FlightRequestOptions<'_> {
@@ -108,6 +113,8 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
             travelers: &options.travellers,
             is_graph: false,
             sort_order: *options.sort_order,
+            max_price: options.max_price,
+            baggage: options.baggage,
         };
 
         // logic: If return is defined, choose token of return, else choose the one of the way there, else none.
@@ -192,6 +199,26 @@ fn serialize_airport_list(v: &[String]) -> String {
     )
 }
 
+/// Serialise the max-price filter to the Google Flights wire format.
+///
+/// `[null, max_price_int]` when set; `null` when absent.
+fn serialize_price_filter(max: Option<i32>) -> String {
+    match max {
+        Some(p) => format!("[null,{p}]"),
+        None => "null".to_owned(),
+    }
+}
+
+/// Serialise the baggage filter to the Google Flights wire format.
+///
+/// `[carry_on_count, checked_count]` when set; `null` when absent.
+fn serialize_baggage(b: Option<(u8, u8)>) -> String {
+    match b {
+        Some((carry_on, checked)) => format!("[{carry_on},{checked}]"),
+        None => "null".to_owned(),
+    }
+}
+
 impl SerializeToWeb for SingleLegStruct<'_> {
     fn serialize_to_web(&self) -> Result<String> {
         // Per-leg array (15 elements, indices 0–14):
@@ -239,7 +266,7 @@ impl SerializeToWeb for SingleLegStruct<'_> {
 }
 
 pub struct ItineraryRequest<'a> {
-    // [null,null,{sort},null,[],{travel_class},[{travelers}],null,null,null,null,null,null,
+    // [null,null,{sort},null,[],{travel_class},[{travelers}],{max_price},null,null,{baggage},null,null,
     // [
     // [[[[\"{0}\",0]]],[[[\"{1}\",0]]],null,{8},null,null,\"{2}\",null,null,null,null,null,null,null,3]
     // ]
@@ -250,6 +277,10 @@ pub struct ItineraryRequest<'a> {
     pub is_graph: bool,
     /// Sort order sent to Google Flights (position 2 in the outer request array).
     pub sort_order: SortOrder,
+    /// Maximum price filter (position 7 of the outer itinerary array). `None` = no price cap.
+    pub max_price: Option<i32>,
+    /// Baggage filter (position 10 of the outer itinerary array). `None` = no restriction.
+    pub baggage: Option<(u8, u8)>,
 }
 
 impl<'a> ItineraryRequest<'a> {
@@ -269,6 +300,8 @@ impl<'a> ItineraryRequest<'a> {
         duration_max: &'a TotalDuration,
         is_graph: bool,
         sort_order: SortOrder,
+        max_price: Option<i32>,
+        baggage: Option<(u8, u8)>,
     ) -> Self {
         let mut legs = vec![];
         let first = SingleLegStruct {
@@ -310,6 +343,8 @@ impl<'a> ItineraryRequest<'a> {
             travelers,
             is_graph,
             sort_order,
+            max_price,
+            baggage,
         }
     }
 }
@@ -318,13 +353,33 @@ impl SerializeToWeb for ItineraryRequest<'_> {
     fn serialize_to_web(&self) -> Result<String> {
         let graph = if self.is_graph { ",1" } else { "" };
         Ok(format!(
-            // [null,null,{sort},null,[],{travel_class},{travelers},null×6,{legs},null×3,1{,1 graph}]
-            r#"[null,null,{0},null,[],{1},{2},null,null,null,null,null,null,{3},null,null,null,1{4}]"#,
-            self.sort_order as i32,
-            &self.travel_class.serialize_to_web()?,
-            &self.travelers.serialize_to_web()?,
-            &self.legs.serialize_to_web()?,
-            graph
+            // Outer itinerary array — position index:
+            //  [0]  null
+            //  [1]  null
+            //  [2]  sort order
+            //  [3]  null
+            //  [4]  []
+            //  [5]  travel class
+            //  [6]  travelers
+            //  [7]  max-price filter [null, max_price] or null
+            //  [8]  null
+            //  [9]  null
+            //  [10] baggage filter [carry_on, checked] or null
+            //  [11] null
+            //  [12] null
+            //  [13] legs array
+            //  [14] null
+            //  [15] null
+            //  [16] null
+            //  [17] 1 {,1 graph}
+            r#"[null,null,{sort},null,[],{class},{travelers},{price},null,null,{baggage},null,null,{legs},null,null,null,1{graph}]"#,
+            sort = self.sort_order as i32,
+            class = &self.travel_class.serialize_to_web()?,
+            travelers = &self.travelers.serialize_to_web()?,
+            price = serialize_price_filter(self.max_price),
+            baggage = serialize_baggage(self.baggage),
+            legs = &self.legs.serialize_to_web()?,
+            graph = graph,
         ))
     }
 }
@@ -389,10 +444,12 @@ impl TryFrom<&MultiCityRequestOptions<'_>> for RequestBody {
         let legs_json = build_multi_city_legs(cfg)?;
 
         let itinerary_json = format!(
-            r#"[null,null,{sort},null,[],{class},{travelers},null,null,null,null,null,null,{legs},null,null,null,1]"#,
+            r#"[null,null,{sort},null,[],{class},{travelers},{price},null,null,{baggage},null,null,{legs},null,null,null,1]"#,
             sort = server_sort as i32,
             class = cfg.travel_class.serialize_to_web()?,
             travelers = cfg.travellers.serialize_to_web()?,
+            price = serialize_price_filter(cfg.max_price),
+            baggage = serialize_baggage(cfg.baggage),
             legs = legs_json,
         );
 
@@ -530,6 +587,8 @@ mod tests {
             airlines_exclude: &[],
             connecting_airports: &[],
             lower_emissions: false,
+            max_price: None,
+            baggage: None,
         };
 
         let req: RequestBody = (&search_settings).try_into()?;
@@ -580,6 +639,8 @@ mod tests {
             airlines_exclude: &[],
             connecting_airports: &[],
             lower_emissions: false,
+            max_price: None,
+            baggage: None,
         };
 
         let req: RequestBody = (&search_settings).try_into()?;
@@ -800,6 +861,8 @@ mod tests {
             travelers: &travelers,
             is_graph: false,
             sort_order: SortOrder::Best,
+            max_price: None,
+            baggage: None,
         };
 
         let expected_single_leg = r#"[null,null,1,null,[],1,[1,0,0,0],null,null,null,null,null,null,[[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-10-20\",null,null,null,null,null,null,null,3]],null,null,null,1]"#;
@@ -811,6 +874,8 @@ mod tests {
             travelers: &travelers,
             is_graph: false,
             sort_order: SortOrder::Best,
+            max_price: None,
+            baggage: None,
         };
         assert_eq!(itinerary_return.serialize_to_web()?, expected_two_legs);
         Ok(())
@@ -850,6 +915,8 @@ mod tests {
             &duration_max,
             false,
             SortOrder::Best,
+            None,
+            None,
         );
 
         let complete_req = CompleteFlightRequest {
@@ -1072,6 +1139,8 @@ mod tests {
             airlines_exclude: &[],
             connecting_airports: &[],
             lower_emissions: false,
+            max_price: None,
+            baggage: None,
         };
         let req: RequestBody = (&opts).try_into()?;
         // Both LHR and LGW must appear in the body; JFK as the single arrival.
