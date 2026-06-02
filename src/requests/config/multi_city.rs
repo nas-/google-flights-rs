@@ -297,7 +297,7 @@ impl MultiCityConfigBuilder {
     }
 }
 
-/// Leg `tail` classifier used in the per-leg wire array (position [14]).
+/// Leg `tail` classifier used in the per-leg wire array (position 14).
 ///
 /// Observed rule from captured requests:
 /// - `1` for the first leg, and for any leg whose departure airport matches

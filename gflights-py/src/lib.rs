@@ -283,7 +283,7 @@ impl DateGridEntry {
     }
 }
 
-/// One result from [`GFlights.cheapest_dates`].
+/// One result from `GFlights.cheapest_dates`.
 ///
 /// `return_date` is `None` for one-way searches and set for round-trip searches.
 #[pyclass(get_all)]

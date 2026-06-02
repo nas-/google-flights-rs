@@ -43,9 +43,7 @@ impl Date {
 
 impl SerializeToWeb for Date {
     fn serialize_to_web(&self) -> Result<String> {
-        let date = self
-            .to_naive()
-            .ok_or_else(|| anyhow!("Invalid date!"))?;
+        let date = self.to_naive().ok_or_else(|| anyhow!("Invalid date!"))?;
         Ok(date.format("%Y-%m-%d").to_string())
     }
 }
@@ -283,7 +281,10 @@ impl Itinerary {
         let Some(last) = self.flight_details.last() else {
             return false;
         };
-        match (first.departure_date.to_naive(), last.arrival_date.to_naive()) {
+        match (
+            first.departure_date.to_naive(),
+            last.arrival_date.to_naive(),
+        ) {
             (Some(dep), Some(arr)) => arr > dep,
             _ => false,
         }
@@ -1167,10 +1168,9 @@ mod tests {
     // -----------------------------------------------------------------------
 
     fn parse_fixture(path: &str) -> RawResponse {
-        let body = fs::read_to_string(path)
-            .unwrap_or_else(|_| panic!("cannot read fixture: {path}"));
-        serde_json::from_str(&body)
-            .unwrap_or_else(|e| panic!("failed to parse {path}: {e}"))
+        let body =
+            fs::read_to_string(path).unwrap_or_else(|_| panic!("cannot read fixture: {path}"));
+        serde_json::from_str(&body).unwrap_or_else(|e| panic!("failed to parse {path}: {e}"))
     }
 
     /// `lux_tokyo_oneway.txt` parses without error and contains at least one flight.
@@ -1178,7 +1178,10 @@ mod tests {
     fn fixture_lux_tokyo_oneway_non_empty_flights() {
         let resp = parse_fixture("test_files/lux_tokyo_oneway.txt");
         let flights = resp.maybe_get_all_flights().unwrap_or_default();
-        assert!(!flights.is_empty(), "expected at least one flight in lux_tokyo fixture");
+        assert!(
+            !flights.is_empty(),
+            "expected at least one flight in lux_tokyo fixture"
+        );
     }
 
     /// All airline codes in the Tokyo fixture are non-empty.
@@ -1228,11 +1231,17 @@ mod tests {
                 // Airport codes are 3-char uppercase ASCII; city identifiers start with /
                 if !dep.starts_with('/') {
                     assert_eq!(dep.len(), 3, "departure code '{dep}' should be 3 chars");
-                    assert!(dep.chars().all(|c| c.is_ascii_uppercase()), "departure code '{dep}' should be uppercase ASCII");
+                    assert!(
+                        dep.chars().all(|c| c.is_ascii_uppercase()),
+                        "departure code '{dep}' should be uppercase ASCII"
+                    );
                 }
                 if !arr.starts_with('/') {
                     assert_eq!(arr.len(), 3, "arrival code '{arr}' should be 3 chars");
-                    assert!(arr.chars().all(|c| c.is_ascii_uppercase()), "arrival code '{arr}' should be uppercase ASCII");
+                    assert!(
+                        arr.chars().all(|c| c.is_ascii_uppercase()),
+                        "arrival code '{arr}' should be uppercase ASCII"
+                    );
                 }
             }
         }
@@ -1243,7 +1252,10 @@ mod tests {
     fn fixture_lux_dubai_oneway_non_empty_flights() {
         let resp = parse_fixture("test_files/lux_dubai_oneway.txt");
         let flights = resp.maybe_get_all_flights().unwrap_or_default();
-        assert!(!flights.is_empty(), "expected at least one flight in lux_dubai fixture");
+        assert!(
+            !flights.is_empty(),
+            "expected at least one flight in lux_dubai fixture"
+        );
     }
 
     /// All departure tokens in the Dubai fixture are non-empty.
@@ -1275,7 +1287,11 @@ mod tests {
     #[test]
     fn date_to_naive_valid() {
         use chrono::Datelike;
-        let d = Date { year: 2026, month: 9, day: 10 };
+        let d = Date {
+            year: 2026,
+            month: 9,
+            day: 10,
+        };
         let naive = d.to_naive().unwrap();
         assert_eq!(naive.year(), 2026);
         assert_eq!(naive.month(), 9);
@@ -1284,7 +1300,11 @@ mod tests {
 
     #[test]
     fn date_to_naive_zero_returns_none() {
-        let d = Date { year: 0, month: 0, day: 0 };
+        let d = Date {
+            year: 0,
+            month: 0,
+            day: 0,
+        };
         assert!(d.to_naive().is_none());
     }
 
@@ -1292,8 +1312,16 @@ mod tests {
 
     fn make_flight_info(dep: (i32, i32, i32), arr: (i32, i32, i32)) -> FlightInfo {
         FlightInfo {
-            departure_date: Date { year: dep.0, month: dep.1, day: dep.2 },
-            arrival_date: Date { year: arr.0, month: arr.1, day: arr.2 },
+            departure_date: Date {
+                year: dep.0,
+                month: dep.1,
+                day: dep.2,
+            },
+            arrival_date: Date {
+                year: arr.0,
+                month: arr.1,
+                day: arr.2,
+            },
             ..Default::default()
         }
     }
@@ -1310,17 +1338,13 @@ mod tests {
 
     #[test]
     fn arrives_next_day_same_day_is_false() {
-        let it = make_itinerary_with_legs(vec![
-            make_flight_info((2026, 9, 10), (2026, 9, 10)),
-        ]);
+        let it = make_itinerary_with_legs(vec![make_flight_info((2026, 9, 10), (2026, 9, 10))]);
         assert!(!it.arrives_next_day());
     }
 
     #[test]
     fn arrives_next_day_next_day_is_true() {
-        let it = make_itinerary_with_legs(vec![
-            make_flight_info((2026, 9, 10), (2026, 9, 11)),
-        ]);
+        let it = make_itinerary_with_legs(vec![make_flight_info((2026, 9, 10), (2026, 9, 11))]);
         assert!(it.arrives_next_day());
     }
 
@@ -1352,9 +1376,7 @@ mod tests {
 
     #[test]
     fn departure_date_returns_first_leg_departure() {
-        let it = make_itinerary_with_legs(vec![
-            make_flight_info((2026, 9, 10), (2026, 9, 10)),
-        ]);
+        let it = make_itinerary_with_legs(vec![make_flight_info((2026, 9, 10), (2026, 9, 10))]);
         let dep = it.departure_date().unwrap();
         assert_eq!(dep, NaiveDate::from_ymd_opt(2026, 9, 10).unwrap());
     }
