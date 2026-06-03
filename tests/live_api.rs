@@ -58,6 +58,11 @@ fn live_client() -> &'static ApiClient {
 }
 
 /// Early-returns `Ok(())` when `RUN_LIVE_TESTS` is not set.
+///
+/// Also pre-initialises the shared client **before** the surrounding
+/// `test_rt().block_on(...)` call.  Without this, the first test would try to
+/// call `test_rt().block_on(ApiClient::new())` from *inside* an already-running
+/// `block_on`, which panics with "Cannot start a runtime from within a runtime".
 macro_rules! require_live {
     () => {
         match std::env::var("RUN_LIVE_TESTS") {
@@ -67,6 +72,9 @@ macro_rules! require_live {
                 return Ok(());
             }
         }
+        // Pre-init outside of any block_on context; subsequent calls inside
+        // block_on return the cached &'static ApiClient without nesting.
+        let _ = live_client();
     };
 }
 
