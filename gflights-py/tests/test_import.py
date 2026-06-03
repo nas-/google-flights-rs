@@ -80,7 +80,6 @@ async def test_multi_city_search_raises_for_single_leg():
     client = gflights.GFlights()
     with pytest.raises(ValueError, match="2 legs"):
         client.multi_city_search([("LHR", "JFK", "2026-08-01")])
-<<<<<<< HEAD
 
 
 async def test_cheapest_dates_returns_awaitable():
@@ -102,5 +101,3 @@ async def test_cheapest_dates_round_trip_returns_awaitable():
 
 def test_cheap_date_class_exported():
     assert hasattr(gflights, "CheapDate")
-=======
->>>>>>> feat/multi-city
