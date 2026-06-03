@@ -43,36 +43,33 @@ use gflights::parsers::common::{AirlineCode, AirlineFilter, Alliance};
 use gflights::requests::{api::ApiClient, config::Config};
 use std::sync::Arc;
 
+/// Limit concurrent live requests to avoid triggering Google rate limiting.
+/// At most 2 tests talk to the API at the same time; the rest queue here.
+static LIVE_SEMAPHORE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
 // ---------------------------------------------------------------------------
 // Shared client (avoids spinning up a fresh rate-limiter for every test)
 // ---------------------------------------------------------------------------
 
-/// A process-wide live client initialised at most once.
-///
-/// `tokio::sync::OnceCell` is safe to share across the independent runtimes
-/// that `#[tokio::test]` creates because, once the value is present, every
-/// subsequent `get_or_init` call resolves immediately without touching the
-/// runtime-internal waker machinery.
-static LIVE_CLIENT: tokio::sync::OnceCell<ApiClient> = tokio::sync::OnceCell::const_new();
-
-async fn shared_client() -> &'static ApiClient {
-    LIVE_CLIENT
-        .get_or_init(|| async { ApiClient::new().await })
-        .await
-}
-
-/// Early-returns `Ok(())` when running inside a CI environment.
+/// Early-returns `Ok(())` when running inside a CI environment, and acquires
+/// a semaphore permit to cap concurrency at [`LIVE_SEMAPHORE`]'s limit.
 ///
 /// CI is detected via the `CI` environment variable, which is set
 /// automatically by GitHub Actions, CircleCI, GitLab CI, and most other
 /// runners.  On a local developer machine `CI` is typically unset, so the
 /// tests run normally without any extra opt-in flag.
+///
+/// The permit is held until the test function returns, limiting the number of
+/// simultaneous requests to the Google Flights API and preventing rate-limit
+/// failures when many tests run in parallel.
 macro_rules! require_live {
     () => {
         if std::env::var("CI").is_ok() {
             eprintln!("[live_api] skipping — CI environment detected");
             return Ok(());
         }
+        // Held for the duration of the test function.
+        let _live_permit = LIVE_SEMAPHORE.acquire().await.unwrap();
     };
 }
 
@@ -800,12 +797,12 @@ async fn offer_sub_options_are_structurally_valid_for_lhr_jfk() -> Result<()> {
 #[tokio::test]
 async fn search_with_french_locale_parses_ok() -> Result<()> {
     require_live!();
-    let client = shared_client().await;
+    let client = ApiClient::new().await;
 
     let config = Config::builder()
-        .departure("CDG", client)
+        .departure("CDG", &client)
         .await?
-        .destination("JFK", client)
+        .destination("JFK", &client)
         .await?
         .departing_date(days_from_now(14))
         .language("fr".to_string())
@@ -894,12 +891,12 @@ async fn concurrent_requests_all_succeed() -> Result<()> {
 #[tokio::test]
 async fn offer_click_tokens_are_nonempty() -> Result<()> {
     require_live!();
-    let client = shared_client().await;
+    let client = ApiClient::new().await;
 
     let config = Config::builder()
-        .departure("LHR", client)
+        .departure("LHR", &client)
         .await?
-        .destination("JFK", client)
+        .destination("JFK", &client)
         .await?
         .departing_date(days_from_now(30))
         .return_date(days_from_now(37))
@@ -975,12 +972,12 @@ async fn offer_click_tokens_are_nonempty() -> Result<()> {
 #[tokio::test]
 async fn live_mixed_airline_alliance_include_filter() -> Result<()> {
     require_live!();
-    let client = shared_client().await;
+    let client = ApiClient::new().await;
 
     let mut config = Config::builder()
-        .departure("LHR", client)
+        .departure("LHR", &client)
         .await?
-        .destination("JFK", client)
+        .destination("JFK", &client)
         .await?
         .departing_date(days_from_now(14))
         .build()?;
@@ -1022,12 +1019,12 @@ async fn live_mixed_airline_alliance_include_filter() -> Result<()> {
 #[tokio::test]
 async fn live_mixed_airline_alliance_exclude_filter() -> Result<()> {
     require_live!();
-    let client = shared_client().await;
+    let client = ApiClient::new().await;
 
     let mut config = Config::builder()
-        .departure("CDG", client)
+        .departure("CDG", &client)
         .await?
-        .destination("JFK", client)
+        .destination("JFK", &client)
         .await?
         .departing_date(days_from_now(14))
         .build()?;
@@ -1086,13 +1083,13 @@ async fn live_mixed_airline_alliance_exclude_filter() -> Result<()> {
 #[tokio::test]
 async fn invalid_iata_xxx_does_not_panic() -> Result<()> {
     require_live!();
-    let client = shared_client().await;
+    let client = ApiClient::new().await;
 
     // City lookup for "XXX" — may succeed (returning some location) or fail.
     let build_result = Config::builder()
-        .departure("XXX", client)
+        .departure("XXX", &client)
         .await?
-        .destination("JFK", client)
+        .destination("JFK", &client)
         .await?
         .departing_date(days_from_now(14))
         .build();
@@ -1138,13 +1135,13 @@ async fn invalid_iata_xxx_does_not_panic() -> Result<()> {
 #[tokio::test]
 async fn train_station_iata_returns_empty_or_graceful() -> Result<()> {
     require_live!();
-    let client = shared_client().await;
+    let client = ApiClient::new().await;
 
     // XRJ = Rome Termini rail code; XVQ = Venice Santa Lucia rail code.
     let config = Config::builder()
-        .departure("XRJ", client)
+        .departure("XRJ", &client)
         .await?
-        .destination("XVQ", client)
+        .destination("XVQ", &client)
         .await?
         .departing_date(days_from_now(14))
         .build()?;
@@ -1164,7 +1161,7 @@ async fn cheapest_dates_oneway_returns_sorted_results() -> Result<()> {
     require_live!();
     use gflights::parsers::common::{Location, PlaceType};
 
-    let c = shared_client().await;
+    let c = ApiClient::new().await;
     let lhr = Location {
         loc_identifier: "LHR".to_owned(),
         loc_type: PlaceType::Airport,
@@ -1202,7 +1199,7 @@ async fn cheapest_dates_roundtrip_returns_paired_dates() -> Result<()> {
     require_live!();
     use gflights::parsers::common::{Location, PlaceType};
 
-    let c = shared_client().await;
+    let c = ApiClient::new().await;
     let lux = Location {
         loc_identifier: "LUX".to_owned(),
         loc_type: PlaceType::Airport,
@@ -1252,28 +1249,28 @@ async fn multi_city_three_legs_returns_flights() -> Result<()> {
     use chrono::NaiveDate;
     use gflights::requests::config::MultiCityConfig;
 
-    let client = shared_client().await;
+    let client = ApiClient::new().await;
 
     let config = MultiCityConfig::builder()
         .add_leg(
             "LUX",
             "FCO",
             NaiveDate::from_ymd_opt(2026, 9, 10).unwrap(),
-            client,
+            &client,
         )
         .await?
         .add_leg(
             "FCO",
             "MAD",
             NaiveDate::from_ymd_opt(2026, 9, 13).unwrap(),
-            client,
+            &client,
         )
         .await?
         .add_leg(
             "MAD",
             "LUX",
             NaiveDate::from_ymd_opt(2026, 9, 17).unwrap(),
-            client,
+            &client,
         )
         .await?
         .build()?;
@@ -1304,35 +1301,35 @@ async fn multi_city_four_legs_returns_flights() -> Result<()> {
     use chrono::NaiveDate;
     use gflights::requests::config::MultiCityConfig;
 
-    let client = shared_client().await;
+    let client = ApiClient::new().await;
 
     let config = MultiCityConfig::builder()
         .add_leg(
             "LUX",
             "FCO",
             NaiveDate::from_ymd_opt(2026, 9, 10).unwrap(),
-            client,
+            &client,
         )
         .await?
         .add_leg(
             "FCO",
             "MAD",
             NaiveDate::from_ymd_opt(2026, 9, 13).unwrap(),
-            client,
+            &client,
         )
         .await?
         .add_leg(
             "MAD",
             "LUX",
             NaiveDate::from_ymd_opt(2026, 9, 17).unwrap(),
-            client,
+            &client,
         )
         .await?
         .add_leg(
             "LUX",
             "STN",
             NaiveDate::from_ymd_opt(2026, 9, 20).unwrap(),
-            client,
+            &client,
         )
         .await?
         .build()?;
