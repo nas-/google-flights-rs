@@ -84,6 +84,10 @@ pub struct MultiCityConfig {
     pub travel_class: TravelClass,
     pub sort_order: SortOrder,
     pub currency: Currency,
+    /// Maximum total ticket price cap. `None` = no limit.
+    pub max_price: Option<i32>,
+    /// Baggage allowance `(carry_on_count, checked_count)`. `None` = no restriction.
+    pub baggage: Option<(u8, u8)>,
     /// BCP-47 language subtag, e.g. `"en"`, `"fr"`.
     pub language: String,
     /// ISO 3166-1 alpha-2 country code, e.g. `"GB"`, `"US"`.
@@ -104,6 +108,8 @@ pub struct MultiCityConfigBuilder {
     travel_class: TravelClass,
     sort_order: SortOrder,
     currency: Option<Currency>,
+    max_price: Option<i32>,
+    baggage: Option<(u8, u8)>,
     language: String,
     country: String,
 }
@@ -210,6 +216,18 @@ impl MultiCityConfigBuilder {
         self
     }
 
+    /// Maximum total ticket price cap. `None` = no limit.
+    pub fn max_price(mut self, max: i32) -> Self {
+        self.max_price = Some(max);
+        self
+    }
+
+    /// Baggage allowance: `(carry_on_count, checked_count)`.
+    pub fn baggage(mut self, carry_on: u8, checked: u8) -> Self {
+        self.baggage = Some((carry_on, checked));
+        self
+    }
+
     /// BCP-47 language subtag. Default: `"en"`.
     pub fn language(mut self, language: impl Into<String>) -> Self {
         self.language = language.into();
@@ -240,6 +258,8 @@ impl MultiCityConfigBuilder {
             travel_class: self.travel_class,
             sort_order: self.sort_order,
             currency: self.currency.unwrap_or_default(),
+            max_price: self.max_price,
+            baggage: self.baggage,
             language: if self.language.is_empty() {
                 "en".to_string()
             } else {
@@ -482,6 +502,8 @@ mod tests {
             travel_class: TravelClass::Economy,
             sort_order: SortOrder::Best,
             currency: Currency::default(),
+            max_price: None,
+            baggage: None,
             language: "en".to_string(),
             country: "GB".to_string(),
         };

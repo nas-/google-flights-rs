@@ -960,6 +960,7 @@ impl GFlights {
 
             let config = ExploreConfig {
                 origin: vec![origin_loc],
+                destination: None,
                 trip_date: month.map(|m| ExploreDate { month: m }),
                 trip_duration,
                 max_price,
