@@ -72,5 +72,4 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: sudo apt-get install -y protobuf-compiler
       - uses: astral-sh/setup-uv@v5
-      # uv sync --dev builds the maturin extension automatically; no separate maturin develop needed.
-      - run: cd gflights-py && uv sync --dev && uv run pytest tests/test_import.py -q
+      - run: cd gflights-py && uv sync --dev && uv run maturin develop && uv run pytest tests/test_import.py tests/test_types.py tests/test_errors.py -v
