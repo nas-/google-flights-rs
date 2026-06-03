@@ -20,8 +20,9 @@ google-flights-rs/
 
 ## Git workflow
 
-- **Never commit directly to `main`** — always use a feature branch and open a PR.
+- **Never commit directly to `master`** — always use a feature or fix branch.
 - Branch naming: `feat/<topic>`, `fix/<topic>`, `chore/<topic>`.
+- After every feature or fix is complete, run `/verify` to confirm the change works end-to-end at the CLI / Python surface before merging. The `--profile dev` build is sufficient for verification.
 
 ---
 
@@ -54,11 +55,12 @@ All offline tests must pass before pushing.
 
 ## Live / integration tests
 
-These hit the real Google Flights API — run manually, not in CI.
+These hit the real Google Flights API.  They are skipped unless the
+`RUN_LIVE_TESTS` environment variable is set to a non-empty value.
 
 ### Rust
 ```sh
-RUN_LIVE_TESTS=1 cargo test --test live_api -- --ignored
+RUN_LIVE_TESTS=1 cargo test --test live_api
 ```
 
 ### Python

@@ -1,6 +1,9 @@
 """Live integration tests — require network access.
 
 Run with:  RUN_LIVE_TESTS=1 pytest tests/test_live.py -v
+
+These tests are skipped unless the ``RUN_LIVE_TESTS`` environment variable is
+set to a non-empty value.  Set ``RUN_LIVE_TESTS=1`` to opt in.
 """
 
 import asyncio

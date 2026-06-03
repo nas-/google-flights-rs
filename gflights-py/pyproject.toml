@@ -18,13 +18,8 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP",
 ]
 
-<<<<<<< HEAD
 [dependency-groups]
 dev = ["pytest>=9.0.3", "pytest-asyncio>=1.4.0", "maturin>=1.4,<2.0"]
-=======
-[project.optional-dependencies]
-dev = ["pytest>=9.0.3", "pytest-asyncio>=0.24", "maturin>=1.4,<2.0"]
->>>>>>> feat/multi-city
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
