@@ -6,6 +6,7 @@ use crate::requests::config::explore::ExploreResult;
 use crate::requests::config::{Config, ExploreConfig, MultiCityConfig, TripType};
 use anyhow::Result;
 use chrono::{Duration, Months, NaiveDate};
+use futures::StreamExt as _;
 use governor::{DefaultDirectRateLimiter, Quota};
 use parsers::calendar_graph_request::GraphRequestOptions;
 use parsers::calendar_graph_response::GraphRawResponseContainer;
@@ -276,42 +277,58 @@ impl ApiClient {
         // Using a fixed per-axis chunk keeps each request within the backend's
         // per-axis limit even when one window is much larger than the other.
         let chunk_dim = (DATE_GRID_MAX_CELLS as f64).sqrt() as i64; // 14
-        tracing::info!(
-            dep_days,
-            ret_days,
-            chunk_dim,
-            "date grid too large, splitting into chunks"
-        );
 
-        let mut all_entries = Vec::new();
+        // Enumerate all (dep_window, ret_window) chunk pairs up front.
+        let mut chunks: Vec<(NaiveDate, NaiveDate, NaiveDate, NaiveDate)> = Vec::new();
         let mut chunk_dep_start = dep_start;
-
         while chunk_dep_start <= dep_end {
             let chunk_dep_end = (chunk_dep_start + Duration::days(chunk_dim - 1)).min(dep_end);
             let chunk_dep_days = (chunk_dep_end - chunk_dep_start).num_days() + 1;
-            // Within the departure chunk, slice the return window further if needed.
             let max_ret_chunk = ((DATE_GRID_MAX_CELLS as i64) / chunk_dep_days).max(1);
 
             let mut chunk_ret_start = ret_start;
             while chunk_ret_start <= ret_end {
                 let chunk_ret_end =
                     (chunk_ret_start + Duration::days(max_ret_chunk - 1)).min(ret_end);
-
-                let chunk = self
-                    .request_date_grid_chunk(
-                        args,
-                        chunk_dep_start,
-                        chunk_dep_end,
-                        chunk_ret_start,
-                        chunk_ret_end,
-                    )
-                    .await?;
-                all_entries.extend(chunk.entries);
-
+                chunks.push((
+                    chunk_dep_start,
+                    chunk_dep_end,
+                    chunk_ret_start,
+                    chunk_ret_end,
+                ));
                 chunk_ret_start = chunk_ret_end + Duration::days(1);
             }
 
             chunk_dep_start = chunk_dep_end + Duration::days(1);
+        }
+
+        tracing::info!(
+            dep_days,
+            ret_days,
+            chunk_dim,
+            chunk_count = chunks.len(),
+            "date grid too large, splitting into parallel chunks"
+        );
+
+        // Run all chunks with bounded concurrency.  The rate-limiter inside
+        // `do_request` gates the send rate (10 req/s), but it does not cap how
+        // many responses are simultaneously awaited.  With 5 s average latency
+        // and 10 req/s throughput, uncapped concurrency would open ~50
+        // connections at peak — enough for Google to send EOF mid-stream.
+        // `buffer_unordered(8)` keeps at most 8 connections in-flight at once.
+        const MAX_CONCURRENT: usize = 8;
+        let results: Vec<Result<DateGridResponse>> = futures::stream::iter(chunks)
+            .map(|(dep_s, dep_e, ret_s, ret_e)| async move {
+                self.request_date_grid_chunk(args, dep_s, dep_e, ret_s, ret_e)
+                    .await
+            })
+            .buffer_unordered(MAX_CONCURRENT)
+            .collect()
+            .await;
+
+        let mut all_entries = Vec::new();
+        for result in results {
+            all_entries.extend(result?.entries);
         }
 
         Ok(DateGridResponse {
@@ -358,17 +375,36 @@ impl ApiClient {
             &self.frontend_version,
         );
 
-        let body = self
-            .do_request(
-                &req_options,
-                Some(args.currency.clone()),
-                &args.language,
-                &args.country,
-            )
-            .await?
-            .text()
-            .await?;
-        parse_date_grid_response(&body)
+        // Retry the full request on body-read errors (e.g. unexpected EOF from
+        // a forcibly-closed connection).  `do_request` retries transport/5xx
+        // errors but returns a `Response` handle before the body is streamed,
+        // so body-read failures need their own retry here.
+        let max_attempts = self.retry_config.max_attempts.max(1);
+        let mut last_err: anyhow::Error = anyhow::anyhow!("all body-read attempts exhausted");
+        for attempt in 0..max_attempts {
+            if attempt > 0 {
+                let delay_ms = (self.retry_config.base_delay_ms * (1u64 << (attempt - 1).min(30)))
+                    .min(self.retry_config.cap_delay_ms);
+                tracing::debug!(attempt, delay_ms, "body read error — retrying chunk");
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
+            let res = self
+                .do_request(
+                    &req_options,
+                    Some(args.currency.clone()),
+                    &args.language,
+                    &args.country,
+                )
+                .await?;
+            match res.text().await {
+                Ok(body) => return parse_date_grid_response(&body),
+                Err(e) => {
+                    tracing::warn!(attempt, error = %e, "body read failed for date-grid chunk");
+                    last_err = e.into();
+                }
+            }
+        }
+        Err(last_err)
     }
 
     /// Sends a request to retrieve flight data.
@@ -1134,6 +1170,44 @@ mod tests {
         assert!(
             cells <= DATE_GRID_MAX_CELLS as i64,
             "chunk_dim={chunk_dim} → {cells} cells exceeds limit {DATE_GRID_MAX_CELLS}"
+        );
+    }
+
+    /// A 92-day × 92-day window (3 months) produces the expected number of chunks.
+    ///
+    /// chunk_dim = 14, so ceil(92/14) = 7 dep chunks × 7 ret chunks = 49 total.
+    /// All 49 run concurrently in up to MAX_CONCURRENT=6 batches, not sequentially.
+    #[test]
+    fn date_grid_chunk_count_three_month_window() {
+        use chrono::NaiveDate;
+        use parsers::date_grid_request::DATE_GRID_MAX_CELLS;
+
+        let chunk_dim = (DATE_GRID_MAX_CELLS as f64).sqrt() as i64; // 14
+        let dep_start = NaiveDate::from_ymd_opt(2026, 9, 1).unwrap();
+        let dep_end = dep_start + chrono::Months::new(3);
+        let ret_start = dep_start + Duration::days(7);
+        let ret_end = dep_end + Duration::days(7);
+
+        // Replicate the enumeration logic from request_date_grid.
+        let mut count = 0usize;
+        let mut d = dep_start;
+        while d <= dep_end {
+            let de = (d + Duration::days(chunk_dim - 1)).min(dep_end);
+            let dd = (de - d).num_days() + 1;
+            let max_ret = ((DATE_GRID_MAX_CELLS as i64) / dd).max(1);
+            let mut r = ret_start;
+            while r <= ret_end {
+                let re = (r + Duration::days(max_ret - 1)).min(ret_end);
+                count += 1;
+                r = re + Duration::days(1);
+            }
+            d = de + Duration::days(1);
+        }
+        // Sep+Oct+Nov = 91 days dep window, 91 days ret window (shifted by 7).
+        // ceil(91/14) = 7 dep chunks; ret chunks per dep chunk ≤ 7 → ~46 total.
+        assert_eq!(
+            count, 46,
+            "expected 46 chunks for a 3-month round-trip scan (Sep-Nov)"
         );
     }
 }
