@@ -1,6 +1,8 @@
 # gflights
 
 [![crates.io](https://img.shields.io/crates/v/gflights)](https://crates.io/crates/gflights)
+[![docs.rs](https://img.shields.io/docsrs/gflights)](https://docs.rs/gflights)
+[![CI](https://github.com/nas-/google-flights-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/nas-/google-flights-rs/actions/workflows/ci.yml)
 
 Unofficial async Rust client for the [Google Flights](https://www.google.com/flights) web API.
 
@@ -74,6 +76,18 @@ gflights dgrid --from LHR --to JFK \
 
 # Booking offers with clickable URLs (OSC 8, supported in most modern terminals)
 gflights offer --from FRA --to SIN --date 2026-10-01
+
+# Explore cheap destinations (Google Flights Explore)
+gflights explore --from LUX --month 9 --duration week --budget 150 --interest climbing
+
+# Find cheapest departure dates (one-way)
+gflights cheap --from LHR --to BCN --date 2026-08-01 --months 3
+
+# Find cheapest round-trip combinations (fixed trip length)
+gflights cheap --from LHR --to BCN --date 2026-08-01 --months 3 --trip-days 7
+
+# Search with emissions column and layover detail
+gflights search --from LUX --to SYD --date 2026-09-01 --show-co2 --detail
 ```
 
 ### Interactive REPL
@@ -105,6 +119,8 @@ gflights> quit
 | `--min-layover <MINS>` | none | Minimum layover in minutes (rounded up to 30 min intervals) |
 | `--max-layover <MINS>` | none | Maximum layover in minutes |
 | `--lower-emissions` | off | Restrict to below-average CO₂ flights |
+| `--show-co2` | off | Add a CO₂ kg column to the table output |
+| `--detail` | off | Show layover airports (`via ZRH (65 min)`) and `+1` for next-day arrivals |
 | `--currency <CURRENCY>` | `euro` | Result currency (e.g. `us-dollar`, `british-pound`) |
 | `--lang <CODE>` | `en` | BCP-47 language subtag |
 | `--country <CODE>` | `GB` | ISO 3166-1 alpha-2 country code |
@@ -242,6 +258,107 @@ Run with:
 ```sh
 cargo run --example multi_city
 ```
+
+---
+
+## Python bindings
+
+The `gflights-py/` directory provides async Python bindings built with [pyo3](https://pyo3.rs) and [maturin](https://www.maturin.rs).
+
+### Install
+
+```sh
+pip install gflights          # when published to PyPI
+# or build from source:
+cd gflights-py && maturin develop
+```
+
+### Quick start
+
+```python
+import asyncio
+import gflights
+
+async def main():
+    client = gflights.GFlights()
+
+    # One-way search
+    flights = await client.search(
+        from_airport="LHR", to_airport="JFK", date="2026-08-01",
+    )
+    for f in flights:
+        print(f.airline, f.duration_minutes, f.price)
+
+    # Price graph — cheapest fare per day over 3 months
+    graph = await client.price_graph(
+        from_airport="LHR", to_airport="JFK", date="2026-08-01", months=3
+    )
+    cheapest = min(graph, key=lambda e: e.price)
+    print(cheapest.date, cheapest.price)
+
+    # Departure × return price grid
+    grid = await client.date_grid(
+        from_airport="LHR", to_airport="JFK",
+        dep_start="2026-08-01", dep_end="2026-08-07",
+        ret_start="2026-08-14", ret_end="2026-08-21",
+    )
+    best = min(grid, key=lambda e: e.price)
+    print(best.dep_date, "→", best.ret_date, best.price)
+
+    # Cheapest departure dates (one-way)
+    dates = await client.cheapest_dates(
+        from_airport="LHR", to_airport="JFK", date="2026-08-01", months=3
+    )
+    for d in dates[:5]:
+        print(d.departure_date, d.price)
+
+    # Cheapest round-trip combinations (7-night stay)
+    rt_dates = await client.cheapest_dates(
+        from_airport="LHR", to_airport="JFK",
+        date="2026-08-01", months=3, trip_duration_days=7
+    )
+    for d in rt_dates[:5]:
+        print(d.departure_date, "→", d.return_date, d.price)
+
+    # Explore cheap destinations
+    dests = await client.explore(
+        from_airport="LUX", month=9, duration="week",
+        max_price=200, interest="beaches",
+    )
+    for d in sorted(dests, key=lambda x: x.price or 9999)[:5]:
+        print(d.name, d.country, d.flight_airport or d.nearest_airport, d.price)
+
+    # Run multiple searches concurrently
+    lhr_jfk, mad_mex = await asyncio.gather(
+        client.search(from_airport="LHR", to_airport="JFK", date="2026-09-01"),
+        client.search(from_airport="MAD", to_airport="MEX", date="2026-09-01"),
+    )
+
+asyncio.run(main())
+```
+
+### Error handling
+
+All API errors raise `gflights.GFlightsError` (a subclass of `Exception`).
+Input validation errors (bad date, unknown currency, etc.) raise `ValueError`.
+
+```python
+try:
+    flights = await client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01")
+except gflights.GFlightsError as e:
+    print(f"API error: {e}")
+except ValueError as e:
+    print(f"Bad input: {e}")
+```
+
+### Rate limiting
+
+The `client.rate_limited` flag is set to `True` when Google returns HTTP 429.
+Call `client.reset_rate_limit()` after a cooling-off period.
+
+### Python type stubs
+
+Full `.pyi` stubs are shipped with the package.  Every method and class is typed and documented, so IDE auto-completion and mypy work out of the box.
 
 ---
 
