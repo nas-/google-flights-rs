@@ -11,4 +11,5 @@
 pub mod calendar_graph_request;
 pub mod city_request;
 pub mod date_grid_request;
+pub mod explore_request;
 pub mod flight_request;

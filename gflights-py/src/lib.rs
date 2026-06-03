@@ -25,7 +25,7 @@ use gflights::{
     parsers::common::{AirlineFilter, SortOrder, StopOptions, TravelClass},
     requests::{
         api::ApiClient,
-        config::{Config, Currency, MultiCityConfig},
+        config::{Config, Currency, ExploreConfig, ExploreDate, ExploreDuration, MultiCityConfig},
     },
 };
 use pyo3::prelude::*;
@@ -283,7 +283,7 @@ impl DateGridEntry {
     }
 }
 
-/// One result from [`GFlights.cheapest_dates`].
+/// One result from `GFlights.cheapest_dates`.
 ///
 /// `return_date` is `None` for one-way searches and set for round-trip searches.
 #[pyclass(get_all)]
@@ -310,6 +310,52 @@ impl CheapDate {
                 self.departure_date, self.price,
             ),
         }
+    }
+}
+
+/// One explore destination returned by :meth:`GFlights.explore`.
+#[pyclass(get_all)]
+#[derive(Clone, Debug)]
+pub struct ExploreResult {
+    /// Google Knowledge-Graph place ID (e.g. ``"/m/0vzm"`` for Vienna).
+    pub place_id: String,
+    /// English destination name.
+    pub name: String,
+    /// Country name.
+    pub country: String,
+    /// Latitude of the destination.
+    pub lat: f64,
+    /// Longitude of the destination.
+    pub lng: f64,
+    /// URL of a cover photo, or ``None``.
+    pub image_url: Option<String>,
+    /// IATA code of the nearest airport.
+    pub nearest_airport: String,
+    /// Earliest outbound departure date as ``"YYYY-MM-DD"``, or ``None``.
+    pub date_from: Option<String>,
+    /// Latest return date as ``"YYYY-MM-DD"``, or ``None``.
+    pub date_to: Option<String>,
+    /// Cheapest round-trip price, or ``None``.
+    pub price: Option<i32>,
+    /// Primary operating airline code, or ``None``.
+    pub airline: Option<String>,
+    /// Number of stops on the outbound leg, or ``None``.
+    pub stops: Option<u8>,
+    /// Outbound flight duration in minutes, or ``None``.
+    pub flight_duration_minutes: Option<u32>,
+    /// Nightly accommodation price at the destination, or ``None``.
+    pub accommodation_price: Option<i32>,
+    /// Opaque booking token for constructing a deep link.
+    pub booking_token: String,
+}
+
+#[pymethods]
+impl ExploreResult {
+    fn __repr__(&self) -> String {
+        format!(
+            "ExploreResult(name={:?}, airport={:?}, price={:?})",
+            self.name, self.nearest_airport, self.price,
+        )
     }
 }
 
@@ -819,6 +865,151 @@ impl GFlights {
         })
     }
 
+    /// Explore cheap destinations from an origin airport (Google Flights Explore mode).
+    ///
+    /// :param from_airport:       Origin IATA code (e.g. ``"LUX"``).
+    /// :param month:              Calendar month (1–12) to search in.  ``None`` for any month.
+    /// :param duration:           Trip duration: ``"weekend"``, ``"week"``, or ``"2weeks"``.
+    /// :param max_price:          Maximum total round-trip price.  ``None`` for no limit.
+    /// :param interest:           Interest category MID string (use ``gflights.Interest.*`` constants).
+    /// :param max_flight_hours:   Maximum one-way flight time in hours.  ``None`` for no limit.
+    /// :param carry_on:           Number of carry-on bags (default 0).
+    /// :param checked:            Number of checked bags (default 0).
+    /// :param adults:             Number of adult passengers (default 1).
+    /// :param travel_class:       ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
+    /// :param currency:           Currency name (e.g. ``"euro"``).
+    /// :param lang:               BCP-47 language subtag (default ``"en"``).
+    /// :param country:            ISO 3166-1 alpha-2 country code (default ``"GB"``).
+    /// :returns:                  Coroutine → ``list[ExploreResult]``
+    #[pyo3(signature = (
+        from_airport,
+        month = None,
+        duration = "week",
+        max_price = None,
+        interest = None,
+        max_flight_hours = None,
+        carry_on = 0u8,
+        checked = 0u8,
+        adults = 1,
+        travel_class = "economy",
+        currency = "euro",
+        lang = "en",
+        country = "GB",
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn explore<'py>(
+        &self,
+        py: Python<'py>,
+        from_airport: String,
+        month: Option<u8>,
+        duration: &str,
+        max_price: Option<i32>,
+        interest: Option<String>,
+        max_flight_hours: Option<u32>,
+        carry_on: u8,
+        checked: u8,
+        adults: u8,
+        travel_class: &str,
+        currency: &str,
+        lang: &str,
+        country: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let trip_duration = match duration.to_lowercase().as_str() {
+            "weekend" => ExploreDuration::Weekend,
+            "week" | "1week" | "one-week" => ExploreDuration::OneWeek,
+            "2weeks" | "two-weeks" | "twoweeks" => ExploreDuration::TwoWeeks,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown duration {other:?} — use 'weekend', 'week', or '2weeks'"
+                )));
+            }
+        };
+
+        let class = parse_travel_class(travel_class)?;
+        let currency = parse_currency(currency)?;
+        let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let max_flight_duration_minutes = max_flight_hours.map(|h| h * 60);
+        let baggage = if carry_on > 0 || checked > 0 {
+            Some((carry_on, checked))
+        } else {
+            None
+        };
+
+        let lang = lang.to_string();
+        let country = country.to_string();
+        let client = self.client.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            // Resolve origin airport/city to a Location via the city-lookup endpoint.
+            let origin_loc =
+                if from_airport.len() == 3 && from_airport.chars().all(char::is_uppercase) {
+                    gflights::parsers::common::Location {
+                        loc_identifier: from_airport.clone(),
+                        loc_type: gflights::parsers::common::PlaceType::Airport,
+                        location_name: Some(from_airport.clone()),
+                    }
+                } else {
+                    client
+                        .request_city(&from_airport)
+                        .await
+                        .map_err(anyhow_to_py)?
+                        .to_city_list()
+                };
+
+            let config = ExploreConfig {
+                origin: vec![origin_loc],
+                trip_date: month.map(|m| ExploreDate { month: m }),
+                trip_duration,
+                max_price,
+                interest,
+                airline_alliance: None,
+                max_flight_duration_minutes,
+                baggage,
+                map_bounds: None,
+                travellers: travelers,
+                travel_class: class,
+                currency,
+                language: lang,
+                country,
+            };
+
+            let results = client
+                .request_explore(&config)
+                .await
+                .map_err(anyhow_to_py)?;
+
+            Python::with_gil(|py| {
+                results
+                    .into_iter()
+                    .map(|r| {
+                        Py::new(
+                            py,
+                            ExploreResult {
+                                place_id: r.place_id,
+                                name: r.name,
+                                country: r.country,
+                                lat: r.coords.0,
+                                lng: r.coords.1,
+                                image_url: r.image_url,
+                                nearest_airport: r.nearest_airport,
+                                date_from: r.date_from.map(|d| d.to_string()),
+                                date_to: r.date_to.map(|d| d.to_string()),
+                                price: r.price,
+                                airline: r.airline,
+                                stops: r.stops,
+                                flight_duration_minutes: r.flight_duration_minutes,
+                                accommodation_price: r.accommodation_price,
+                                booking_token: r.booking_token,
+                            },
+                        )
+                    })
+                    .collect::<PyResult<Vec<_>>>()
+            })
+        })
+    }
+
     /// Find the cheapest departure dates for a route over a range of months.
     ///
     /// :param from_airport:       Origin IATA code or city name.
@@ -935,5 +1126,6 @@ fn _gflights(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PriceEntry>()?;
     m.add_class::<DateGridEntry>()?;
     m.add_class::<CheapDate>()?;
+    m.add_class::<ExploreResult>()?;
     Ok(())
 }

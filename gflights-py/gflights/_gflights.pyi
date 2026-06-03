@@ -61,6 +61,25 @@ class CheapDate:
     price: int
     def __repr__(self) -> str: ...
 
+class ExploreResult:
+    """One destination returned by :meth:`GFlights.explore`."""
+    place_id: str
+    name: str
+    country: str
+    lat: float
+    lng: float
+    image_url: Optional[str]
+    nearest_airport: str
+    date_from: Optional[str]
+    date_to: Optional[str]
+    price: Optional[int]
+    airline: Optional[str]
+    stops: Optional[int]
+    flight_duration_minutes: Optional[int]
+    accommodation_price: Optional[int]
+    booking_token: str
+    def __repr__(self) -> str: ...
+
 class GFlights:
     """Async Python client for Google Flights, backed by Rust/tokio.
 
@@ -140,6 +159,28 @@ class GFlights:
         country: str = ...,
     ) -> list[FlightResult]:
         """Multi-city (open-jaw) search. Each leg is ``(from, to, "YYYY-MM-DD")``."""
+        ...
+
+    async def explore(
+        self,
+        from_airport: str,
+        month: Optional[int] = ...,
+        duration: str = ...,
+        max_price: Optional[int] = ...,
+        interest: Optional[str] = ...,
+        max_flight_hours: Optional[int] = ...,
+        carry_on: int = ...,
+        checked: int = ...,
+        adults: int = ...,
+        travel_class: str = ...,
+        currency: str = ...,
+        lang: str = ...,
+        country: str = ...,
+    ) -> list[ExploreResult]:
+        """Explore cheap destinations from an origin airport.
+
+        Returns a coroutine → ``list[ExploreResult]``.
+        """
         ...
 
     async def cheapest_dates(
