@@ -1,4 +1,4 @@
-//! Private Rust extension module — import via the `gflights` Python package.
+﻿//! Private Rust extension module — import via the `gflights` Python package.
 //!
 //! Build with `maturin develop` (editable install) or `maturin build --release`.
 //!

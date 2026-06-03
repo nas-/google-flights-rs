@@ -61,6 +61,7 @@ class CheapDate:
     price: int
     def __repr__(self) -> str: ...
 
+<<<<<<< HEAD
 class ExploreResult:
     """One destination returned by :meth:`GFlights.explore`."""
     place_id: str
@@ -80,6 +81,8 @@ class ExploreResult:
     booking_token: str
     def __repr__(self) -> str: ...
 
+=======
+>>>>>>> feat/cheapest-dates
 class GFlights:
     """Async Python client for Google Flights, backed by Rust/tokio.
 
@@ -161,6 +164,7 @@ class GFlights:
         """Multi-city (open-jaw) search. Each leg is ``(from, to, "YYYY-MM-DD")``."""
         ...
 
+<<<<<<< HEAD
     async def explore(
         self,
         from_airport: str,
@@ -183,6 +187,8 @@ class GFlights:
         """
         ...
 
+=======
+>>>>>>> feat/cheapest-dates
     async def cheapest_dates(
         self,
         from_airport: str,
