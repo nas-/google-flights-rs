@@ -6,7 +6,6 @@ use crate::requests::config::explore::ExploreResult;
 use crate::requests::config::{Config, ExploreConfig, MultiCityConfig, TripType};
 use anyhow::Result;
 use chrono::{Duration, Months, NaiveDate};
-use futures::StreamExt as _;
 use governor::{DefaultDirectRateLimiter, Quota};
 use parsers::calendar_graph_request::GraphRequestOptions;
 use parsers::calendar_graph_response::GraphRawResponseContainer;
@@ -310,16 +309,17 @@ impl ApiClient {
             "date grid too large, splitting into parallel chunks"
         );
 
-        // Run all chunks concurrently (up to MAX_CONCURRENT at a time) so that
-        // the total wall time scales with the slowest batch, not the sum of all.
-        const MAX_CONCURRENT: usize = 6;
-        let results: Vec<Result<DateGridResponse>> = futures::stream::iter(chunks)
-            .map(|(dep_s, dep_e, ret_s, ret_e)| async move {
-                self.request_date_grid_chunk(args, dep_s, dep_e, ret_s, ret_e)
-                    .await
-            })
-            .buffer_unordered(MAX_CONCURRENT)
-            .collect()
+        // Launch all chunks concurrently. The shared rate-limiter (token bucket,
+        // 10 req/s) inside `do_request` acts as the natural throttle — requests
+        // queue up and fire as tokens become available without any artificial
+        // batching delay.
+        let results: Vec<Result<DateGridResponse>> =
+            futures::future::join_all(chunks.into_iter().map(
+                |(dep_s, dep_e, ret_s, ret_e)| async move {
+                    self.request_date_grid_chunk(args, dep_s, dep_e, ret_s, ret_e)
+                        .await
+                },
+            ))
             .await;
 
         let mut all_entries = Vec::new();
