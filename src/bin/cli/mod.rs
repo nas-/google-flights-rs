@@ -50,9 +50,9 @@ pub struct Cli {
     pub command: Option<Commands>,
 }
 
-/// Wrapper used inside the REPL to parse a single line as a subcommand.
+/// gflights interactive REPL.  Type 'help' for usage, 'quit' to exit.
 #[derive(Parser, Debug)]
-#[command(name = "gflights", disable_help_flag = true)]
+#[command(name = "gflights")]
 pub struct ReplCommand {
     #[command(subcommand)]
     pub command: Commands,
@@ -189,6 +189,66 @@ pub async fn run_command(cmd: Commands, client: &ApiClient) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Interactive REPL — help text
+// ---------------------------------------------------------------------------
+
+fn print_repl_help() {
+    println!(
+        "\
+Commands:
+
+  search --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--return <DATE>]
+    Filters:  --stops all|nonstop|one-stop
+              --airline <CODE|ALLIANCE>  (repeatable; e.g. --airline LX --airline ONEWORLD)
+              --exclude-airline <CODE>   (repeatable)
+              --via <CODE>               (require connection through this airport)
+              --min-layover <MINS>       --max-layover <MINS>
+              --lower-emissions          (restrict to below-average CO₂ flights)
+    Output:   --sort best|price|duration|departure|arrival
+              --format table|json
+    Locale:   --adults <N>  --class economy|premium-economy|business|first
+              --currency <NAME>  --lang <BCP47>  --country <ISO2>
+
+  graph --from <CODE> --to <CODE> --date <YYYY-MM-DD>
+    Options:  --months <N>  (number of months to scan, default 3)
+              --adults --class --stops --currency --lang --country --format
+
+  dgrid --from <CODE> --to <CODE>
+        --dep-start <DATE> --dep-end <DATE>
+        --ret-start <DATE> --ret-end <DATE>
+    Options:  --adults --class --stops --currency --lang --country --format
+
+  offer --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--return <DATE>]
+    (same filters as search)
+
+  cheap --from <CODE> --to <CODE> --date <YYYY-MM-DD>
+    Options:  --months <N>       (months to scan, default 3)
+              --trip-days <N>    (round-trip length in nights; omit for one-way)
+              --adults --class --currency --lang --country
+
+  mcity --leg FROM,TO,DATE [--leg FROM,TO,DATE ...]
+    Options:  --sort best|price|duration
+              --adults --class --currency --lang --country --format
+
+  explore --from <CODE> [--to <CODE|REGION>]
+    Options:  --month <1-12>       (travel month; omit for any)
+              --duration week|weekend|2weeks
+              --budget <N>         (max price in chosen currency)
+              --interest <NAME|/m/MID>
+                known names: outdoors, beaches, museums, history, skiing, climbing
+                aliases: nature, beach, art, heritage, snow, rock-climbing
+                raw MID: /m/01rwk  (any Knowledge-Graph MID accepted)
+              --max-flight-hours <N>
+              --carry-on <N>  --checked <N>
+              --adults --class --currency --lang --country --format
+
+  quit / exit
+
+Tip: type '<command> --help' for full clap-generated details on any command."
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Interactive REPL
 // ---------------------------------------------------------------------------
 
@@ -206,17 +266,7 @@ pub async fn run_repl(client: &ApiClient) -> Result<()> {
                 let _ = rl.add_history_entry(&line);
 
                 if line == "help" || line == "--help" || line == "-h" {
-                    println!("Commands:");
-                    println!("  search --from <CODE> --to <CODE> --date <YYYY-MM-DD> [OPTIONS]");
-                    println!("  graph  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--months N]");
-                    println!("  dgrid  --from <CODE> --to <CODE> --dep-start <DATE> --dep-end <DATE> --ret-start <DATE> --ret-end <DATE>");
-                    println!("  offer  --from <CODE> --to <CODE> --date <YYYY-MM-DD> [OPTIONS]");
-                    println!("  cheap   --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--months N] [--trip-days N]");
-                    println!("  mcity   --leg FROM,TO,DATE [--leg FROM,TO,DATE ...] [OPTIONS]");
-                    println!("  explore --from <CODE> [--month N] [--duration week|weekend|2weeks] [--budget N]");
-                    println!("  quit / exit");
-                    println!();
-                    println!("Tip: append --help to any command for full option details.");
+                    print_repl_help();
                     continue;
                 }
 
@@ -401,19 +451,19 @@ mod tests {
     }
 
     #[test]
-    fn repl_parse_help_flag_always_errors() {
-        // `disable_help_flag = true` on ReplCommand propagates to sub-parsers, so
-        // `--help` triggers UnknownArgument rather than DisplayHelp.  Either way
-        // the REPL handles it gracefully (prints and continues, no process::exit).
+    fn repl_parse_help_flag_returns_display_help() {
+        // `--help` on any subcommand produces DisplayHelp.  The REPL catches this
+        // via `e.print()` and continues without calling process::exit.
         let result = parse(&["search", "--help"]);
-        assert!(result.is_err(), "--help in REPL context must always error");
-        let e = result.unwrap_err();
         assert!(
-            matches!(
-                e.kind(),
-                ErrorKind::DisplayHelp | ErrorKind::UnknownArgument
-            ),
-            "expected DisplayHelp or UnknownArgument, got: {:?}",
+            result.is_err(),
+            "--help must produce an error (DisplayHelp)"
+        );
+        let e = result.unwrap_err();
+        assert_eq!(
+            e.kind(),
+            ErrorKind::DisplayHelp,
+            "expected DisplayHelp, got: {:?}",
             e.kind()
         );
     }
