@@ -269,30 +269,49 @@ impl ApiClient {
                 .await;
         }
 
-        // Split: keep the full departure window and slice the return window
-        // into chunks whose cell count stays within the limit.
-        // If the departure window alone already exceeds the limit, each chunk
-        // covers exactly one return day (best we can do).
-        let max_ret_chunk = ((DATE_GRID_MAX_CELLS as i64) / dep_days).max(1);
+        // Split both dimensions so each sub-request stays within the limit.
+        //
+        // Per-dimension chunk size: floor(sqrt(DATE_GRID_MAX_CELLS)).
+        // For DATE_GRID_MAX_CELLS = 200 this gives 14 × 14 = 196 ≤ 200.
+        // Using a fixed per-axis chunk keeps each request within the backend's
+        // per-axis limit even when one window is much larger than the other.
+        let chunk_dim = (DATE_GRID_MAX_CELLS as f64).sqrt() as i64; // 14
         tracing::info!(
             dep_days,
             ret_days,
-            max_ret_chunk,
+            chunk_dim,
             "date grid too large, splitting into chunks"
         );
 
         let mut all_entries = Vec::new();
-        let mut chunk_ret_start = ret_start;
+        let mut chunk_dep_start = dep_start;
 
-        while chunk_ret_start <= ret_end {
-            let chunk_ret_end = (chunk_ret_start + Duration::days(max_ret_chunk - 1)).min(ret_end);
+        while chunk_dep_start <= dep_end {
+            let chunk_dep_end = (chunk_dep_start + Duration::days(chunk_dim - 1)).min(dep_end);
+            let chunk_dep_days = (chunk_dep_end - chunk_dep_start).num_days() + 1;
+            // Within the departure chunk, slice the return window further if needed.
+            let max_ret_chunk = ((DATE_GRID_MAX_CELLS as i64) / chunk_dep_days).max(1);
 
-            let chunk = self
-                .request_date_grid_chunk(args, dep_start, dep_end, chunk_ret_start, chunk_ret_end)
-                .await?;
-            all_entries.extend(chunk.entries);
+            let mut chunk_ret_start = ret_start;
+            while chunk_ret_start <= ret_end {
+                let chunk_ret_end =
+                    (chunk_ret_start + Duration::days(max_ret_chunk - 1)).min(ret_end);
 
-            chunk_ret_start = chunk_ret_end + Duration::days(1);
+                let chunk = self
+                    .request_date_grid_chunk(
+                        args,
+                        chunk_dep_start,
+                        chunk_dep_end,
+                        chunk_ret_start,
+                        chunk_ret_end,
+                    )
+                    .await?;
+                all_entries.extend(chunk.entries);
+
+                chunk_ret_start = chunk_ret_end + Duration::days(1);
+            }
+
+            chunk_dep_start = chunk_dep_end + Duration::days(1);
         }
 
         Ok(DateGridResponse {
@@ -1103,5 +1122,18 @@ mod tests {
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string());
         assert_eq!(extracted, None);
+    }
+
+    /// The chunk dimension used for 2-D date-grid splitting must produce chunks
+    /// whose cell count stays within DATE_GRID_MAX_CELLS.
+    #[test]
+    fn date_grid_chunk_dim_fits_within_limit() {
+        use parsers::date_grid_request::DATE_GRID_MAX_CELLS;
+        let chunk_dim = (DATE_GRID_MAX_CELLS as f64).sqrt() as i64;
+        let cells = chunk_dim * chunk_dim;
+        assert!(
+            cells <= DATE_GRID_MAX_CELLS as i64,
+            "chunk_dim={chunk_dim} → {cells} cells exceeds limit {DATE_GRID_MAX_CELLS}"
+        );
     }
 }
