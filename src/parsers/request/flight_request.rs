@@ -1,4 +1,4 @@
-use std::{
+﻿use std::{
     time::{SystemTime, UNIX_EPOCH},
     vec,
 };
@@ -49,10 +49,9 @@ pub struct FlightRequestOptions<'a> {
     pub connecting_airports: &'a [String],
     /// If `true`, send `[1]` at position \[13\] to restrict to lower-CO₂ flights.
     pub lower_emissions: bool,
-    /// Maximum price filter (outer itinerary array position \[7\]). `None` = no price cap.
+    /// Maximum total ticket price filter (both legs). `None` = no limit.
     pub max_price: Option<i32>,
-    /// Baggage filter `(carry_on_count, checked_count)` (outer itinerary array position \[10\]).
-    /// `None` = no restriction.
+    /// Baggage allowance `(carry_on_count, checked_count)`. `None` = no restriction.
     pub baggage: Option<(u8, u8)>,
 }
 
@@ -266,11 +265,6 @@ impl SerializeToWeb for SingleLegStruct<'_> {
 }
 
 pub struct ItineraryRequest<'a> {
-    // [null,null,{sort},null,[],{travel_class},[{travelers}],{max_price},null,null,{baggage},null,null,
-    // [
-    // [[[[\"{0}\",0]]],[[[\"{1}\",0]]],null,{8},null,null,\"{2}\",null,null,null,null,null,null,null,3]
-    // ]
-    // ,null,null,null,1]
     pub legs: Vec<SingleLegStruct<'a>>,
     pub travel_class: &'a TravelClass,
     pub travelers: &'a Travelers,
@@ -353,33 +347,22 @@ impl SerializeToWeb for ItineraryRequest<'_> {
     fn serialize_to_web(&self) -> Result<String> {
         let graph = if self.is_graph { ",1" } else { "" };
         Ok(format!(
-            // Outer itinerary array — position index:
-            //  [0]  null
-            //  [1]  null
-            //  [2]  sort order
-            //  [3]  null
-            //  [4]  []
-            //  [5]  travel class
-            //  [6]  travelers
-            //  [7]  max-price filter [null, max_price] or null
-            //  [8]  null
-            //  [9]  null
-            //  [10] baggage filter [carry_on, checked] or null
-            //  [11] null
-            //  [12] null
-            //  [13] legs array
-            //  [14] null
-            //  [15] null
-            //  [16] null
-            //  [17] 1 {,1 graph}
-            r#"[null,null,{sort},null,[],{class},{travelers},{price},null,null,{baggage},null,null,{legs},null,null,null,1{graph}]"#,
-            sort = self.sort_order as i32,
-            class = &self.travel_class.serialize_to_web()?,
-            travelers = &self.travelers.serialize_to_web()?,
-            price = serialize_price_filter(self.max_price),
-            baggage = serialize_baggage(self.baggage),
-            legs = &self.legs.serialize_to_web()?,
-            graph = graph,
+            // [null,null,{sort},null,[],{class},{travelers},{price},null,null,{baggage},null,null,{legs},null,null,null,1{graph}]
+            //   [0]  null
+            //   [2]  sort order
+            //   [5]  travel class
+            //   [6]  travelers
+            //   [7]  max price filter
+            //   [10] baggage filter
+            //   [13] legs
+            r#"[null,null,{0},null,[],{1},{2},{3},null,null,{4},null,null,{5},null,null,null,1{6}]"#,
+            self.sort_order as i32,
+            &self.travel_class.serialize_to_web()?,
+            &self.travelers.serialize_to_web()?,
+            serialize_price_filter(self.max_price),
+            serialize_baggage(self.baggage),
+            &self.legs.serialize_to_web()?,
+            graph
         ))
     }
 }
@@ -444,12 +427,10 @@ impl TryFrom<&MultiCityRequestOptions<'_>> for RequestBody {
         let legs_json = build_multi_city_legs(cfg)?;
 
         let itinerary_json = format!(
-            r#"[null,null,{sort},null,[],{class},{travelers},{price},null,null,{baggage},null,null,{legs},null,null,null,1]"#,
+            r#"[null,null,{sort},null,[],{class},{travelers},null,null,null,null,null,null,{legs},null,null,null,1]"#,
             sort = server_sort as i32,
             class = cfg.travel_class.serialize_to_web()?,
             travelers = cfg.travellers.serialize_to_web()?,
-            price = serialize_price_filter(cfg.max_price),
-            baggage = serialize_baggage(cfg.baggage),
             legs = legs_json,
         );
 

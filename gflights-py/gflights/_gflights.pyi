@@ -151,9 +151,12 @@ class GFlights:
         adults: int = ...,
         travel_class: str = ...,
         sort: str = ...,
+<<<<<<< HEAD
         max_price: Optional[int] = ...,
         carry_on: int = ...,
         checked_bags: int = ...,
+=======
+>>>>>>> feat/multi-city
         currency: str = ...,
         lang: str = ...,
         country: str = ...,
@@ -161,6 +164,7 @@ class GFlights:
         """Multi-city (open-jaw) search. Each leg is ``(from, to, "YYYY-MM-DD")``."""
         ...
 
+<<<<<<< HEAD
     async def explore(
         self,
         from_airport: str,
@@ -202,5 +206,7 @@ class GFlights:
         """
         ...
 
+=======
+>>>>>>> feat/multi-city
     def reset_rate_limit(self) -> None: ...
     def __repr__(self) -> str: ...
