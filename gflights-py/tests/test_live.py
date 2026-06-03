@@ -1,6 +1,10 @@
 """Live integration tests — require network access.
 
-Run with:  RUN_LIVE_TESTS=1 pytest tests/test_live.py -v
+Run with:  pytest tests/test_live.py -v
+
+These tests run automatically on a local machine.  They are skipped when the
+``CI`` environment variable is set, which GitHub Actions and most other CI
+providers do automatically.
 """
 
 import asyncio
@@ -10,8 +14,8 @@ import pytest
 import gflights
 
 live = pytest.mark.skipif(
-    not os.environ.get("RUN_LIVE_TESTS"),
-    reason="set RUN_LIVE_TESTS=1 to run live tests",
+    os.environ.get("CI"),
+    reason="skipped in CI environment",
 )
 
 

@@ -1,29 +1,25 @@
 //! Integration tests that call live Google Flights servers.
 //!
-//! These tests are marked `#[ignore]` so they are skipped by default, and
-//! additionally gated behind the `RUN_LIVE_TESTS` environment variable so
-//! they are never accidentally executed on CI servers (which set neither
-//! that variable nor the explicit opt-in flag).
+//! These tests run automatically on a local machine.  On CI they are skipped
+//! because the `CI` environment variable is set by GitHub Actions and most
+//! other CI providers.  No opt-in flag is required locally.
 //!
 //! # Running locally
 //!
 //! ```sh
 //! # Run all live tests:
-//! RUN_LIVE_TESTS=1 cargo test --test live_api -- --include-ignored
+//! cargo test --test live_api
 //!
 //! # Run a single live test:
-//! RUN_LIVE_TESTS=1 cargo test --test live_api oneway_search_returns_flights -- --include-ignored
+//! cargo test --test live_api oneway_search_returns_flights
 //! ```
 //!
 //! # CI behaviour
 //!
-//! CI pipelines typically run `cargo test` or `cargo test -- --include-ignored`.
-//! Neither invocation executes these tests because:
-//!
-//! 1. `#[ignore]` keeps them out of the default run.
-//! 2. Even if `--include-ignored` is passed, the `require_live!()` guard at
-//!    the start of every test body returns `Ok(())` immediately unless the
-//!    `RUN_LIVE_TESTS` environment variable is set to a non-empty value.
+//! The `require_live!()` macro at the start of every test body checks for the
+//! `CI` environment variable.  When `CI` is set (GitHub Actions, CircleCI,
+//! GitLab CI, etc.) the test returns `Ok(())` immediately without making any
+//! network calls.
 //!
 //! # What these tests do NOT assert
 //!
@@ -65,19 +61,17 @@ async fn shared_client() -> &'static ApiClient {
         .await
 }
 
-/// Early-returns `Ok(())` from the enclosing async fn unless `RUN_LIVE_TESTS`
-/// is set to a non-empty value in the environment.
+/// Early-returns `Ok(())` when running inside a CI environment.
 ///
-/// This is the second line of defence against live tests running on CI:
-/// the first is `#[ignore]`, but some CI pipelines pass `--include-ignored`.
+/// CI is detected via the `CI` environment variable, which is set
+/// automatically by GitHub Actions, CircleCI, GitLab CI, and most other
+/// runners.  On a local developer machine `CI` is typically unset, so the
+/// tests run normally without any extra opt-in flag.
 macro_rules! require_live {
     () => {
-        match std::env::var("RUN_LIVE_TESTS") {
-            Ok(v) if !v.is_empty() => {}
-            _ => {
-                eprintln!("[live_api] skipping — set RUN_LIVE_TESTS=1 to run live tests");
-                return Ok(());
-            }
+        if std::env::var("CI").is_ok() {
+            eprintln!("[live_api] skipping — CI environment detected");
+            return Ok(());
         }
     };
 }
@@ -106,7 +100,6 @@ fn assert_airport_code(code: &str, label: &str) {
 
 /// A city lookup by full English name returns a non-empty identifier and name.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn city_lookup_by_full_name() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -131,7 +124,6 @@ async fn city_lookup_by_full_name() -> Result<()> {
 
 /// Multiple well-known cities all resolve without error.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn city_lookup_several_cities() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -154,7 +146,6 @@ async fn city_lookup_several_cities() -> Result<()> {
 /// When an IATA code is used directly, the config builder skips the city API
 /// and sets location_name to the code itself (so logs show the code, not None).
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn iata_code_sets_location_name_to_code() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -189,7 +180,6 @@ async fn iata_code_sets_location_name_to_code() -> Result<()> {
 
 /// A one-way search on a very busy route (LHR→JFK) returns at least one flight.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn oneway_search_returns_flights() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -224,7 +214,6 @@ async fn oneway_search_returns_flights() -> Result<()> {
 /// - `departure_token` is non-empty (needed by follow-up requests)
 /// - at least one leg exists in every itinerary
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn flight_results_have_valid_structure() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -301,7 +290,6 @@ async fn flight_results_have_valid_structure() -> Result<()> {
 ///
 /// This mirrors the happy path the `flights` example uses.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn return_flight_two_leg_flow_produces_valid_url() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -375,7 +363,6 @@ async fn return_flight_two_leg_flow_produces_valid_url() -> Result<()> {
 /// date-price suggestion, and every suggestion has a valid departure date
 /// (in the future relative to now).
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn price_graph_returns_future_dates() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -424,7 +411,6 @@ async fn price_graph_returns_future_dates() -> Result<()> {
 /// This test does not assert whether suggestions exist — their presence is
 /// route- and season-dependent — but if they exist the data must be valid.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn cheaper_dates_suggestions_are_structurally_valid() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -481,7 +467,6 @@ async fn cheaper_dates_suggestions_are_structurally_valid() -> Result<()> {
 /// `get_usual_price_bound()` either returns None (not available for this query)
 /// or a positive integer.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn usual_price_bound_is_positive_when_present() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -515,7 +500,6 @@ async fn usual_price_bound_is_positive_when_present() -> Result<()> {
 /// flight.  This exercises the multi-airport path end-to-end against the live
 /// API: both airport codes must appear in the serialised request body.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn multi_airport_departure_returns_flights() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -552,7 +536,6 @@ async fn multi_airport_departure_returns_flights() -> Result<()> {
 /// Searching to two New York airports (JFK + EWR) from LHR returns at least
 /// one flight, verifying multi-airport destination support.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn multi_airport_destination_returns_flights() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -598,7 +581,6 @@ async fn multi_airport_destination_returns_flights() -> Result<()> {
 /// We only check that the price is within a very wide but sanity-checking
 /// range (> 0 and < 20 000 EUR/USD) — exact prices change daily.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn offer_request_returns_prices_for_lhr_jfk() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -682,7 +664,6 @@ async fn offer_request_returns_prices_for_lhr_jfk() -> Result<()> {
 /// we assert that Google returns at least one offer that is neither suspiciously
 /// cheap nor obviously a data-parse artifact.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn offer_prices_are_in_plausible_range_for_lhr_jfk() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -749,7 +730,6 @@ async fn offer_prices_are_in_plausible_range_for_lhr_jfk() -> Result<()> {
 /// When Google returns per-channel prices they must all be positive and
 /// each channel must have at least one partner name.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn offer_sub_options_are_structurally_valid_for_lhr_jfk() -> Result<()> {
     require_live!();
     let client = ApiClient::new().await;
@@ -818,7 +798,6 @@ async fn offer_sub_options_are_structurally_valid_for_lhr_jfk() -> Result<()> {
 /// structurally valid response — verifies non-English locale is threaded
 /// through to the API endpoint without parse errors.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn search_with_french_locale_parses_ok() -> Result<()> {
     require_live!();
     let client = shared_client().await;
@@ -866,7 +845,6 @@ async fn search_with_french_locale_parses_ok() -> Result<()> {
 /// Three concurrent tasks sharing one `ApiClient` all return results without
 /// panicking. Exercises the rate-limiter and internal state under parallelism.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn concurrent_requests_all_succeed() -> Result<()> {
     require_live!();
     // Use a freshly constructed client wrapped in Arc so all three tasks share
@@ -914,7 +892,6 @@ async fn concurrent_requests_all_succeed() -> Result<()> {
 /// The click token is the opaque string used by `resolve_booking_url()` to
 /// obtain the final airline/OTA redirect URL.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn offer_click_tokens_are_nonempty() -> Result<()> {
     require_live!();
     let client = shared_client().await;
@@ -996,7 +973,6 @@ async fn offer_click_tokens_are_nonempty() -> Result<()> {
 /// - No parse or HTTP error from the API.
 /// - The response is non-empty (BA and other Oneworld carriers fly LHR→JFK).
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn live_mixed_airline_alliance_include_filter() -> Result<()> {
     require_live!();
     let client = shared_client().await;
@@ -1044,7 +1020,6 @@ async fn live_mixed_airline_alliance_include_filter() -> Result<()> {
 ///   (AF, KL, DL) — checked as a best-effort signal on a route where
 ///   those airlines typically appear.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn live_mixed_airline_alliance_exclude_filter() -> Result<()> {
     require_live!();
     let client = shared_client().await;
@@ -1109,7 +1084,6 @@ async fn live_mixed_airline_alliance_exclude_filter() -> Result<()> {
 /// All outcomes are acceptable — what is NOT acceptable is an unhandled panic
 /// or an error that propagates without being caught by the error types.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn invalid_iata_xxx_does_not_panic() -> Result<()> {
     require_live!();
     let client = shared_client().await;
@@ -1162,7 +1136,6 @@ async fn invalid_iata_xxx_does_not_panic() -> Result<()> {
 /// empty, but the API call must succeed (or return a graceful typed error) and
 /// `get_all_flights()` must return an empty `Vec` rather than panicking.
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn train_station_iata_returns_empty_or_graceful() -> Result<()> {
     require_live!();
     let client = shared_client().await;
@@ -1187,7 +1160,6 @@ async fn train_station_iata_returns_empty_or_graceful() -> Result<()> {
 
 /// One-way: cheapest dates should be non-empty and sorted by price.
 #[tokio::test]
-#[ignore]
 async fn cheapest_dates_oneway_returns_sorted_results() -> Result<()> {
     require_live!();
     use gflights::parsers::common::{Location, PlaceType};
@@ -1226,7 +1198,6 @@ async fn cheapest_dates_oneway_returns_sorted_results() -> Result<()> {
 
 /// Round-trip: cheapest 7-day trips should pair dep + dep+7 and be sorted by price.
 #[tokio::test]
-#[ignore]
 async fn cheapest_dates_roundtrip_returns_paired_dates() -> Result<()> {
     require_live!();
     use gflights::parsers::common::{Location, PlaceType};
@@ -1276,7 +1247,6 @@ async fn cheapest_dates_roundtrip_returns_paired_dates() -> Result<()> {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn multi_city_three_legs_returns_flights() -> Result<()> {
     require_live!();
     use chrono::NaiveDate;
@@ -1329,7 +1299,6 @@ async fn multi_city_three_legs_returns_flights() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn multi_city_four_legs_returns_flights() -> Result<()> {
     require_live!();
     use chrono::NaiveDate;
@@ -1378,7 +1347,6 @@ async fn multi_city_four_legs_returns_flights() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "requires live network"]
 async fn multi_city_builder_rejects_single_leg() -> Result<()> {
     require_live!();
     use chrono::NaiveDate;

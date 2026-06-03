@@ -55,17 +55,19 @@ All offline tests must pass before pushing.
 
 ## Live / integration tests
 
-These hit the real Google Flights API — run manually, not in CI.
+These hit the real Google Flights API.  They run automatically on a local
+machine and are skipped on CI (detected via the `CI` environment variable
+that GitHub Actions and most other providers set automatically).
 
 ### Rust
 ```sh
-RUN_LIVE_TESTS=1 cargo test --test live_api -- --ignored
+cargo test --test live_api
 ```
 
 ### Python
 ```sh
 cd gflights-py
-RUN_LIVE_TESTS=1 .venv/Scripts/pytest.exe tests/test_live.py -v
+.venv/Scripts/pytest.exe tests/test_live.py -v
 ```
 
 ---
