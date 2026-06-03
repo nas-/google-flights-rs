@@ -205,6 +205,8 @@ Commands:
               --min-layover <MINS>       --max-layover <MINS>
               --lower-emissions          (restrict to below-average CO₂ flights)
     Output:   --sort best|price|duration|departure|arrival
+              --show-co2                 (add CO₂ kg column to table)
+              --detail                   (show layover airports; +1 for next-day arrivals)
               --format table|json
     Locale:   --adults <N>  --class economy|premium-economy|business|first
               --currency <NAME>  --lang <BCP47>  --country <ISO2>
@@ -501,6 +503,29 @@ mod tests {
                 assert_eq!(args.airlines.len(), 2);
                 assert_eq!(args.exclude_airlines.len(), 1);
                 assert_eq!(args.connecting_airports, vec!["CDG"]);
+            }
+            other => panic!("expected Search, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn repl_parse_search_detail_and_co2_flags() {
+        let rc = parse(&[
+            "search",
+            "--from",
+            "LUX",
+            "--to",
+            "BCN",
+            "--date",
+            "2026-09-01",
+            "--show-co2",
+            "--detail",
+        ])
+        .expect("search with --show-co2 --detail should parse");
+        match rc.command {
+            Commands::Search(args) => {
+                assert!(args.show_co2);
+                assert!(args.detail);
             }
             other => panic!("expected Search, got {other:?}"),
         }
