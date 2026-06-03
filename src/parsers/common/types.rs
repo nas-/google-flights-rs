@@ -16,6 +16,11 @@ pub enum PlaceType {
     MaybeRegion = 3,
     RegionMaybe = 4,
     City = 5,
+    /// Geographic region identified by a Knowledge-Graph MID (wire type 6).
+    ///
+    /// Used in the explore endpoint when filtering destinations by region
+    /// (e.g. `"/m/01531v"` for Northern Europe).
+    Region = 6,
 }
 
 impl From<i32> for PlaceType {
@@ -26,6 +31,7 @@ impl From<i32> for PlaceType {
             3 => PlaceType::MaybeRegion,
             4 => PlaceType::RegionMaybe,
             5 => PlaceType::City,
+            6 => PlaceType::Region,
             _ => {
                 tracing::warn!(
                     value,

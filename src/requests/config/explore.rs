@@ -146,6 +146,115 @@ pub fn known_interest_names() -> &'static [&'static str] {
 }
 
 // ---------------------------------------------------------------------------
+// Region MID constants
+// ---------------------------------------------------------------------------
+
+/// Google Knowledge-Graph MID strings for geographic regions.
+///
+/// Pass one of these as `ExploreConfig::destination` (with `PlaceType::Region`)
+/// to filter explore results to destinations within that region.
+pub mod Region {
+    #![allow(non_snake_case)]
+
+    /// Northern Europe.
+    pub const NORTHERN_EUROPE: &str = "/m/01531v";
+    /// Southern Europe.
+    pub const SOUTHERN_EUROPE: &str = "/m/048_b";
+    /// Western Europe.
+    pub const WESTERN_EUROPE: &str = "/m/04_1l";
+    /// Eastern Europe.
+    pub const EASTERN_EUROPE: &str = "/m/05lrn";
+    /// The Alps.
+    pub const ALPS: &str = "/m/0lcd";
+    /// Mediterranean.
+    pub const MEDITERRANEAN: &str = "/m/04vlnn";
+    /// Southeast Asia.
+    pub const SOUTHEAST_ASIA: &str = "/m/07bxq";
+    /// East Asia.
+    pub const EAST_ASIA: &str = "/m/011yph";
+    /// North America.
+    pub const NORTH_AMERICA: &str = "/m/05sb1";
+    /// Caribbean.
+    pub const CARIBBEAN: &str = "/m/01l83z";
+    /// Central America.
+    pub const CENTRAL_AMERICA: &str = "/m/06yfb";
+    /// South America.
+    pub const SOUTH_AMERICA: &str = "/m/015fr";
+    /// Africa.
+    pub const AFRICA: &str = "/m/0dg3n1";
+    /// Middle East.
+    pub const MIDDLE_EAST: &str = "/m/01n7";
+}
+
+/// Resolve a human-readable region name to a Knowledge-Graph MID.
+///
+/// Accepts canonical names and common aliases (case-insensitive).
+/// Returns `None` when the name is not recognised — callers should suggest
+/// using a raw `/m/…` or `/g/…` MID or an IATA airport code instead.
+///
+/// # Examples
+/// ```
+/// use gflights::requests::config::explore::region_from_name;
+/// assert_eq!(region_from_name("alps"), Some("/m/0lcd"));
+/// assert_eq!(region_from_name("Northern Europe"), Some("/m/01531v"));
+/// // Raw MIDs and unknown names return None.
+/// assert_eq!(region_from_name("/m/0lcd"), None);
+/// assert_eq!(region_from_name("surfing"), None);
+/// ```
+pub fn region_from_name(name: &str) -> Option<&'static str> {
+    if name.starts_with("/m/") || name.starts_with("/g/") {
+        return None; // raw MID — caller handles passthrough
+    }
+    let lower = name.to_lowercase();
+    const TABLE: &[(&str, &str)] = &[
+        ("northern europe", Region::NORTHERN_EUROPE),
+        ("scandinavia", Region::NORTHERN_EUROPE),
+        ("nordic", Region::NORTHERN_EUROPE),
+        ("southern europe", Region::SOUTHERN_EUROPE),
+        ("western europe", Region::WESTERN_EUROPE),
+        ("eastern europe", Region::EASTERN_EUROPE),
+        ("alps", Region::ALPS),
+        ("alpine", Region::ALPS),
+        ("mediterranean", Region::MEDITERRANEAN),
+        ("med", Region::MEDITERRANEAN),
+        ("southeast asia", Region::SOUTHEAST_ASIA),
+        ("sea", Region::SOUTHEAST_ASIA),
+        ("east asia", Region::EAST_ASIA),
+        ("north america", Region::NORTH_AMERICA),
+        ("caribbean", Region::CARIBBEAN),
+        ("central america", Region::CENTRAL_AMERICA),
+        ("south america", Region::SOUTH_AMERICA),
+        ("latin america", Region::SOUTH_AMERICA),
+        ("africa", Region::AFRICA),
+        ("middle east", Region::MIDDLE_EAST),
+    ];
+    TABLE
+        .iter()
+        .find(|(alias, _)| *alias == lower.as_str())
+        .map(|(_, mid)| *mid)
+}
+
+/// List all known region names (canonical, one per MID).
+pub fn known_region_names() -> &'static [&'static str] {
+    &[
+        "northern europe",
+        "southern europe",
+        "western europe",
+        "eastern europe",
+        "alps",
+        "mediterranean",
+        "southeast asia",
+        "east asia",
+        "north america",
+        "caribbean",
+        "central america",
+        "south america",
+        "africa",
+        "middle east",
+    ]
+}
+
+// ---------------------------------------------------------------------------
 // Main config struct
 // ---------------------------------------------------------------------------
 
@@ -157,6 +266,15 @@ pub fn known_interest_names() -> &'static [&'static str] {
 pub struct ExploreConfig {
     /// One or more origin airports / cities.
     pub origin: Vec<Location>,
+
+    /// Optional destination filter: restrict results to a specific airport or
+    /// geographic region.
+    ///
+    /// - Airport IATA code → use `PlaceType::Airport` (type 0)
+    /// - Region MID (e.g. `"/m/01531v"`) → use `PlaceType::Region` (type 6)
+    ///
+    /// Use constants from [`Region`] or raw MIDs from the Knowledge Graph.
+    pub destination: Option<Location>,
 
     /// Optional calendar month to filter results (1–12).
     pub trip_date: Option<ExploreDate>,
@@ -203,6 +321,7 @@ impl Default for ExploreConfig {
     fn default() -> Self {
         Self {
             origin: Vec::new(),
+            destination: None,
             trip_date: None,
             trip_duration: ExploreDuration::OneWeek,
             max_price: None,

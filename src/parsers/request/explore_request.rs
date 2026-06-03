@@ -42,10 +42,23 @@ impl TryFrom<&ExploreRequestOptions<'_>> for RequestBody {
         // ---------------------------------------------------------------------------
         let origin_airports = serialize_origin_airports(&cfg.origin);
 
-        // outbound: [ origin_airports, [], null, 0 ]
-        // return:   [ [ [], origin_airports, null, 0 ] ]   ← return is double-wrapped
-        // where origin_airports = [[["IATA",type_int]]]  (triple-nested per wire spec)
-        let routes = format!(r#"[[{0},[],null,0],[[[],{0},null,0]]]"#, origin_airports);
+        // Routes wire format:
+        //   outbound: [ origin_airports, dest_airports, null, 0 ]
+        //   return:   [ dest_airports, origin_airports, null, 0 ]
+        //
+        // When no destination is specified, dest_airports = [] (no constraint).
+        // When destination is a region MID, type code 6 is used.
+        // When destination is an airport IATA, type code 0 is used.
+        let routes = if let Some(dest) = &cfg.destination {
+            let dest_airports = serialize_dest_location(dest);
+            format!(
+                r#"[[{origin},{dest},null,0],[{dest},{origin},null,0]]"#,
+                origin = origin_airports,
+                dest = dest_airports,
+            )
+        } else {
+            format!(r#"[[{0},[],null,0],[[[],{0},null,0]]]"#, origin_airports)
+        };
 
         // ---------------------------------------------------------------------------
         // Trip date: [] or [month, duration_code]
@@ -190,6 +203,27 @@ impl TryFrom<&ExploreRequestOptions<'_>> for RequestBody {
     }
 }
 
+/// Serialise a single destination `Location` for the explore routes field.
+///
+/// Airports use type code 0; region MIDs (starting with `/m/` or `/g/`) use
+/// type code 6 as observed in the wire format.  The result is triple-nested
+/// to match the origin format so both can be slotted into the route structure
+/// symmetrically:
+///
+/// ```text
+/// outbound: [ origin_airports, dest_airports, null, 0 ]
+/// return:   [ dest_airports,   origin_airports, null, 0 ]
+/// ```
+fn serialize_dest_location(loc: &crate::parsers::common::Location) -> String {
+    use crate::parsers::common::PlaceType;
+    let type_code = match loc.loc_type {
+        PlaceType::Region => 6,
+        _ => 0, // airports and unspecified
+    };
+    // Triple-nested to match origin_airports format: [[["ID",type]]]
+    format!(r#"[[[\"{}\",{}]]]"#, loc.loc_identifier, type_code)
+}
+
 /// Serialise origin locations to the nested airport array used in the routes
 /// field of the explore request.
 ///
@@ -219,6 +253,7 @@ fn serialize_origin_airports(locations: &[crate::parsers::common::Location]) -> 
                 PlaceType::Airport | PlaceType::Unspecified => 0,
                 PlaceType::City => 4,
                 PlaceType::MaybeRegion | PlaceType::RegionMaybe => 4,
+                PlaceType::Region => 6,
             };
             format!(r#"[\"{}\",{}]"#, loc.loc_identifier, type_code)
         })

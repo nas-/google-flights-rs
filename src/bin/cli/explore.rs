@@ -8,7 +8,8 @@ use clap::{Parser, ValueEnum};
 use gflights::parsers::common::{Location, PlaceType, TravelClass};
 use gflights::requests::api::ApiClient;
 use gflights::requests::config::explore::{
-    known_interest_names, mid_from_name, ExploreConfig, ExploreDate, ExploreDuration,
+    known_interest_names, known_region_names, mid_from_name, region_from_name, ExploreConfig,
+    ExploreDate, ExploreDuration,
 };
 use gflights::requests::config::Currency;
 
@@ -42,6 +43,53 @@ impl From<DurationArg> for ExploreDuration {
 // ---------------------------------------------------------------------------
 // Interest resolution
 // ---------------------------------------------------------------------------
+
+/// Resolve `--to` value to a `Location` (airport or region).
+///
+/// Accepts:
+/// - IATA airport codes (3 uppercase letters, no `/` prefix) → `PlaceType::Airport`
+/// - Raw region MIDs (`/m/…` or `/g/…`) → `PlaceType::Region`
+/// - Human-readable region names / aliases → looked up in region table
+///
+/// Returns an error with a helpful message when the value is unrecognised.
+fn resolve_destination(raw: &str) -> Result<gflights::parsers::common::Location> {
+    use gflights::parsers::common::{Location, PlaceType};
+
+    // Raw MID passthrough → region type 6.
+    if raw.starts_with("/m/") || raw.starts_with("/g/") {
+        return Ok(Location {
+            loc_identifier: raw.to_string(),
+            loc_type: PlaceType::Region,
+            location_name: None,
+        });
+    }
+
+    // IATA-looking code (2–4 uppercase letters / digits, no spaces) → airport.
+    if raw.len() <= 4 && raw.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Ok(Location {
+            loc_identifier: raw.to_uppercase(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        });
+    }
+
+    // Region name lookup.
+    if let Some(mid) = region_from_name(raw) {
+        return Ok(Location {
+            loc_identifier: mid.to_string(),
+            loc_type: PlaceType::Region,
+            location_name: Some(raw.to_string()),
+        });
+    }
+
+    let regions = known_region_names().join(", ");
+    bail!(
+        "unknown destination {:?}\n\
+         Use an IATA airport code (e.g. --to BCN), a region name ({regions}),\n\
+         or a raw Knowledge-Graph MID (e.g. --to /m/01531v)",
+        raw
+    )
+}
 
 /// Resolve `--interest` value to a Knowledge-Graph MID.
 ///
@@ -79,6 +127,12 @@ pub struct ExploreArgs {
     /// Origin airport IATA code (e.g. LUX, LHR).
     #[arg(long)]
     pub from: String,
+
+    /// Destination filter: IATA airport code (e.g. BCN), a region name
+    /// (northern europe, alps, caribbean, …), or a raw Knowledge-Graph MID
+    /// (/m/01531v).  Omit to explore all destinations.
+    #[arg(long)]
+    pub to: Option<String>,
 
     /// Calendar month to search in (1–12).  Omit for any month.
     #[arg(long)]
@@ -161,8 +215,12 @@ pub async fn cmd_explore(args: ExploreArgs, client: &ApiClient) -> Result<()> {
     // Resolve --interest to a MID (or bail with a helpful error).
     let interest = args.interest.as_deref().map(resolve_interest).transpose()?;
 
+    // Resolve --to to a Location (or bail with a helpful error).
+    let destination = args.to.as_deref().map(resolve_destination).transpose()?;
+
     let config = ExploreConfig {
         origin: vec![origin],
+        destination,
         trip_date,
         trip_duration: args.duration.into(),
         max_price: args.budget,
