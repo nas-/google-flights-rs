@@ -151,46 +151,25 @@ pub fn known_interest_names() -> &'static [&'static str] {
 
 /// Google Knowledge-Graph MID strings for geographic regions.
 ///
-/// Pass one of these as `ExploreConfig::destination` (with `PlaceType::Region`)
-/// to filter explore results to destinations within that region.
+/// These constants are verified against the Google Flights Explore wire format.
+/// For other regions, pass a raw MID directly to `ExploreConfig::destination`.
+///
+/// To find a region's MID, open Google Flights Explore in a browser, filter
+/// to that region, and inspect the `f.req` body (the MID appears as `"/m/…"`
+/// with type `6` in the routes array).
 pub mod Region {
     #![allow(non_snake_case)]
 
-    /// Northern Europe.
+    /// Northern Europe (UK, Ireland, Scandinavia, Baltic states).
     pub const NORTHERN_EUROPE: &str = "/m/01531v";
-    /// Southern Europe.
-    pub const SOUTHERN_EUROPE: &str = "/m/048_b";
-    /// Western Europe.
-    pub const WESTERN_EUROPE: &str = "/m/04_1l";
-    /// Eastern Europe.
-    pub const EASTERN_EUROPE: &str = "/m/05lrn";
-    /// The Alps.
+    /// The Alps (Switzerland, Austria, northern Italy, southern Germany).
     pub const ALPS: &str = "/m/0lcd";
-    /// Mediterranean.
-    pub const MEDITERRANEAN: &str = "/m/04vlnn";
-    /// Southeast Asia.
-    pub const SOUTHEAST_ASIA: &str = "/m/07bxq";
-    /// East Asia.
-    pub const EAST_ASIA: &str = "/m/011yph";
-    /// North America.
-    pub const NORTH_AMERICA: &str = "/m/05sb1";
-    /// Caribbean.
-    pub const CARIBBEAN: &str = "/m/01l83z";
-    /// Central America.
-    pub const CENTRAL_AMERICA: &str = "/m/06yfb";
-    /// South America.
-    pub const SOUTH_AMERICA: &str = "/m/015fr";
-    /// Africa.
-    pub const AFRICA: &str = "/m/0dg3n1";
-    /// Middle East.
-    pub const MIDDLE_EAST: &str = "/m/01n7";
 }
 
 /// Resolve a human-readable region name to a Knowledge-Graph MID.
 ///
-/// Accepts canonical names and common aliases (case-insensitive).
-/// Returns `None` when the name is not recognised — callers should suggest
-/// using a raw `/m/…` or `/g/…` MID or an IATA airport code instead.
+/// Only covers MIDs verified against the Google Flights wire format.
+/// For other regions pass a raw `/m/…` MID directly.
 ///
 /// # Examples
 /// ```
@@ -199,7 +178,7 @@ pub mod Region {
 /// assert_eq!(region_from_name("Northern Europe"), Some("/m/01531v"));
 /// // Raw MIDs and unknown names return None.
 /// assert_eq!(region_from_name("/m/0lcd"), None);
-/// assert_eq!(region_from_name("surfing"), None);
+/// assert_eq!(region_from_name("caribbean"), None);
 /// ```
 pub fn region_from_name(name: &str) -> Option<&'static str> {
     if name.starts_with("/m/") || name.starts_with("/g/") {
@@ -207,26 +186,13 @@ pub fn region_from_name(name: &str) -> Option<&'static str> {
     }
     let lower = name.to_lowercase();
     const TABLE: &[(&str, &str)] = &[
+        // Northern Europe
         ("northern europe", Region::NORTHERN_EUROPE),
         ("scandinavia", Region::NORTHERN_EUROPE),
         ("nordic", Region::NORTHERN_EUROPE),
-        ("southern europe", Region::SOUTHERN_EUROPE),
-        ("western europe", Region::WESTERN_EUROPE),
-        ("eastern europe", Region::EASTERN_EUROPE),
+        // Alps
         ("alps", Region::ALPS),
         ("alpine", Region::ALPS),
-        ("mediterranean", Region::MEDITERRANEAN),
-        ("med", Region::MEDITERRANEAN),
-        ("southeast asia", Region::SOUTHEAST_ASIA),
-        ("sea", Region::SOUTHEAST_ASIA),
-        ("east asia", Region::EAST_ASIA),
-        ("north america", Region::NORTH_AMERICA),
-        ("caribbean", Region::CARIBBEAN),
-        ("central america", Region::CENTRAL_AMERICA),
-        ("south america", Region::SOUTH_AMERICA),
-        ("latin america", Region::SOUTH_AMERICA),
-        ("africa", Region::AFRICA),
-        ("middle east", Region::MIDDLE_EAST),
     ];
     TABLE
         .iter()
@@ -234,24 +200,11 @@ pub fn region_from_name(name: &str) -> Option<&'static str> {
         .map(|(_, mid)| *mid)
 }
 
-/// List all known region names (canonical, one per MID).
+/// List all known region names (canonical, one per verified MID).
+///
+/// For other regions pass a raw Knowledge-Graph MID, e.g. `--to /m/01l83z`.
 pub fn known_region_names() -> &'static [&'static str] {
-    &[
-        "northern europe",
-        "southern europe",
-        "western europe",
-        "eastern europe",
-        "alps",
-        "mediterranean",
-        "southeast asia",
-        "east asia",
-        "north america",
-        "caribbean",
-        "central america",
-        "south america",
-        "africa",
-        "middle east",
-    ]
+    &["northern europe", "alps"]
 }
 
 // ---------------------------------------------------------------------------
