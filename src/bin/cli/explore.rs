@@ -64,21 +64,24 @@ fn resolve_destination(raw: &str) -> Result<gflights::parsers::common::Location>
         });
     }
 
-    // IATA-looking code (2–4 uppercase letters / digits, no spaces) → airport.
-    if raw.len() <= 4 && raw.chars().all(|c| c.is_ascii_alphanumeric()) {
-        return Ok(Location {
-            loc_identifier: raw.to_uppercase(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        });
-    }
-
-    // Region name lookup.
+    // Region name lookup BEFORE IATA heuristic — aliases like "alps" (4 chars)
+    // would otherwise be misclassified as an IATA airport code.
     if let Some(mid) = region_from_name(raw) {
         return Ok(Location {
             loc_identifier: mid.to_string(),
             loc_type: PlaceType::Region,
             location_name: Some(raw.to_string()),
+        });
+    }
+
+    // IATA-looking code (2–4 uppercase letters / digits, no spaces) → airport.
+    // Note: the explore endpoint may not filter to specific airports;
+    // region MIDs give better results for destination filtering.
+    if raw.len() <= 4 && raw.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Ok(Location {
+            loc_identifier: raw.to_uppercase(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
         });
     }
 
