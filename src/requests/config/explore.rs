@@ -74,6 +74,77 @@ pub mod Interest {
     pub const CLIMBING: &str = "/m/01rwk";
 }
 
+/// Resolve a human-readable interest name to a Knowledge-Graph MID.
+///
+/// Accepts canonical names and common aliases (case-insensitive).
+/// Returns `None` when the name is not recognised — callers should suggest
+/// using a raw `/m/…` or `/g/…` MID instead.
+///
+/// # Examples
+/// ```
+/// use gflights::requests::config::explore::mid_from_name;
+/// assert_eq!(mid_from_name("beaches"), Some("/m/0b3yr"));
+/// assert_eq!(mid_from_name("Rock Climbing"), Some("/m/01rwk"));
+/// // Raw MIDs return None — the CLI layer passes them through directly.
+/// assert_eq!(mid_from_name("/m/0b3yr"), None);
+/// assert_eq!(mid_from_name("surfing"), None);
+/// ```
+pub fn mid_from_name(name: &str) -> Option<&'static str> {
+    // Raw MID passthrough.
+    if name.starts_with("/m/") || name.starts_with("/g/") {
+        // We can't return name directly (wrong lifetime), so search the table.
+        // If not in table, the caller already has a raw MID — return it as-is
+        // by leaking is not ideal; instead document that raw MIDs bypass lookup.
+        // We handle this in the CLI layer instead (see cmd_explore).
+        return None; // sentinel: CLI handles raw MIDs before calling this fn
+    }
+
+    let lower = name.to_lowercase();
+    // Static table: (alias, MID).  Multiple rows per MID = multiple aliases.
+    const TABLE: &[(&str, &str)] = &[
+        // Outdoors
+        ("outdoors", Interest::OUTDOORS),
+        ("nature", Interest::OUTDOORS),
+        ("outdoor", Interest::OUTDOORS),
+        // Beaches
+        ("beaches", Interest::BEACHES),
+        ("beach", Interest::BEACHES),
+        ("coast", Interest::BEACHES),
+        ("coastal", Interest::BEACHES),
+        // Museums
+        ("museums", Interest::MUSEUMS),
+        ("museum", Interest::MUSEUMS),
+        ("art", Interest::MUSEUMS),
+        // History
+        ("history", Interest::HISTORY),
+        ("culture", Interest::HISTORY),
+        ("historical", Interest::HISTORY),
+        ("heritage", Interest::HISTORY),
+        // Skiing
+        ("skiing", Interest::SKIING),
+        ("ski", Interest::SKIING),
+        ("snowboarding", Interest::SKIING),
+        ("snow", Interest::SKIING),
+        // Climbing
+        ("climbing", Interest::CLIMBING),
+        ("rock climbing", Interest::CLIMBING),
+        ("bouldering", Interest::CLIMBING),
+        ("mountaineering", Interest::CLIMBING),
+    ];
+
+    TABLE
+        .iter()
+        .find(|(alias, _)| *alias == lower.as_str())
+        .map(|(_, mid)| *mid)
+}
+
+/// List all known interest names (canonical, one per MID).
+pub fn known_interest_names() -> &'static [&'static str] {
+    &[
+        "outdoors", "beaches", "museums", "history", "skiing", "climbing",
+    ]
+}
+
 // ---------------------------------------------------------------------------
 // Main config struct
 // ---------------------------------------------------------------------------

@@ -3,11 +3,13 @@
 //! Searches for cheap destinations from a given origin airport using the
 //! Google Flights Explore (GetExploreDestinations) endpoint.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::{Parser, ValueEnum};
 use gflights::parsers::common::{Location, PlaceType, TravelClass};
 use gflights::requests::api::ApiClient;
-use gflights::requests::config::explore::{ExploreConfig, ExploreDate, ExploreDuration, Interest};
+use gflights::requests::config::explore::{
+    known_interest_names, mid_from_name, ExploreConfig, ExploreDate, ExploreDuration,
+};
 use gflights::requests::config::Currency;
 
 use super::OutputFormat;
@@ -38,30 +40,33 @@ impl From<DurationArg> for ExploreDuration {
 }
 
 // ---------------------------------------------------------------------------
-// Interest value for clap
+// Interest resolution
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum InterestArg {
-    Outdoors,
-    Beaches,
-    Museums,
-    History,
-    Skiing,
-    Climbing,
-}
-
-impl InterestArg {
-    fn to_mid(self) -> &'static str {
-        match self {
-            InterestArg::Outdoors => Interest::OUTDOORS,
-            InterestArg::Beaches => Interest::BEACHES,
-            InterestArg::Museums => Interest::MUSEUMS,
-            InterestArg::History => Interest::HISTORY,
-            InterestArg::Skiing => Interest::SKIING,
-            InterestArg::Climbing => Interest::CLIMBING,
-        }
+/// Resolve `--interest` value to a Knowledge-Graph MID.
+///
+/// Accepts:
+/// - Raw MIDs (`/m/…` or `/g/…`) → passed through as-is
+/// - Known names / aliases (case-insensitive) → looked up in table
+///
+/// Returns an error with a helpful message when the value is unrecognised.
+fn resolve_interest(raw: &str) -> Result<String> {
+    // Raw MID passthrough.
+    if raw.starts_with("/m/") || raw.starts_with("/g/") {
+        return Ok(raw.to_string());
     }
+
+    if let Some(mid) = mid_from_name(raw) {
+        return Ok(mid.to_string());
+    }
+
+    let names = known_interest_names().join(", ");
+    bail!(
+        "unknown interest {:?}\n\
+         Known names: {names}\n\
+         Or pass a raw Knowledge-Graph MID, e.g. --interest /m/01rwk",
+        raw
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -87,9 +92,10 @@ pub struct ExploreArgs {
     #[arg(long)]
     pub budget: Option<i32>,
 
-    /// Interest category to filter destinations.
+    /// Interest category: known name (beaches, climbing, …), alias (beach,
+    /// rock climbing, …), or a raw Knowledge-Graph MID (/m/… or /g/…).
     #[arg(long)]
-    pub interest: Option<InterestArg>,
+    pub interest: Option<String>,
 
     /// Maximum one-way flight time in hours.
     #[arg(long = "max-flight-hours")]
@@ -152,7 +158,8 @@ pub async fn cmd_explore(args: ExploreArgs, client: &ApiClient) -> Result<()> {
         (carry_on, checked) => Some((carry_on.unwrap_or(0), checked.unwrap_or(0))),
     };
 
-    let interest = args.interest.map(|i| i.to_mid().to_string());
+    // Resolve --interest to a MID (or bail with a helpful error).
+    let interest = args.interest.as_deref().map(resolve_interest).transpose()?;
 
     let config = ExploreConfig {
         origin: vec![origin],
