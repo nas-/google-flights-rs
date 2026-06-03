@@ -329,8 +329,14 @@ pub struct ExploreResult {
     pub lng: f64,
     /// URL of a cover photo, or ``None``.
     pub image_url: Option<String>,
-    /// IATA code of the nearest airport.
+    /// IATA code of the nearest airport to the destination (geographic label).
     pub nearest_airport: String,
+    /// IATA code of the airport the priced flight actually lands at, or ``None``.
+    ///
+    /// Prefer this over ``nearest_airport`` when booking or displaying to users —
+    /// they can differ when Google prices a flight to a secondary airport
+    /// (e.g. ``nearest_airport="NCE"`` but ``flight_airport="MRS"``).
+    pub flight_airport: Option<String>,
     /// Earliest outbound departure date as ``"YYYY-MM-DD"``, or ``None``.
     pub date_from: Option<String>,
     /// Latest return date as ``"YYYY-MM-DD"``, or ``None``.
@@ -995,6 +1001,7 @@ impl GFlights {
                                 lng: r.coords.1,
                                 image_url: r.image_url,
                                 nearest_airport: r.nearest_airport,
+                                flight_airport: r.flight_airport,
                                 date_from: r.date_from.map(|d| d.to_string()),
                                 date_to: r.date_to.map(|d| d.to_string()),
                                 price: r.price,

@@ -166,7 +166,7 @@ pub fn parse_explore_response(raw: &str) -> Result<Vec<ExploreResult>> {
                     }
                 }
 
-                // [6] = ["airline_code", "airline_name", stops, duration_mins, ...]
+                // [6] = ["airline_code", "airline_name", stops, duration_mins, null, "dest_iata", ...]
                 if let Some(flight_detail) = get_idx::<Vec<Value>>(entry_arr, 6) {
                     dest.airline = get_idx(&flight_detail, 0);
                     if let Some(s) = get_idx::<i64>(&flight_detail, 2) {
@@ -175,6 +175,8 @@ pub fn parse_explore_response(raw: &str) -> Result<Vec<ExploreResult>> {
                     if let Some(d) = get_idx::<i64>(&flight_detail, 3) {
                         dest.flight_duration_minutes = Some(d.max(0) as u32);
                     }
+                    // [5] = actual destination airport IATA (may differ from nearest_airport)
+                    dest.flight_airport = get_idx(&flight_detail, 5);
                 }
 
                 // [15] = [[null, accommodation_price_nightly]]
@@ -249,6 +251,7 @@ fn parse_destination_entry(v: Value) -> Result<ExploreResult> {
         coords,
         image_url,
         nearest_airport,
+        flight_airport: None, // filled in from chunk 2 [6][5]
         date_from,
         date_to,
         price: None,

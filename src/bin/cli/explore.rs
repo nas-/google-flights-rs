@@ -275,7 +275,7 @@ pub async fn cmd_explore(args: ExploreArgs, client: &ApiClient) -> Result<()> {
                     "{:<20}  {:<12}  {:<5}  {:>6}  {:<8}  {:>5}  {}",
                     truncate(&r.name, 20),
                     truncate(&r.country, 12),
-                    r.nearest_airport,
+                    r.flight_airport.as_deref().unwrap_or(&r.nearest_airport),
                     price_str,
                     airline_str,
                     stops_str,
