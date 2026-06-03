@@ -2,6 +2,19 @@
 
 from typing import Optional
 
+class GFlightsError(Exception):
+    """Exception raised by all gflights API methods on network or parse errors.
+
+    Catch this to handle errors without matching on :exc:`RuntimeError` or
+    :exc:`ValueError`::
+
+        try:
+            flights = await client.search(...)
+        except gflights.GFlightsError as e:
+            print(f"search failed: {e}")
+    """
+    ...
+
 class LegInfo:
     from_airport: str
     to_airport: str

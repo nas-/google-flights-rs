@@ -33,6 +33,7 @@ from gflights._gflights import (  # noqa: F401
     ExploreResult,
     FlightResult,
     GFlights,
+    GFlightsError,
     LayoverInfo,
     LegInfo,
     PriceEntry,
@@ -41,6 +42,7 @@ from gflights._types import SortOrder, StopFilter, TravelClass  # noqa: F401
 
 __all__ = [
     "GFlights",
+    "GFlightsError",
     "FlightResult",
     "LegInfo",
     "LayoverInfo",

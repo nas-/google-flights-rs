@@ -94,8 +94,14 @@ fn parse_airline_filters(list: &[String]) -> PyResult<Vec<AirlineFilter>> {
         .collect()
 }
 
+// ---------------------------------------------------------------------------
+// GFlightsError — typed exception raised by all API methods
+// ---------------------------------------------------------------------------
+
+pyo3::create_exception!(_gflights, GFlightsError, pyo3::exceptions::PyException);
+
 fn anyhow_to_py(e: anyhow::Error) -> PyErr {
-    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+    GFlightsError::new_err(e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -1135,5 +1141,6 @@ fn _gflights(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DateGridEntry>()?;
     m.add_class::<CheapDate>()?;
     m.add_class::<ExploreResult>()?;
+    m.add("GFlightsError", m.py().get_type::<GFlightsError>())?;
     Ok(())
 }
