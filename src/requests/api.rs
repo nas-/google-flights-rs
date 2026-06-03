@@ -6,6 +6,7 @@ use crate::requests::config::explore::ExploreResult;
 use crate::requests::config::{Config, ExploreConfig, MultiCityConfig, TripType};
 use anyhow::Result;
 use chrono::{Duration, Months, NaiveDate};
+use futures::StreamExt as _;
 use governor::{DefaultDirectRateLimiter, Quota};
 use parsers::calendar_graph_request::GraphRequestOptions;
 use parsers::calendar_graph_response::GraphRawResponseContainer;
@@ -309,17 +310,20 @@ impl ApiClient {
             "date grid too large, splitting into parallel chunks"
         );
 
-        // Launch all chunks concurrently. The shared rate-limiter (token bucket,
-        // 10 req/s) inside `do_request` acts as the natural throttle — requests
-        // queue up and fire as tokens become available without any artificial
-        // batching delay.
-        let results: Vec<Result<DateGridResponse>> =
-            futures::future::join_all(chunks.into_iter().map(
-                |(dep_s, dep_e, ret_s, ret_e)| async move {
-                    self.request_date_grid_chunk(args, dep_s, dep_e, ret_s, ret_e)
-                        .await
-                },
-            ))
+        // Run all chunks with bounded concurrency.  The rate-limiter inside
+        // `do_request` gates the send rate (10 req/s), but it does not cap how
+        // many responses are simultaneously awaited.  With 5 s average latency
+        // and 10 req/s throughput, uncapped concurrency would open ~50
+        // connections at peak — enough for Google to send EOF mid-stream.
+        // `buffer_unordered(8)` keeps at most 8 connections in-flight at once.
+        const MAX_CONCURRENT: usize = 8;
+        let results: Vec<Result<DateGridResponse>> = futures::stream::iter(chunks)
+            .map(|(dep_s, dep_e, ret_s, ret_e)| async move {
+                self.request_date_grid_chunk(args, dep_s, dep_e, ret_s, ret_e)
+                    .await
+            })
+            .buffer_unordered(MAX_CONCURRENT)
+            .collect()
             .await;
 
         let mut all_entries = Vec::new();
@@ -371,17 +375,36 @@ impl ApiClient {
             &self.frontend_version,
         );
 
-        let body = self
-            .do_request(
-                &req_options,
-                Some(args.currency.clone()),
-                &args.language,
-                &args.country,
-            )
-            .await?
-            .text()
-            .await?;
-        parse_date_grid_response(&body)
+        // Retry the full request on body-read errors (e.g. unexpected EOF from
+        // a forcibly-closed connection).  `do_request` retries transport/5xx
+        // errors but returns a `Response` handle before the body is streamed,
+        // so body-read failures need their own retry here.
+        let max_attempts = self.retry_config.max_attempts.max(1);
+        let mut last_err: anyhow::Error = anyhow::anyhow!("all body-read attempts exhausted");
+        for attempt in 0..max_attempts {
+            if attempt > 0 {
+                let delay_ms = (self.retry_config.base_delay_ms * (1u64 << (attempt - 1).min(30)))
+                    .min(self.retry_config.cap_delay_ms);
+                tracing::debug!(attempt, delay_ms, "body read error — retrying chunk");
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
+            let res = self
+                .do_request(
+                    &req_options,
+                    Some(args.currency.clone()),
+                    &args.language,
+                    &args.country,
+                )
+                .await?;
+            match res.text().await {
+                Ok(body) => return parse_date_grid_response(&body),
+                Err(e) => {
+                    tracing::warn!(attempt, error = %e, "body read failed for date-grid chunk");
+                    last_err = e.into();
+                }
+            }
+        }
+        Err(last_err)
     }
 
     /// Sends a request to retrieve flight data.
