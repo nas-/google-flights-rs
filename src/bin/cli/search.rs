@@ -42,6 +42,14 @@ pub struct SearchArgs {
     /// May be repeated for multiple airports.
     #[arg(long = "via")]
     pub connecting_airports: Vec<String>,
+
+    /// Show a CO₂ emissions column (kg per passenger).
+    #[arg(long = "show-co2")]
+    pub show_co2: bool,
+
+    /// Show detailed info: layover airports and +1 marker for next-day arrivals.
+    #[arg(long)]
+    pub detail: bool,
 }
 
 pub async fn cmd_search(args: SearchArgs, client: &ApiClient) -> Result<()> {
@@ -108,11 +116,20 @@ pub async fn cmd_search(args: SearchArgs, client: &ApiClient) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&flights)?);
         }
         OutputFormat::Table => {
-            println!(
-                "{:<8}  {:>6}  {:>5}  {:>5}  ROUTE",
-                "AIRLINE", "PRICE", "STOPS", "MINS"
-            );
-            println!("{}", "-".repeat(60));
+            // Build header dynamically depending on flags.
+            if args.show_co2 {
+                println!(
+                    "{:<8}  {:>6}  {:>5}  {:>5}  {:>7}  ROUTE",
+                    "AIRLINE", "PRICE", "STOPS", "MINS", "CO2(kg)"
+                );
+            } else {
+                println!(
+                    "{:<8}  {:>6}  {:>5}  {:>5}  ROUTE",
+                    "AIRLINE", "PRICE", "STOPS", "MINS"
+                );
+            }
+            println!("{}", "-".repeat(if args.show_co2 { 70 } else { 60 }));
+
             for f in &flights {
                 let price = f
                     .itinerary_cost
@@ -132,15 +149,61 @@ pub async fn cmd_search(args: SearchArgs, client: &ApiClient) -> Result<()> {
                     .last()
                     .map(|d| d.destination_airport_code.as_str())
                     .unwrap_or("?");
-                println!(
-                    "{:<8}  {:>6}  {:>5}  {:>5}  {}→{}",
-                    f.itinerary.flight_by,
-                    price,
-                    f.itinerary.stop_count(),
-                    f.itinerary.total_time_minutes,
-                    from,
-                    to,
-                );
+
+                // "+1" marker when the final leg arrives the calendar day after departure.
+                let next_day = if args.detail && f.itinerary.arrives_next_day() {
+                    " +1"
+                } else {
+                    ""
+                };
+
+                let route = format!("{}→{}{}", from, to, next_day);
+
+                if args.show_co2 {
+                    let co2_str = f
+                        .itinerary
+                        .emissions
+                        .as_ref()
+                        .and_then(|e| e.co2_this_flight_g)
+                        .map(|g| format!("{}", g / 1000))
+                        .unwrap_or_else(|| "—".into());
+                    println!(
+                        "{:<8}  {:>6}  {:>5}  {:>5}  {:>7}  {}",
+                        f.itinerary.flight_by,
+                        price,
+                        f.itinerary.stop_count(),
+                        f.itinerary.total_time_minutes,
+                        co2_str,
+                        route,
+                    );
+                } else {
+                    println!(
+                        "{:<8}  {:>6}  {:>5}  {:>5}  {}",
+                        f.itinerary.flight_by,
+                        price,
+                        f.itinerary.stop_count(),
+                        f.itinerary.total_time_minutes,
+                        route,
+                    );
+                }
+
+                // Detail row: layover airports for multi-stop itineraries.
+                if args.detail {
+                    if let Some(conns) = &f.itinerary.connection_info {
+                        if !conns.is_empty() {
+                            let via_parts: Vec<String> = conns
+                                .iter()
+                                .map(|c| {
+                                    format!(
+                                        "{} ({} min)",
+                                        c.arrival_airport, c.connection_time_minutes
+                                    )
+                                })
+                                .collect();
+                            println!("             via {}", via_parts.join(" → "));
+                        }
+                    }
+                }
             }
         }
     }
