@@ -2,6 +2,19 @@
 
 from typing import Optional
 
+class GFlightsError(Exception):
+    """Exception raised by all gflights API methods on network or parse errors.
+
+    Catch this to handle errors without matching on :exc:`RuntimeError` or
+    :exc:`ValueError`::
+
+        try:
+            flights = await client.search(...)
+        except gflights.GFlightsError as e:
+            print(f"search failed: {e}")
+    """
+    ...
+
 class LegInfo:
     from_airport: str
     to_airport: str
@@ -152,12 +165,9 @@ class GFlights:
         adults: int = ...,
         travel_class: str = ...,
         sort: str = ...,
-<<<<<<< HEAD
         max_price: Optional[int] = ...,
         carry_on: int = ...,
         checked_bags: int = ...,
-=======
->>>>>>> feat/multi-city
         currency: str = ...,
         lang: str = ...,
         country: str = ...,
@@ -165,7 +175,6 @@ class GFlights:
         """Multi-city (open-jaw) search. Each leg is ``(from, to, "YYYY-MM-DD")``."""
         ...
 
-<<<<<<< HEAD
     async def explore(
         self,
         from_airport: str,
@@ -207,7 +216,5 @@ class GFlights:
         """
         ...
 
-=======
->>>>>>> feat/multi-city
     def reset_rate_limit(self) -> None: ...
     def __repr__(self) -> str: ...

@@ -71,3 +71,33 @@ async def test_date_grid_bad_dep_start_raises(client):
 async def test_price_graph_bad_date_raises(client):
     with pytest.raises(ValueError, match="invalid date"):
         client.price_graph(from_airport="LHR", to_airport="JFK", date="2026/08/01")
+
+
+# ---------------------------------------------------------------------------
+# GFlightsError — typed exception class tests
+# ---------------------------------------------------------------------------
+
+def test_gflights_error_is_importable():
+    """GFlightsError must be accessible at the top-level gflights package."""
+    assert hasattr(gflights, "GFlightsError"), "gflights.GFlightsError not found"
+
+
+def test_gflights_error_is_exception_subclass():
+    """GFlightsError must be catchable as a plain Exception."""
+    assert issubclass(gflights.GFlightsError, Exception)
+
+
+def test_gflights_error_can_be_raised_and_caught():
+    """GFlightsError can be raised and caught like any other exception."""
+    with pytest.raises(gflights.GFlightsError, match="test"):
+        raise gflights.GFlightsError("test")
+
+
+def test_gflights_error_is_not_value_error():
+    """GFlightsError is distinct from ValueError (not a subclass)."""
+    assert not issubclass(gflights.GFlightsError, ValueError)
+
+
+def test_gflights_error_is_not_runtime_error():
+    """GFlightsError is distinct from RuntimeError (not a subclass)."""
+    assert not issubclass(gflights.GFlightsError, RuntimeError)
