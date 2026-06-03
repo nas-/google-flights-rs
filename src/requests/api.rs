@@ -585,13 +585,13 @@ impl ApiClient {
     ///
     /// # Example
     /// ```no_run
-    /// # tokio_test::block_on(async {
+    /// # async fn example() -> anyhow::Result<()> {
     /// use gflights::requests::api::ApiClient;
     /// use gflights::parsers::common::{Location, PlaceType};
     /// use gflights::requests::config::Config;
     /// use chrono::{Months, NaiveDate};
     ///
-    /// let client = ApiClient::new();
+    /// let client = ApiClient::new().await;
     /// let config = Config::builder()
     ///     .departure_location(Location {
     ///         loc_identifier: "LUX".into(),
@@ -604,15 +604,15 @@ impl ApiClient {
     ///         location_name: None,
     ///     })
     ///     .departing_date(NaiveDate::from_ymd_opt(2026, 9, 1).unwrap())
-    ///     .build()
-    ///     .unwrap();
+    ///     .build()?;
     ///
     /// // Cheapest one-way days over the next 3 months
-    /// let oneway = client.cheapest_dates(&config, Months::new(3), None).await.unwrap();
+    /// let oneway = client.cheapest_dates(&config, Months::new(3), None).await?;
     ///
     /// // Cheapest 7-night round trips over the next 3 months
-    /// let roundtrip = client.cheapest_dates(&config, Months::new(3), Some(7)).await.unwrap();
-    /// # });
+    /// let roundtrip = client.cheapest_dates(&config, Months::new(3), Some(7)).await?;
+    /// # Ok(())
+    /// # }
     /// ```
     #[tracing::instrument(skip_all)]
     pub async fn cheapest_dates(
