@@ -309,8 +309,15 @@ pub struct ExploreResult {
     pub coords: (f64, f64),
     /// URL of a cover photo (if available).
     pub image_url: Option<String>,
-    /// IATA code of the nearest airport.
+    /// IATA code of the nearest airport to the destination (geographic label).
     pub nearest_airport: String,
+    /// IATA code of the airport the priced flight actually lands at.
+    ///
+    /// For multi-airport cities this often differs from [`Self::nearest_airport`]:
+    /// e.g. Verdon Gorge has `nearest_airport = "NCE"` but cheap Ryanair flights
+    /// land at `flight_airport = "MRS"`.  Prefer this field when booking or when
+    /// showing the user which airport to fly into.
+    pub flight_airport: Option<String>,
     /// Earliest available outbound departure date.
     pub date_from: Option<chrono::NaiveDate>,
     /// Latest available return date (round-trip) or arrival date (one-way).

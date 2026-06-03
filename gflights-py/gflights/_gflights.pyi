@@ -70,6 +70,7 @@ class ExploreResult:
     lng: float
     image_url: Optional[str]
     nearest_airport: str
+    flight_airport: Optional[str]
     date_from: Optional[str]
     date_to: Optional[str]
     price: Optional[int]
