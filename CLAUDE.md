@@ -85,6 +85,29 @@ If coverage drops below 80%, add tests before merging.
 
 ---
 
+## Examples parity rule
+
+Every public-facing feature must have a corresponding example in `examples/`.
+
+| Feature | Example file |
+|---|---|
+| Flight search + offers + booking URL | `examples/flights.rs` |
+| Price graph | `examples/graph.rs` |
+| Date grid | `examples/date_grid.rs` |
+| Cheapest dates (one-way + round-trip) | `examples/cheapest_dates.rs` |
+| Booking offers + URL resolution | `examples/offer.rs` |
+| Multi-city search | `examples/multi_city.rs` |
+| Explore destinations | `examples/explore.rs` |
+
+When adding a new public API method, add or update the relevant example. All examples guard network calls behind `RUN_LIVE=1` so `cargo test --examples` passes offline.
+
+```sh
+cargo build --examples                   # must compile clean
+RUN_LIVE=1 cargo run --example <name>    # smoke-test with network
+```
+
+---
+
 ## Python bindings parity rule
 
 Whenever `src/` (the Rust crate) changes, update `gflights-py/` to match:
