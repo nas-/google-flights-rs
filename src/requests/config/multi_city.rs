@@ -50,9 +50,9 @@ impl Default for LegFilters {
 /// A single leg in a multi-city itinerary.
 #[derive(Debug, Clone)]
 pub struct MultiCityLeg {
-    /// One to four origin airports / city identifiers.
+    /// One to seven origin airports / city identifiers.
     pub from: Vec<Location>,
-    /// One to four destination airports / city identifiers.
+    /// One to seven destination airports / city identifiers.
     pub to: Vec<Location>,
     pub date: NaiveDate,
     // Per-leg filters — default to "unrestricted".

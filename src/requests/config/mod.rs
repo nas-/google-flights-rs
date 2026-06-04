@@ -32,15 +32,15 @@ pub enum TripType {
 
 /// The `Config` struct is used to specify the options for a flight search.
 ///
-/// `departure` and `destination` each hold 1–4 airports.  When multiple
+/// `departure` and `destination` each hold 1–7 airports.  When multiple
 /// airports are supplied Google Flights treats them as "any of these" for
 /// that end of the journey (e.g. all London-area airports as the origin).
 #[derive(Debug, Clone)]
 pub struct Config {
     pub departing_date: NaiveDate,
-    /// One to four departure airports / city identifiers.
+    /// One to seven departure airports / city identifiers.
     pub departure: Vec<Location>,
-    /// One to four destination airports / city identifiers.
+    /// One to seven destination airports / city identifiers.
     pub destination: Vec<Location>,
     pub stop_options: StopOptions,
     pub travel_class: TravelClass,
@@ -429,43 +429,57 @@ mod tests {
     // Multi-airport unit tests
     // -----------------------------------------------------------------------
 
-    #[test]
-    fn builder_accumulates_airports_up_to_four() {
-        let lhr = Location {
-            loc_identifier: "LHR".to_owned(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        };
-        let lgw = Location {
-            loc_identifier: "LGW".to_owned(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        };
-        let stn = Location {
-            loc_identifier: "STN".to_owned(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        };
-        let ltn = Location {
-            loc_identifier: "LTN".to_owned(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        };
-        let jfk = Location {
-            loc_identifier: "JFK".to_owned(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        };
+    /// Helper: build a list of airport [`Location`]s from IATA codes.
+    fn airports(codes: &[&str]) -> Vec<Location> {
+        codes
+            .iter()
+            .map(|c| Location {
+                loc_identifier: (*c).to_owned(),
+                loc_type: PlaceType::Airport,
+                location_name: None,
+            })
+            .collect()
+    }
 
+    #[test]
+    fn builder_accumulates_airports_up_to_seven() {
+        // Google Flights accepts up to 7 airports per side.
         let config = Config {
             departing_date: future_date(30),
-            departure: vec![lhr, lgw, stn, ltn],
-            destination: vec![jfk],
+            departure: airports(&["LHR", "LGW", "STN", "LTN", "LCY", "SEN", "BHX"]),
+            destination: airports(&["JFK"]),
             trip_type: TripType::OneWay,
             ..Default::default()
         };
-        assert_eq!(config.departure.len(), 4);
+        assert_eq!(config.departure.len(), 7);
         assert_eq!(config.destination.len(), 1);
+    }
+
+    #[test]
+    fn multi_departure_produces_seven_proto_entries() {
+        let codes = ["LHR", "LGW", "STN", "LTN", "LCY", "SEN", "BHX"];
+        let config = Config {
+            departing_date: future_date(30),
+            departure: airports(&codes),
+            destination: airports(&["JFK"]),
+            trip_type: TripType::OneWay,
+            ..Default::default()
+        };
+        let legs: Vec<protos::urls::Leg> = (&config).into();
+        assert_eq!(legs.len(), 1);
+        assert_eq!(
+            legs[0].departure.len(),
+            7,
+            "all seven origin airports should appear as separate proto entries"
+        );
+        let got: Vec<&str> = legs[0]
+            .departure
+            .iter()
+            .map(|l| l.place_name.as_str())
+            .collect();
+        for c in codes {
+            assert!(got.contains(&c), "missing {c} in proto entries");
+        }
     }
 
     #[test]
