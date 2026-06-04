@@ -3,6 +3,10 @@
 debug/
 target/
 
+# Python virtualenvs and built wheels (maturin)
+.venv/
+dist/
+
 # Cargo.lock is committed: this crate ships a binary, so pinning deps matters.
 # https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
 

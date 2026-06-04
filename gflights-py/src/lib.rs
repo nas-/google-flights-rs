@@ -475,9 +475,17 @@ impl GFlights {
     ///
     /// The constructor is synchronous (fast — just initialises the HTTP client).
     /// All search methods are async coroutines.
+    ///
+    /// :param user_agent: Override the User-Agent header. By default a real
+    ///                    desktop browser string is chosen from a rotating pool
+    ///                    per client, so traffic is not trivially fingerprinted.
     #[new]
-    fn new() -> Self {
-        let client = pyo3_async_runtimes::tokio::get_runtime().block_on(ApiClient::new());
+    #[pyo3(signature = (user_agent = None))]
+    fn new(user_agent: Option<String>) -> Self {
+        let mut client = pyo3_async_runtimes::tokio::get_runtime().block_on(ApiClient::new());
+        if let Some(ua) = user_agent {
+            client = client.with_user_agent(ua);
+        }
         GFlights { client }
     }
 

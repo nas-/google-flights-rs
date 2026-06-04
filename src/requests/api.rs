@@ -96,6 +96,10 @@ pub struct ApiClient {
     rate_limited: Arc<AtomicBool>,
     /// Retry policy for transient server errors and timeouts.
     retry_config: RetryConfig,
+    /// User-Agent sent with every request. Chosen from a rotating pool at
+    /// construction (see [`pick_user_agent`]) or overridden via
+    /// [`ApiClient::with_user_agent`].
+    user_agent: String,
 }
 
 impl ApiClient {
@@ -110,7 +114,9 @@ impl ApiClient {
     pub async fn new_with_ratelimit(rate_limiter_quota: Quota) -> Self {
         let rate_limiter: Arc<DefaultDirectRateLimiter> =
             Arc::new(DefaultDirectRateLimiter::direct(rate_limiter_quota));
-        let frontend_version = get_frontend_version().await;
+        let user_agent = pick_user_agent().to_string();
+        tracing::debug!(%user_agent, "selected User-Agent for client");
+        let frontend_version = get_frontend_version(&user_agent).await;
 
         Self {
             rate_limiter,
@@ -119,6 +125,7 @@ impl ApiClient {
                 .unwrap_or("boq_travel-frontend-flights-ui_20260527.01_p0".into()),
             rate_limited: Arc::new(AtomicBool::new(false)),
             retry_config: RetryConfig::default(),
+            user_agent,
         }
     }
 
@@ -134,6 +141,30 @@ impl ApiClient {
     pub fn with_retry_config(mut self, retry_config: RetryConfig) -> Self {
         self.retry_config = retry_config;
         self
+    }
+
+    /// Overrides the User-Agent header for this client.
+    ///
+    /// By default a User-Agent is chosen from a small rotating pool of real
+    /// desktop browser strings at construction time, so traffic from repeated
+    /// client creation is not trivially fingerprintable by a single static
+    /// value. Use this to pin a specific User-Agent instead.
+    ///
+    /// ```rust
+    /// # use gflights::requests::api::ApiClient;
+    /// # async fn example() {
+    /// let client = ApiClient::new().await
+    ///     .with_user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0");
+    /// # }
+    /// ```
+    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
+        self.user_agent = user_agent.into();
+        self
+    }
+
+    /// Returns the User-Agent this client sends with every request.
+    pub fn user_agent(&self) -> &str {
+        &self.user_agent
     }
 
     /// Returns `true` if this client has been halted by a 429 response.
@@ -759,7 +790,7 @@ impl ApiClient {
             .client
             .post(&url)
             .body(body)
-            .headers(get_headers(None, "en", "GB")?)
+            .headers(get_headers(None, "en", "GB", &self.user_agent)?)
             .send()
             .await?
             .text()
@@ -804,7 +835,8 @@ impl ApiClient {
         }
 
         let req_payload = options.to_request_body()?;
-        let headers = get_headers(currency, language, country)?;
+        tracing::debug!(user_agent = %self.user_agent, "outgoing request User-Agent");
+        let headers = get_headers(currency, language, country, &self.user_agent)?;
 
         let decoded_body = percent_encoding::percent_decode_str(&req_payload.body)
             .decode_utf8_lossy()
@@ -902,12 +934,45 @@ impl ApiClient {
     }
 }
 
-/// Static base headers shared by all requests.
+/// Fallback User-Agent used if a supplied override is not a valid header value
+/// (in practice never, since real User-Agent strings are ASCII).
+const DEFAULT_USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0";
+
+/// Pool of real desktop browser User-Agent strings spanning several
+/// browser/OS combinations. One is chosen per [`ApiClient`] construction so a
+/// single static User-Agent does not fingerprint all traffic from this client.
+const USER_AGENTS: &[&str] = &[
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:126.0) Gecko/20100101 Firefox/126.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+];
+
+/// Picks a User-Agent from [`USER_AGENTS`] using a cheap time-seeded index.
+///
+/// No external RNG dependency is needed: the sub-second nanosecond component of
+/// the wall clock at construction time has enough entropy to vary the choice
+/// across separately-constructed clients.
+fn pick_user_agent() -> &'static str {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let idx = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as usize)
+        .unwrap_or(0)
+        % USER_AGENTS.len();
+    USER_AGENTS[idx]
+}
+
+/// Static base headers shared by all requests, with the given User-Agent.
 ///
 /// Note: `x-goog-batchexecute-bgr` is intentionally omitted — its value is
 /// difficult to reverse-engineer and its absence only slightly reduces result
 /// accuracy.
-fn base_headers() -> HeaderMap {
+fn base_headers(user_agent: &str) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(
         reqwest::header::ACCEPT_LANGUAGE,
@@ -927,9 +992,8 @@ fn base_headers() -> HeaderMap {
     );
     headers.insert(
         reqwest::header::USER_AGENT,
-        HeaderValue::from_static(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        ),
+        HeaderValue::from_str(user_agent)
+            .unwrap_or_else(|_| HeaderValue::from_static(DEFAULT_USER_AGENT)),
     );
     headers.insert(reqwest::header::ACCEPT, HeaderValue::from_static("*/*"));
     headers
@@ -941,8 +1005,13 @@ fn base_headers() -> HeaderMap {
 /// Returns an error if the formatted header string contains characters that
 /// are not valid as an HTTP header value (in practice this never occurs since
 /// all [`Currency`] codes and locale tags are plain ASCII).
-fn get_headers(currency: Option<Currency>, language: &str, country: &str) -> Result<HeaderMap> {
-    let mut headers = base_headers();
+fn get_headers(
+    currency: Option<Currency>,
+    language: &str,
+    country: &str,
+    user_agent: &str,
+) -> Result<HeaderMap> {
+    let mut headers = base_headers(user_agent);
     if let Some(currency) = currency {
         let country_upper = country.to_uppercase();
         let currency_header = format!(
@@ -960,9 +1029,9 @@ fn get_headers(currency: Option<Currency>, language: &str, country: &str) -> Res
 }
 
 /// Retrieves the frontend version from the Google Flights website.
-async fn get_frontend_version() -> Option<String> {
+async fn get_frontend_version(user_agent: &str) -> Option<String> {
     let client = Client::new();
-    let headers = base_headers(); // no currency header needed for the version fetch
+    let headers = base_headers(user_agent); // no currency header needed for the version fetch
     let url = FLIGHTS_MAIN_PAGE.to_string();
     let res = client.get(&url).headers(headers).send().await.ok()?;
 
@@ -1028,6 +1097,7 @@ mod tests {
             frontend_version: "test".into(),
             rate_limited: Arc::new(AtomicBool::new(false)),
             retry_config: RetryConfig::default(),
+            user_agent: pick_user_agent().to_string(),
         }
     }
 
@@ -1035,6 +1105,34 @@ mod tests {
     fn not_rate_limited_by_default() {
         let client = make_client();
         assert!(!client.is_rate_limited());
+    }
+
+    #[test]
+    fn pick_user_agent_is_from_pool() {
+        assert!(USER_AGENTS.contains(&pick_user_agent()));
+    }
+
+    #[test]
+    fn user_agent_pool_is_nonempty_and_valid_headers() {
+        assert!(!USER_AGENTS.is_empty());
+        for ua in USER_AGENTS {
+            assert!(
+                HeaderValue::from_str(ua).is_ok(),
+                "User-Agent is not a valid header value: {ua}"
+            );
+        }
+    }
+
+    #[test]
+    fn with_user_agent_overrides_and_getter_reflects_it() {
+        let client = make_client().with_user_agent("Custom-UA/1.0");
+        assert_eq!(client.user_agent(), "Custom-UA/1.0");
+    }
+
+    #[test]
+    fn default_client_user_agent_is_from_pool() {
+        let client = make_client();
+        assert!(USER_AGENTS.contains(&client.user_agent()));
     }
 
     #[test]

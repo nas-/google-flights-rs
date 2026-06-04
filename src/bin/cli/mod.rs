@@ -46,6 +46,11 @@ pub enum OutputFormat {
 #[derive(Parser, Debug)]
 #[command(name = "gflights", version, about, long_about = None)]
 pub struct Cli {
+    /// Override the User-Agent header (default: a random real desktop browser
+    /// string chosen per run).
+    #[arg(long, global = true)]
+    pub user_agent: Option<String>,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Rotating User-Agent pool** — each `ApiClient` now selects a real desktop
+  browser User-Agent from a pool at construction instead of sending one fixed
+  string, reducing trivial fingerprinting. Override with
+  `ApiClient::with_user_agent(...)`, the CLI `--user-agent` flag, or the Python
+  `GFlights(user_agent=...)` argument. New `ApiClient::user_agent()` getter.
+
 ---
 
 ## [0.2.1] — 2026-06-04
