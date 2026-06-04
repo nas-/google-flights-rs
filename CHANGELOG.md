@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.0] — 2026-06-03
+## [0.2.0] — 2026-06-04
 
 ### Added
 
@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with per-chunk body-read retry on EOF, reducing round-trip scan time from ~10 min to ~30 s.
 - **Multi-city (open-jaw) search** — `MultiCityConfig::builder()` with per-leg
   `max_price`, `carry_on`, `checked_bags` filters.
+- **Up to 7 airports per side** — `departure` / `destination` (and each multi-city
+  leg) now accept up to 7 origin/destination airports, matching Google's maximum
+  (previously capped at 4).
 - **Arrives-next-day detection** — `Itinerary::arrives_next_day()`, `arrival_date()`,
   `departure_date()` derived from raw date fields.
 - **`max_price` filter** on `Config` and `MultiCityConfig`.
@@ -68,6 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Python bindings (`gflights-py`)
 
 - Async Python bindings via pyo3 + maturin.
+- Wheels use the CPython **abi3** stable ABI: a single wheel per platform works
+  on CPython 3.10+.
 - `GFlights` class with methods: `search`, `price_graph`, `date_grid`,
   `multi_city_search`, `explore`, `cheapest_dates`.
 - **`GFlightsError`** — typed exception class; all API errors now raise

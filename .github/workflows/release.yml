@@ -1,0 +1,81 @@
+name: Release
+
+# Publishes the Rust crate to crates.io and the Python package to PyPI when a
+# `v*` tag is pushed (e.g. `v0.2.0`). The crate is published first so the
+# Python sdist can resolve `gflights` from crates.io. PyPI upload uses Trusted
+# Publishing (OIDC) via the `pypi` environment — no API token stored.
+#
+# Build needs no system protoc: build.rs uses a vendored protoc binary.
+# Wheels are abi3 (one wheel per platform, CPython 3.10+).
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  crate:
+    name: Publish crate to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo publish -p gflights --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  wheels:
+    name: Wheels (${{ matrix.platform.os }} / ${{ matrix.platform.target }})
+    needs: crate
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { os: ubuntu-latest,  target: x86_64 }
+          - { os: windows-latest, target: x64 }
+          - { os: macos-13,       target: x86_64 }
+          - { os: macos-latest,   target: aarch64 }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build abi3 wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          manylinux: auto
+          args: --release --out dist -m gflights-py/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.platform.os }}-${{ matrix.platform.target }}
+          path: dist
+
+  sdist:
+    name: Build sdist
+    needs: crate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist -m gflights-py/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-sdist
+          path: dist
+
+  pypi:
+    name: Publish to PyPI
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
