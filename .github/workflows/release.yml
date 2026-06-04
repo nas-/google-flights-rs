@@ -11,6 +11,9 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Allow manual re-runs (e.g. to finish a release whose wheel/PyPI jobs failed
+  # after the crate was already published). Reads the version from Cargo.toml.
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -22,9 +25,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Publish gflights
+      - name: Publish gflights (skip if version already on crates.io)
+        # Idempotent: a manual re-run to finish wheels/PyPI must not fail here
+        # just because the crate version is already published.
         # Token is passed via env (CARGO_REGISTRY_TOKEN); `--token` is deprecated.
-        run: cargo publish -p gflights --locked
+        run: |
+          VER=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
+          if curl -fsS -H "User-Agent: gflights-release-ci" \
+               "https://crates.io/api/v1/crates/gflights/$VER" >/dev/null 2>&1; then
+            echo "gflights $VER already on crates.io — skipping publish."
+          else
+            cargo publish -p gflights --locked
+          fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -38,7 +50,8 @@ jobs:
         platform:
           - { os: ubuntu-latest,  target: x86_64 }
           - { os: windows-latest, target: x64 }
-          - { os: macos-13,       target: x86_64 }
+          # macOS arm64 only. The Intel (macos-13/x86_64) runner is scarce and
+          # being wound down; Intel-Mac users fall back to the published sdist.
           - { os: macos-latest,   target: aarch64 }
     steps:
       - uses: actions/checkout@v4
