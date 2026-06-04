@@ -25,7 +25,10 @@ use gflights::{
     parsers::common::{AirlineFilter, SortOrder, StopOptions, TravelClass},
     requests::{
         api::ApiClient,
-        config::{Config, Currency, ExploreConfig, ExploreDate, ExploreDuration, MultiCityConfig},
+        config::{
+            Config, Currency, DealConfig, ExploreConfig, ExploreDate, ExploreDuration,
+            MultiCityConfig,
+        },
     },
 };
 use pyo3::prelude::*;
@@ -367,6 +370,60 @@ impl ExploreResult {
         format!(
             "ExploreResult(name={:?}, airport={:?}, price={:?})",
             self.name, self.nearest_airport, self.price,
+        )
+    }
+}
+
+/// One discounted destination returned by :meth:`GFlights.deals`.
+#[pyclass(get_all)]
+#[derive(Clone, Debug)]
+pub struct DealResult {
+    /// Origin airport IATA code.
+    pub origin_iata: String,
+    /// Destination airport IATA code.
+    pub destination_iata: String,
+    /// Destination city name.
+    pub destination_city: String,
+    /// Destination country name.
+    pub destination_country: String,
+    /// Destination Google place MID, or ``None``.
+    pub destination_mid: Option<String>,
+    /// Outbound date as ``"YYYY-MM-DD"``, or ``None``.
+    pub outbound_date: Option<String>,
+    /// Return date as ``"YYYY-MM-DD"``, or ``None``.
+    pub return_date: Option<String>,
+    /// Deal price (round trip), or ``None``.
+    pub price: Option<i32>,
+    /// Typical price for this route, or ``None``.
+    pub typical_price: Option<i32>,
+    /// Percentage below typical price (e.g. ``68``), or ``None``.
+    pub discount_pct: Option<i32>,
+    /// Total flight duration in minutes, or ``None``.
+    pub duration_minutes: Option<u32>,
+    /// Number of stops (0 = non-stop), or ``None``.
+    pub stops: Option<u8>,
+    /// Operating airline code (``"*"`` for mixed), or ``None``.
+    pub airline_code: Option<String>,
+    /// Operating airline name, or ``None``.
+    pub airline_name: Option<String>,
+    /// Cover image URL, or ``None``.
+    pub image_url: Option<String>,
+    /// Short highlight phrases for the destination.
+    pub highlights: Vec<String>,
+    /// One-line description, or ``None``.
+    pub description: Option<String>,
+    /// Absolute Google Flights booking deep link, or ``None``.
+    pub booking_url: Option<String>,
+    /// Opaque booking token, or ``None``.
+    pub booking_token: Option<String>,
+}
+
+#[pymethods]
+impl DealResult {
+    fn __repr__(&self) -> String {
+        format!(
+            "DealResult(dest={:?}, price={:?}, off={:?}%)",
+            self.destination_city, self.price, self.discount_pct,
         )
     }
 }
@@ -1041,6 +1098,124 @@ impl GFlights {
         })
     }
 
+    /// Find discounted destinations (flight deals) from an origin.
+    ///
+    /// The ``out`` / ``ret`` pair acts as a trip-length anchor; the endpoint
+    /// returns deals of similar length across many dates.
+    ///
+    /// :param from_airport:  Origin IATA code or city name.
+    /// :param out:           Outbound date ``"YYYY-MM-DD"`` (trip-length anchor).
+    /// :param ret:           Return date ``"YYYY-MM-DD"``.
+    /// :param nonstop:       Only non-stop deals (default ``False``).
+    /// :param max_hours:     Maximum one-way flight time in hours. ``None`` = no limit.
+    /// :param adults:        Number of adult passengers (default 1).
+    /// :param travel_class:  ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
+    /// :param currency:      Currency name (e.g. ``"euro"``).
+    /// :param lang:          BCP-47 language subtag (default ``"en"``).
+    /// :param country:       ISO 3166-1 alpha-2 country code (default ``"GB"``).
+    /// :returns:             Coroutine → ``list[DealResult]``
+    #[pyo3(signature = (
+        from_airport,
+        out,
+        ret,
+        nonstop = false,
+        max_hours = None,
+        adults = 1,
+        travel_class = "economy",
+        currency = "euro",
+        lang = "en",
+        country = "GB",
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn deals<'py>(
+        &self,
+        py: Python<'py>,
+        from_airport: String,
+        out: &str,
+        ret: &str,
+        nonstop: bool,
+        max_hours: Option<u32>,
+        adults: u8,
+        travel_class: &str,
+        currency: &str,
+        lang: &str,
+        country: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let outbound_date = parse_date(out)?;
+        let return_date = parse_date(ret)?;
+        let class = parse_travel_class(travel_class)?;
+        let currency = parse_currency(currency)?;
+        let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let lang = lang.to_string();
+        let country = country.to_string();
+        let client = self.client.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let origin_loc =
+                if from_airport.len() == 3 && from_airport.chars().all(char::is_uppercase) {
+                    gflights::parsers::common::Location {
+                        loc_identifier: from_airport.clone(),
+                        loc_type: gflights::parsers::common::PlaceType::Airport,
+                        location_name: Some(from_airport.clone()),
+                    }
+                } else {
+                    client
+                        .request_city(&from_airport)
+                        .await
+                        .map_err(anyhow_to_py)?
+                        .to_city_list()
+                };
+
+            let config = DealConfig {
+                origin: vec![origin_loc],
+                outbound_date,
+                return_date,
+                nonstop,
+                max_duration_minutes: max_hours.map(|h| h * 60),
+                travel_class: class,
+                travellers: travelers,
+                currency,
+                language: lang,
+                country,
+            };
+
+            let results = client.request_deals(&config).await.map_err(anyhow_to_py)?;
+
+            Python::with_gil(|py| {
+                results
+                    .into_iter()
+                    .map(|r| {
+                        Py::new(
+                            py,
+                            DealResult {
+                                origin_iata: r.origin_iata,
+                                destination_iata: r.destination_iata,
+                                destination_city: r.destination_city,
+                                destination_country: r.destination_country,
+                                destination_mid: r.destination_mid,
+                                outbound_date: r.outbound_date.map(|d| d.to_string()),
+                                return_date: r.return_date.map(|d| d.to_string()),
+                                price: r.price,
+                                typical_price: r.typical_price,
+                                discount_pct: r.discount_pct,
+                                duration_minutes: r.duration_minutes,
+                                stops: r.stops,
+                                airline_code: r.airline_code,
+                                airline_name: r.airline_name,
+                                image_url: r.image_url,
+                                highlights: r.highlights,
+                                description: r.description,
+                                booking_url: r.booking_url,
+                                booking_token: r.booking_token,
+                            },
+                        )
+                    })
+                    .collect::<PyResult<Vec<_>>>()
+            })
+        })
+    }
+
     /// Find the cheapest departure dates for a route over a range of months.
     ///
     /// :param from_airport:       Origin IATA code or city name.
@@ -1158,6 +1333,7 @@ fn _gflights(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DateGridEntry>()?;
     m.add_class::<CheapDate>()?;
     m.add_class::<ExploreResult>()?;
+    m.add_class::<DealResult>()?;
     m.add("GFlightsError", m.py().get_type::<GFlightsError>())?;
     Ok(())
 }

@@ -11,11 +11,13 @@ use protos::urls::{ItineraryUrl, Leg};
 
 mod builder;
 mod currency;
+pub mod deals;
 pub mod explore;
 pub mod multi_city;
 
 pub use builder::ConfigBuilder;
 pub use currency::Currency;
+pub use deals::{DealConfig, DealResult};
 pub use explore::{
     ExploreConfig, ExploreDate, ExploreDuration, ExploreResult, Interest, MapBounds,
 };

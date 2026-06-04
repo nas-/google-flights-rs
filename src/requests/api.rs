@@ -2,6 +2,7 @@ use super::config::Currency;
 use crate::parsers;
 use crate::parsers::common::FixedFlights;
 use crate::parsers::constants::{CLK_URL, FLIGHTS_MAIN_PAGE};
+use crate::requests::config::deals::{DealConfig, DealResult};
 use crate::requests::config::explore::ExploreResult;
 use crate::requests::config::{Config, ExploreConfig, MultiCityConfig, TripType};
 use anyhow::Result;
@@ -15,6 +16,8 @@ use parsers::city_response::ResponseInnerBodyParsed;
 use parsers::common::ToRequestBody;
 use parsers::date_grid_request::{DateGridRequestOptions, DATE_GRID_MAX_CELLS};
 use parsers::date_grid_response::{parse_date_grid_response, CheapDate, DateGridResponse};
+use parsers::deals_request::DealsRequestOptions;
+use parsers::deals_response::parse_deals_response;
 use parsers::explore_request::ExploreRequestOptions;
 use parsers::explore_response::parse_explore_response;
 use parsers::flight_request::{FlightRequestOptions, MultiCityRequestOptions};
@@ -686,6 +689,37 @@ impl ApiClient {
             .text()
             .await?;
         parse_explore_response(&body)
+    }
+
+    /// Requests discounted destinations (flight deals) from an origin.
+    ///
+    /// # Arguments
+    /// * `config` — A [`DealConfig`] describing the origin, trip-length anchor,
+    ///   and optional filters.
+    ///
+    /// # Returns
+    /// A `Vec<DealResult>` of discounted destinations with price vs typical
+    /// price, discount percentage, and a ready-to-open booking deep link.
+    #[tracing::instrument(skip_all, fields(
+        origin = ?config.origin.iter().map(|l| l.loc_identifier.as_str()).collect::<Vec<_>>(),
+    ))]
+    pub async fn request_deals(&self, config: &DealConfig) -> Result<Vec<DealResult>> {
+        tracing::info!("Requesting flight deals");
+        let req_options = DealsRequestOptions {
+            config,
+            frontend_version: &self.frontend_version,
+        };
+        let body = self
+            .do_request(
+                &req_options,
+                Some(config.currency.clone()),
+                &config.language,
+                &config.country,
+            )
+            .await?
+            .text()
+            .await?;
+        parse_deals_response(&body)
     }
 
     /// Resolves a `click_token` from an `OfferGroup` or `BookingSubOption`

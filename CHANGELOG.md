@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Flight deals** (`GetFlightDealsStreaming`) — `ApiClient::request_deals` /
+  `DealConfig` / `DealResult` return discounted destinations from an origin with
+  price vs typical price, discount %, airline, stops, duration, dates, and a
+  ready-to-open booking deep link. Exposed via the `deals` CLI subcommand, the
+  Python `GFlights.deals(...)` method, an MCP `deals` tool, and `examples/deals.rs`.
+  Supports `--nonstop` and `--max-hours` filters.
 - **Rotating User-Agent pool** — each `ApiClient` now selects a real desktop
   browser User-Agent from a pool at construction instead of sending one fixed
   string, reducing trivial fingerprinting. Override with

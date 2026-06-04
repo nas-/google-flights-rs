@@ -6,7 +6,7 @@
 //! `Config`/`ExploreConfig`, calls the corresponding `ApiClient` method, and
 //! returns the serialized result. No new business logic lives here.
 //!
-//! Supported tools: `search`, `price_graph`, `cheapest_dates`, `explore`.
+//! Supported tools: `search`, `price_graph`, `cheapest_dates`, `explore`, `deals`.
 
 use anyhow::Result;
 use chrono::{Months, NaiveDate};
@@ -15,7 +15,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdout};
 
 use gflights::parsers::common::{Location, PlaceType, StopOptions, TravelClass, Travelers};
 use gflights::requests::api::ApiClient;
-use gflights::requests::config::{Config, Currency, ExploreConfig, ExploreDate};
+use gflights::requests::config::{Config, Currency, DealConfig, ExploreConfig, ExploreDate};
 
 /// MCP protocol revision this server implements.
 const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -193,6 +193,24 @@ fn tool_catalog() -> Vec<Value> {
                 "required": ["from"]
             }
         }),
+        json!({
+            "name": "deals",
+            "description": "Find discounted destinations from an origin (price vs typical price). out/ret define the trip-length anchor.",
+            "inputSchema": {
+                "type": "object",
+                "properties": json!({
+                    "from": { "type": "string", "description": "Origin IATA code" },
+                    "out": { "type": "string", "description": "Outbound date YYYY-MM-DD" },
+                    "ret": { "type": "string", "description": "Return date YYYY-MM-DD" },
+                    "nonstop": { "type": "boolean", "default": false },
+                    "max_hours": { "type": "integer", "description": "Max one-way duration in hours" },
+                    "class": { "type": "string", "enum": ["economy", "premium-economy", "business", "first"] },
+                    "adults": { "type": "integer", "minimum": 1, "default": 1 },
+                    "currency": { "type": "string" }, "lang": { "type": "string" }, "country": { "type": "string" }
+                }),
+                "required": ["from", "out", "ret"]
+            }
+        }),
     ]
 }
 
@@ -215,6 +233,7 @@ async fn handle_tool_call(
         "price_graph" => tool_price_graph(&args, client).await,
         "cheapest_dates" => tool_cheapest_dates(&args, client).await,
         "explore" => tool_explore(&args, client).await,
+        "deals" => tool_deals(&args, client).await,
         other => Err(format!("unknown tool: {other}")),
     }
 }
@@ -393,6 +412,42 @@ async fn tool_explore(args: &Value, client: &ApiClient) -> std::result::Result<S
     serde_json::to_string(&results).map_err(|e| e.to_string())
 }
 
+async fn tool_deals(args: &Value, client: &ApiClient) -> std::result::Result<String, String> {
+    let from = req_str(args, "from")?;
+    let out = parse_date(&req_str(args, "out")?)?;
+    let ret = parse_date(&req_str(args, "ret")?)?;
+    let adults = opt_u32(args, "adults").unwrap_or(1);
+    let class = match opt_str(args, "class") {
+        Some(c) => parse_class(&c)?,
+        None => TravelClass::Economy,
+    };
+    let origin = Location {
+        loc_identifier: from.to_uppercase(),
+        loc_type: PlaceType::Airport,
+        location_name: None,
+    };
+    let config = DealConfig {
+        origin: vec![origin],
+        outbound_date: out,
+        return_date: ret,
+        nonstop: args
+            .get("nonstop")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        max_duration_minutes: opt_u32(args, "max_hours").map(|h| h * 60),
+        travel_class: class,
+        travellers: travelers_for(adults)?,
+        currency: parse_currency(&opt_str(args, "currency").unwrap_or_else(|| "euro".into()))?,
+        language: opt_str(args, "lang").unwrap_or_else(|| "en".into()),
+        country: opt_str(args, "country").unwrap_or_else(|| "GB".into()),
+    };
+    let deals = client
+        .request_deals(&config)
+        .await
+        .map_err(|e| e.to_string())?;
+    serde_json::to_string(&deals).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,6 +462,7 @@ mod tests {
         assert!(names.contains(&"price_graph".to_string()));
         assert!(names.contains(&"cheapest_dates".to_string()));
         assert!(names.contains(&"explore".to_string()));
+        assert!(names.contains(&"deals".to_string()));
     }
 
     #[test]

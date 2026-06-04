@@ -94,6 +94,29 @@ class ExploreResult:
     booking_token: str
     def __repr__(self) -> str: ...
 
+class DealResult:
+    """One discounted destination returned by :meth:`GFlights.deals`."""
+    origin_iata: str
+    destination_iata: str
+    destination_city: str
+    destination_country: str
+    destination_mid: Optional[str]
+    outbound_date: Optional[str]
+    return_date: Optional[str]
+    price: Optional[int]
+    typical_price: Optional[int]
+    discount_pct: Optional[int]
+    duration_minutes: Optional[int]
+    stops: Optional[int]
+    airline_code: Optional[str]
+    airline_name: Optional[str]
+    image_url: Optional[str]
+    highlights: list[str]
+    description: Optional[str]
+    booking_url: Optional[str]
+    booking_token: Optional[str]
+    def __repr__(self) -> str: ...
+
 class GFlights:
     """Async Python client for Google Flights, backed by Rust/tokio.
 
@@ -196,6 +219,25 @@ class GFlights:
         """Explore cheap destinations from an origin airport.
 
         Returns a coroutine → ``list[ExploreResult]``.
+        """
+        ...
+
+    async def deals(
+        self,
+        from_airport: str,
+        out: str,
+        ret: str,
+        nonstop: bool = ...,
+        max_hours: Optional[int] = ...,
+        adults: int = ...,
+        travel_class: str = ...,
+        currency: str = ...,
+        lang: str = ...,
+        country: str = ...,
+    ) -> list[DealResult]:
+        """Find discounted destinations (flight deals) from an origin.
+
+        Returns a coroutine → ``list[DealResult]``.
         """
         ...
 

@@ -9,6 +9,7 @@ use rustyline::DefaultEditor;
 
 pub mod cheap;
 pub mod date_grid;
+pub mod deals;
 pub mod explore;
 pub mod graph;
 pub mod mcp;
@@ -19,6 +20,7 @@ pub mod select;
 
 use cheap::{cmd_cheap, CheapArgs};
 use date_grid::{cmd_date_grid, DateGridArgs};
+use deals::{cmd_deals, DealsArgs};
 use explore::{cmd_explore, ExploreArgs};
 use graph::{cmd_graph, GraphArgs};
 use mcp::run_mcp;
@@ -106,10 +108,16 @@ pub enum Commands {
     /// Example: gflights explore --from LUX --month 7 --duration week --budget 300
     #[command(name = "explore")]
     Explore(ExploreArgs),
+    /// Find discounted destinations from an origin (Google Flights deals).
+    ///
+    /// Example: gflights deals --from LUX --out 2026-06-20 --ret 2026-06-24 --nonstop
+    #[command(name = "deals")]
+    Deals(DealsArgs),
     /// Run as an MCP (Model Context Protocol) server over stdio.
     ///
-    /// Exposes flight tools (search, price_graph, cheapest_dates, explore) to
-    /// MCP clients such as Claude Desktop. Speaks JSON-RPC 2.0 on stdin/stdout.
+    /// Exposes flight tools (search, price_graph, cheapest_dates, explore,
+    /// deals) to MCP clients such as Claude Desktop. Speaks JSON-RPC 2.0 on
+    /// stdin/stdout.
     #[command(name = "mcp")]
     Mcp,
     /// Exit the interactive REPL (alias: exit).
@@ -210,6 +218,7 @@ pub async fn run_command(cmd: Commands, client: &ApiClient) -> Result<()> {
         Commands::MultiCity(args) => cmd_multi_city(args, client).await,
         Commands::Cheap(args) => cmd_cheap(args, client).await,
         Commands::Explore(args) => cmd_explore(args, client).await,
+        Commands::Deals(args) => cmd_deals(args, client).await,
         Commands::Mcp => run_mcp(client).await,
         Commands::Quit => Ok(()),
     }
@@ -273,6 +282,10 @@ Commands:
                 raw MID: /m/01rwk  (any Knowledge-Graph MID accepted)
               --max-flight-hours <N>
               --carry-on <N>  --checked <N>
+              --adults --class --currency --lang --country --format
+
+  deals --from <CODE> --out <YYYY-MM-DD> --ret <YYYY-MM-DD>
+    Options:  --nonstop  --max-hours <N>
               --adults --class --currency --lang --country --format
 
   quit / exit

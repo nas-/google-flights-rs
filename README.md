@@ -18,8 +18,9 @@ Search flights, compare prices across a date range, retrieve booking offers, and
 - **Price graph** — cheapest fares across a configurable date range
 - **Date grid** — full departure × return price matrix for round trips
 - **Booking offers** — airline/OTA offers with prices and booking URLs
+- **Flight deals** — discounted destinations from an origin (price vs typical, discount %, booking link)
 - **City / airport lookup** — resolve city names and IATA codes
-- **Multi-airport search** — up to 4 departure or destination airports
+- **Multi-airport search** — up to 7 departure or destination airports
 - **Airline / alliance filters** — include or exclude specific airlines or alliances (oneworld, SkyTeam, Star Alliance)
 - **Connection filters** — require layover through specific airports; set min/max layover duration
 - **Lower-emissions filter** — restrict to flights with below-average CO₂
@@ -76,6 +77,9 @@ gflights dgrid --from LHR --to JFK \
 
 # Booking offers with clickable URLs (OSC 8, supported in most modern terminals)
 gflights offer --from FRA --to SIN --date 2026-10-01
+
+# Find discounted destinations (Google Flights deals)
+gflights deals --from LUX --out 2026-06-20 --ret 2026-06-24 --nonstop
 
 # Explore cheap destinations (Google Flights Explore)
 gflights explore --from LUX --month 9 --duration week --budget 150 --interest climbing
@@ -195,8 +199,8 @@ gflights mcp
 ```
 
 It speaks JSON-RPC 2.0 on stdin/stdout and exposes these tools: `search`,
-`price_graph`, `cheapest_dates`, `explore`. Each maps its JSON arguments to the
-same library calls the CLI uses and returns the result as JSON.
+`price_graph`, `cheapest_dates`, `explore`, `deals`. Each maps its JSON arguments
+to the same library calls the CLI uses and returns the result as JSON.
 
 Example client configuration (Claude Desktop `claude_desktop_config.json`):
 
