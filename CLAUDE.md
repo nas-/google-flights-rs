@@ -87,9 +87,12 @@ If coverage drops below 80%, add tests before merging.
 
 ## Examples parity rule
 
-Every public-facing feature must have a corresponding example in `examples/`.
+Every user-facing **action** (something a user runs to get a result) must have a
+corresponding example in `examples/`. Technical / infrastructure features
+(proxy, user-agent rotation, retry, rate-limiting) do **not** need an example —
+they are exercised through the action examples and the live tests.
 
-| Feature | Example file |
+| Action | Example file |
 |---|---|
 | Flight search + offers + booking URL | `examples/flights.rs` |
 | Price graph | `examples/graph.rs` |
@@ -98,8 +101,9 @@ Every public-facing feature must have a corresponding example in `examples/`.
 | Booking offers + URL resolution | `examples/offer.rs` |
 | Multi-city search | `examples/multi_city.rs` |
 | Explore destinations | `examples/explore.rs` |
+| Flight deals | `examples/deals.rs` |
 
-When adding a new public API method, add or update the relevant example. All examples guard network calls behind `RUN_LIVE=1` so `cargo test --examples` passes offline.
+When adding a new public **action**, add or update the relevant example. All examples guard network calls behind `RUN_LIVE=1` so `cargo test --examples` passes offline.
 
 ```sh
 cargo build --examples                   # must compile clean
