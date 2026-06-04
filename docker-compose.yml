@@ -1,0 +1,26 @@
+# Proxy sidecar pattern.
+#
+# The `gflights` container shares the `proxy` container's network namespace
+# (`network_mode: "service:proxy"`), so all of its egress leaves through the
+# proxy. Inside the shared namespace the proxy is reachable on localhost, so
+# gflights is pointed at `socks5://127.0.0.1:1080`.
+#
+# Swap the `proxy` service for any HTTP/SOCKS5 proxy — including a rotating-IP
+# egress service — without changing the `gflights` service.
+#
+#   docker compose run --rm gflights search --from LHR --to JFK --date 2026-09-15
+
+services:
+  proxy:
+    # Example SOCKS5 proxy listening on :1080. Replace with your own egress proxy.
+    image: serjs/go-socks5-proxy:latest
+    restart: unless-stopped
+
+  gflights:
+    build: .
+    depends_on:
+      - proxy
+    network_mode: "service:proxy"
+    # All requests (including the version probe) go through the sidecar proxy.
+    entrypoint: ["gflights", "--proxy", "socks5://127.0.0.1:1080"]
+    command: ["search", "--from", "LHR", "--to", "JFK", "--date", "2026-09-15"]

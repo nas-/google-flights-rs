@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   string, reducing trivial fingerprinting. Override with
   `ApiClient::with_user_agent(...)`, the CLI `--user-agent` flag, or the Python
   `GFlights(user_agent=...)` argument. New `ApiClient::user_agent()` getter.
+- **Proxy support** — route every request (including the frontend-version
+  probe) through an `http://`, `https://`, or `socks5://` proxy via
+  `ApiClient::new_with_proxy(...)`, the CLI `--proxy` flag, or the Python
+  `GFlights(proxy=...)` argument. Added a `Dockerfile` and `docker-compose.yml`
+  demonstrating a proxy-sidecar deployment with a shared network namespace.
 
 ---
 

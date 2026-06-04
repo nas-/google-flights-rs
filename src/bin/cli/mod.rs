@@ -51,6 +51,11 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub user_agent: Option<String>,
 
+    /// Route all requests through a proxy (e.g. http://host:3128,
+    /// socks5://127.0.0.1:9050). Supports http(s) and socks5.
+    #[arg(long, global = true)]
+    pub proxy: Option<String>,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

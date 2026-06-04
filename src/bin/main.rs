@@ -37,7 +37,10 @@ async fn main() -> Result<()> {
         .init();
 
     // Create one shared ApiClient (fetches the frontend version once).
-    let mut client = ApiClient::new().await;
+    let mut client = match cli.proxy.clone() {
+        Some(proxy) => ApiClient::new_with_proxy(proxy).await?,
+        None => ApiClient::new().await,
+    };
     if let Some(ua) = cli.user_agent.clone() {
         client = client.with_user_agent(ua);
     }

@@ -112,21 +112,56 @@ impl ApiClient {
 
     /// Creates a new instance of `ApiClient` with a custom rate limiter.
     pub async fn new_with_ratelimit(rate_limiter_quota: Quota) -> Self {
+        // A proxy-less client cannot fail to build (same guarantee as
+        // `reqwest::Client::new`, which panics on failure).
+        Self::build(rate_limiter_quota, None)
+            .await
+            .expect("building a proxy-less HTTP client never fails")
+    }
+
+    /// Creates a new instance of `ApiClient` whose requests are routed through
+    /// the given proxy.
+    ///
+    /// The proxy applies to every request, including the one-time frontend
+    /// version probe. Supports `http://`, `https://`, and `socks5://` URLs
+    /// (e.g. `"http://user:pass@host:3128"`, `"socks5://127.0.0.1:9050"`).
+    ///
+    /// # Errors
+    /// Returns an error if the proxy URL is invalid or the HTTP client cannot
+    /// be built with it.
+    ///
+    /// ```rust
+    /// # use gflights::requests::api::ApiClient;
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = ApiClient::new_with_proxy("socks5://127.0.0.1:9050").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn new_with_proxy(proxy: impl Into<String>) -> Result<Self> {
+        let rate_limiter_quota = Quota::per_second(NonZeroU32::MIN.saturating_add(9));
+        Self::build(rate_limiter_quota, Some(proxy.into())).await
+    }
+
+    /// Shared construction path: builds the HTTP client (optionally through a
+    /// proxy), selects a User-Agent, and probes the frontend version using that
+    /// same client so the proxy (if any) covers every request.
+    async fn build(rate_limiter_quota: Quota, proxy: Option<String>) -> Result<Self> {
         let rate_limiter: Arc<DefaultDirectRateLimiter> =
             Arc::new(DefaultDirectRateLimiter::direct(rate_limiter_quota));
         let user_agent = pick_user_agent().to_string();
-        tracing::debug!(%user_agent, "selected User-Agent for client");
-        let frontend_version = get_frontend_version(&user_agent).await;
+        tracing::debug!(%user_agent, proxy = ?proxy, "constructing client");
+        let client = build_reqwest_client(proxy.as_deref())?;
+        let frontend_version = get_frontend_version(&user_agent, &client).await;
 
-        Self {
+        Ok(Self {
             rate_limiter,
-            client: Arc::new(Client::new()),
+            client: Arc::new(client),
             frontend_version: frontend_version
                 .unwrap_or("boq_travel-frontend-flights-ui_20260527.01_p0".into()),
             rate_limited: Arc::new(AtomicBool::new(false)),
             retry_config: RetryConfig::default(),
             user_agent,
-        }
+        })
     }
 
     /// Overrides the retry policy for this client.
@@ -1028,9 +1063,25 @@ fn get_headers(
     Ok(headers)
 }
 
-/// Retrieves the frontend version from the Google Flights website.
-async fn get_frontend_version(user_agent: &str) -> Option<String> {
-    let client = Client::new();
+/// Builds a reqwest [`Client`], optionally routing all traffic through `proxy`.
+///
+/// `proxy` accepts `http://`, `https://`, and `socks5://` URLs. Returns an
+/// error if the proxy URL is invalid or the client cannot be built.
+fn build_reqwest_client(proxy: Option<&str>) -> Result<Client> {
+    let mut builder = Client::builder();
+    if let Some(url) = proxy {
+        builder = builder.proxy(
+            reqwest::Proxy::all(url).map_err(|e| anyhow::anyhow!("invalid proxy {url:?}: {e}"))?,
+        );
+    }
+    builder
+        .build()
+        .map_err(|e| anyhow::anyhow!("failed to build HTTP client: {e}"))
+}
+
+/// Retrieves the frontend version from the Google Flights website, reusing the
+/// supplied client so any configured proxy applies here too.
+async fn get_frontend_version(user_agent: &str, client: &Client) -> Option<String> {
     let headers = base_headers(user_agent); // no currency header needed for the version fetch
     let url = FLIGHTS_MAIN_PAGE.to_string();
     let res = client.get(&url).headers(headers).send().await.ok()?;
@@ -1133,6 +1184,23 @@ mod tests {
     fn default_client_user_agent_is_from_pool() {
         let client = make_client();
         assert!(USER_AGENTS.contains(&client.user_agent()));
+    }
+
+    #[test]
+    fn build_client_accepts_valid_proxies_and_none() {
+        assert!(build_reqwest_client(None).is_ok());
+        assert!(build_reqwest_client(Some("http://127.0.0.1:3128")).is_ok());
+        assert!(build_reqwest_client(Some("https://proxy.example.com:8443")).is_ok());
+        assert!(build_reqwest_client(Some("socks5://127.0.0.1:9050")).is_ok());
+    }
+
+    #[test]
+    fn build_client_rejects_invalid_proxy() {
+        let err = build_reqwest_client(Some("http://has a space/")).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid proxy"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

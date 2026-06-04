@@ -1,0 +1,11 @@
+# Keep the build context small and reproducible.
+target/
+.git/
+.github/
+.claude/
+.devcontainer/
+**/.venv/
+**/dist/
+**/*.whl
+**/__pycache__/
+*.log

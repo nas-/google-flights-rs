@@ -144,6 +144,45 @@ gflights> quit
 | `--currency <CURRENCY>` | `euro` | Result currency |
 | `--format <FORMAT>` | `table` | `table` · `json` |
 
+### Global flags (any subcommand)
+
+| Flag | Default | Description |
+|---|---|---|
+| `--proxy <URL>` | none | Route all requests through a proxy. Supports `http://`, `https://`, `socks5://` (e.g. `socks5://127.0.0.1:9050`). |
+| `--user-agent <UA>` | random | Override the User-Agent. By default a real desktop browser string is chosen from a rotating pool per run. |
+
+```sh
+# Search through a local SOCKS5 proxy
+gflights --proxy socks5://127.0.0.1:9050 search --from LHR --to JFK --date 2026-09-15
+```
+
+---
+
+## Proxy & Docker sidecar
+
+Every request — including the one-time frontend-version probe — is routed
+through the configured proxy:
+
+```rust
+let client = ApiClient::new_with_proxy("socks5://127.0.0.1:9050").await?;
+```
+
+```python
+client = GFlights(proxy="socks5://127.0.0.1:9050")
+```
+
+For rotating egress IPs, run a proxy as a sidecar container and share its
+network namespace. The included [`docker-compose.yml`](docker-compose.yml) shows
+the pattern — `gflights` runs with `network_mode: "service:proxy"`, so all of
+its traffic leaves through the `proxy` container:
+
+```sh
+docker compose run --rm gflights search --from LHR --to JFK --date 2026-09-15
+```
+
+Swap the `proxy` service for any HTTP/SOCKS5 proxy (or a rotating-IP service)
+without touching the `gflights` service.
+
 ---
 
 ## Quick start

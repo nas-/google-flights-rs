@@ -104,7 +104,9 @@ class GFlights:
 
     rate_limited: bool
 
-    def __init__(self, user_agent: Optional[str] = None) -> None: ...
+    def __init__(
+        self, user_agent: Optional[str] = None, proxy: Optional[str] = None
+    ) -> None: ...
 
     # Methods return asyncio.Future objects (awaitable); typed as coroutines for IDE support.
     async def search(

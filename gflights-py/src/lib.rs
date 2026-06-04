@@ -1,4 +1,4 @@
-﻿//! Private Rust extension module — import via the `gflights` Python package.
+//! Private Rust extension module — import via the `gflights` Python package.
 //!
 //! Build with `maturin develop` (editable install) or `maturin build --release`.
 //!
@@ -479,14 +479,23 @@ impl GFlights {
     /// :param user_agent: Override the User-Agent header. By default a real
     ///                    desktop browser string is chosen from a rotating pool
     ///                    per client, so traffic is not trivially fingerprinted.
+    /// :param proxy:      Route all requests through a proxy URL. Supports
+    ///                    ``http://``, ``https://`` and ``socks5://``
+    ///                    (e.g. ``"socks5://127.0.0.1:9050"``). ``None`` = direct.
     #[new]
-    #[pyo3(signature = (user_agent = None))]
-    fn new(user_agent: Option<String>) -> Self {
-        let mut client = pyo3_async_runtimes::tokio::get_runtime().block_on(ApiClient::new());
+    #[pyo3(signature = (user_agent = None, proxy = None))]
+    fn new(user_agent: Option<String>, proxy: Option<String>) -> PyResult<Self> {
+        let rt = pyo3_async_runtimes::tokio::get_runtime();
+        let mut client = match proxy {
+            Some(p) => rt
+                .block_on(ApiClient::new_with_proxy(p))
+                .map_err(anyhow_to_py)?,
+            None => rt.block_on(ApiClient::new()),
+        };
         if let Some(ua) = user_agent {
             client = client.with_user_agent(ua);
         }
-        GFlights { client }
+        Ok(GFlights { client })
     }
 
     /// Search for flights.
