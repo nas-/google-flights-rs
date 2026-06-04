@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ApiClient::new_with_proxy(...)`, the CLI `--proxy` flag, or the Python
   `GFlights(proxy=...)` argument. Added a `Dockerfile` and `docker-compose.yml`
   demonstrating a proxy-sidecar deployment with a shared network namespace.
+- **`select` subcommand** — interactive booking flow: pick an outbound flight
+  (and a return for round trips) by number, then a booking offer, and get the
+  resolved booking URL. Works one-shot or inside the REPL.
 
 ---
 

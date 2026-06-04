@@ -14,6 +14,7 @@ pub mod graph;
 pub mod multi_city;
 pub mod offer;
 pub mod search;
+pub mod select;
 
 use cheap::{cmd_cheap, CheapArgs};
 use date_grid::{cmd_date_grid, DateGridArgs};
@@ -22,6 +23,7 @@ use graph::{cmd_graph, GraphArgs};
 use multi_city::{cmd_multi_city, MultiCityArgs};
 use offer::{cmd_offer, OfferArgs};
 use search::{cmd_search, SearchArgs};
+use select::{cmd_select, SelectArgs};
 
 // ---------------------------------------------------------------------------
 // Output format
@@ -79,6 +81,11 @@ pub enum Commands {
     DateGrid(DateGridArgs),
     /// Show booking offers (with airline prices and URLs) for a specific itinerary.
     Offer(OfferArgs),
+    /// Interactively pick outbound (and return) flights, then a booking offer.
+    ///
+    /// Numbered prompts let you choose each leg, then an offer; prints the
+    /// resolved booking URL. Works one-shot or inside the REPL.
+    Select(SelectArgs),
     /// Multi-city (open-jaw) flight search across 2+ legs.
     ///
     /// Specify each leg with --leg FROM,TO,DATE (repeatable).
@@ -191,6 +198,7 @@ pub async fn run_command(cmd: Commands, client: &ApiClient) -> Result<()> {
         Commands::Graph(args) => cmd_graph(args, client).await,
         Commands::DateGrid(args) => cmd_date_grid(args, client).await,
         Commands::Offer(args) => cmd_offer(args, client).await,
+        Commands::Select(args) => cmd_select(args, client).await,
         Commands::MultiCity(args) => cmd_multi_city(args, client).await,
         Commands::Cheap(args) => cmd_cheap(args, client).await,
         Commands::Explore(args) => cmd_explore(args, client).await,
@@ -232,6 +240,10 @@ Commands:
 
   offer --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--return <DATE>]
     (same filters as search)
+
+  select --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--return <DATE>]
+    Interactively pick outbound (and return) flights by number, then an
+    offer; prints the booking URL. Enter a number, or 'q' to cancel.
 
   cheap --from <CODE> --to <CODE> --date <YYYY-MM-DD>
     Options:  --months <N>       (months to scan, default 3)
