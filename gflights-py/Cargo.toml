@@ -1,6 +1,6 @@
 [package]
 name = "gflights-py"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Python bindings for gflights — unofficial Rust client for Google Flights"
 license = "MIT"
@@ -11,8 +11,10 @@ name = "_gflights"
 crate-type = ["cdylib"]
 
 [dependencies]
-gflights = { path = ".." }
-pyo3 = { version = "0.24", features = ["extension-module"] }
+# `path` is used for local builds; `version` lets the published sdist resolve
+# the crate from crates.io (publish the crate before building the sdist).
+gflights = { version = "0.2.0", path = ".." }
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py310"] }
 pyo3-async-runtimes = { version = "0.24", features = ["tokio-runtime"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 anyhow = "1"
