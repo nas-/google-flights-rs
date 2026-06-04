@@ -216,6 +216,54 @@ fn oneway_search_returns_flights() -> Result<()> {
     })
 }
 
+/// Searching with the maximum of seven origin airports against a single
+/// destination returns flights — exercises the 4→7 airport-cap raise
+/// end-to-end against the live API.
+#[test]
+fn seven_origin_airports_search_returns_flights() -> Result<()> {
+    require_live!();
+    test_rt().block_on(async {
+        let client = live_client();
+
+        let config = Config::builder()
+            .departure("LHR", client)
+            .await?
+            .add_departure("LGW", client)
+            .await?
+            .add_departure("STN", client)
+            .await?
+            .add_departure("LTN", client)
+            .await?
+            .add_departure("MAN", client)
+            .await?
+            .add_departure("BHX", client)
+            .await?
+            .add_departure("EDI", client)
+            .await?
+            .destination("JFK", client)
+            .await?
+            .departing_date(days_from_now(30))
+            .build()?;
+
+        assert_eq!(config.departure.len(), 7, "all seven origins should be set");
+
+        let response = client.request_flights(&config).await?;
+        let flights: Vec<_> = response
+            .responses
+            .iter()
+            .filter_map(|r| r.maybe_get_all_flights())
+            .flatten()
+            .collect();
+
+        assert!(
+            !flights.is_empty(),
+            "expected ≥1 flight for a 7-origin UK→JFK search"
+        );
+
+        Ok(())
+    })
+}
+
 /// Every flight returned has structurally valid fields.
 ///
 /// Specifically:

@@ -9,6 +9,11 @@ use crate::requests::api::ApiClient;
 
 use super::{Config, Currency, TripType};
 
+/// Maximum number of airports Google Flights accepts per origin/destination side.
+/// Exceeding this makes the API silently return zero results, so the builder
+/// rejects the overflow up front.
+const MAX_AIRPORTS_PER_SIDE: usize = 7;
+
 /// Builder for [`Config`].  Obtain one via [`Config::builder()`].
 pub struct ConfigBuilder {
     pub(super) departing_date: Option<NaiveDate>,
@@ -97,12 +102,10 @@ impl ConfigBuilder {
         self
     }
 
-    /// Add an additional departure airport/city (up to 4 total).
+    /// Add an additional departure airport/city (up to 7 total).
     /// Google Flights will search "any of these airports" as the origin.
     pub async fn add_departure(mut self, location: &str, client: &ApiClient) -> Result<Self> {
-        if self.departure.len() >= 4 {
-            return Err(anyhow!("A maximum of 4 departure airports is supported"));
-        }
+        ensure_airport_capacity(self.departure.len(), "departure")?;
         let loc = get_location(location, client).await?;
         self.departure.push(loc);
         Ok(self)
@@ -125,12 +128,10 @@ impl ConfigBuilder {
         self
     }
 
-    /// Add an additional destination airport/city (up to 4 total).
+    /// Add an additional destination airport/city (up to 7 total).
     /// Google Flights will search "any of these airports" as the destination.
     pub async fn add_destination(mut self, location: &str, client: &ApiClient) -> Result<Self> {
-        if self.destination.len() >= 4 {
-            return Err(anyhow!("A maximum of 4 destination airports is supported"));
-        }
+        ensure_airport_capacity(self.destination.len(), "destination")?;
         let loc = get_location(location, client).await?;
         self.destination.push(loc);
         Ok(self)
@@ -359,6 +360,17 @@ async fn get_location(location: &str, client: &ApiClient) -> Result<Location, an
     Ok(departure)
 }
 
+/// Returns an error if a side already holds [`MAX_AIRPORTS_PER_SIDE`] airports,
+/// i.e. adding one more would exceed what Google Flights accepts.
+fn ensure_airport_capacity(current: usize, side: &str) -> Result<()> {
+    if current >= MAX_AIRPORTS_PER_SIDE {
+        return Err(anyhow!(
+            "A maximum of {MAX_AIRPORTS_PER_SIDE} {side} airports is supported"
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -367,6 +379,24 @@ mod tests {
 
     fn future_date(days: i64) -> NaiveDate {
         Utc::now().date_naive() + Duration::days(days)
+    }
+
+    /// The capacity guard allows up to seven airports and rejects the eighth,
+    /// with a message naming the side. Exercises the exact check used by
+    /// `add_departure`/`add_destination` without a network round-trip.
+    #[test]
+    fn airport_capacity_allows_seven_rejects_eighth() {
+        for occupied in 0..MAX_AIRPORTS_PER_SIDE {
+            assert!(
+                ensure_airport_capacity(occupied, "departure").is_ok(),
+                "{occupied} occupied airports should still allow another"
+            );
+        }
+        let err = ensure_airport_capacity(MAX_AIRPORTS_PER_SIDE, "destination")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("maximum of 7"), "got: {err}");
+        assert!(err.contains("destination"), "got: {err}");
     }
 
     /// `build()` returns an error when no departure airport was set.
