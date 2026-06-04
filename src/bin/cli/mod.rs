@@ -11,6 +11,7 @@ pub mod cheap;
 pub mod date_grid;
 pub mod explore;
 pub mod graph;
+pub mod mcp;
 pub mod multi_city;
 pub mod offer;
 pub mod search;
@@ -20,6 +21,7 @@ use cheap::{cmd_cheap, CheapArgs};
 use date_grid::{cmd_date_grid, DateGridArgs};
 use explore::{cmd_explore, ExploreArgs};
 use graph::{cmd_graph, GraphArgs};
+use mcp::run_mcp;
 use multi_city::{cmd_multi_city, MultiCityArgs};
 use offer::{cmd_offer, OfferArgs};
 use search::{cmd_search, SearchArgs};
@@ -104,6 +106,12 @@ pub enum Commands {
     /// Example: gflights explore --from LUX --month 7 --duration week --budget 300
     #[command(name = "explore")]
     Explore(ExploreArgs),
+    /// Run as an MCP (Model Context Protocol) server over stdio.
+    ///
+    /// Exposes flight tools (search, price_graph, cheapest_dates, explore) to
+    /// MCP clients such as Claude Desktop. Speaks JSON-RPC 2.0 on stdin/stdout.
+    #[command(name = "mcp")]
+    Mcp,
     /// Exit the interactive REPL (alias: exit).
     #[command(alias = "exit")]
     Quit,
@@ -202,6 +210,7 @@ pub async fn run_command(cmd: Commands, client: &ApiClient) -> Result<()> {
         Commands::MultiCity(args) => cmd_multi_city(args, client).await,
         Commands::Cheap(args) => cmd_cheap(args, client).await,
         Commands::Explore(args) => cmd_explore(args, client).await,
+        Commands::Mcp => run_mcp(client).await,
         Commands::Quit => Ok(()),
     }
 }

@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`select` subcommand** — interactive booking flow: pick an outbound flight
   (and a return for round trips) by number, then a booking offer, and get the
   resolved booking URL. Works one-shot or inside the REPL.
+- **`mcp` subcommand** — run as a Model Context Protocol server over stdio
+  (JSON-RPC 2.0), exposing `search`, `price_graph`, `cheapest_dates`, and
+  `explore` tools to MCP clients such as Claude Desktop. Honours the global
+  `--proxy` and `--user-agent` flags.
 
 ---
 

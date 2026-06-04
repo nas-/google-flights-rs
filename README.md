@@ -185,6 +185,37 @@ without touching the `gflights` service.
 
 ---
 
+## MCP server
+
+Run gflights as a [Model Context Protocol](https://modelcontextprotocol.io)
+server over stdio, exposing flight tools to MCP clients such as Claude Desktop:
+
+```sh
+gflights mcp
+```
+
+It speaks JSON-RPC 2.0 on stdin/stdout and exposes these tools: `search`,
+`price_graph`, `cheapest_dates`, `explore`. Each maps its JSON arguments to the
+same library calls the CLI uses and returns the result as JSON.
+
+Example client configuration (Claude Desktop `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "gflights": {
+      "command": "gflights",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+The global `--proxy` and `--user-agent` flags work here too, e.g.
+`"args": ["--proxy", "socks5://127.0.0.1:9050", "mcp"]`.
+
+---
+
 ## Quick start
 
 ### Search for flights
