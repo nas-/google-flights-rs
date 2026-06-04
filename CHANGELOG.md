@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `explore` tools to MCP clients such as Claude Desktop. Honours the global
   `--proxy` and `--user-agent` flags.
 
+### Fixed
+
+- PyPI project page showed no description: the Python package now ships a
+  `readme` (`gflights-py/README.md`) so the long description is rendered.
+
 ---
 
 ## [0.2.1] — 2026-06-04
