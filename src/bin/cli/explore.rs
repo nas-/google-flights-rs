@@ -3,13 +3,12 @@
 //! Searches for cheap destinations from a given origin airport using the
 //! Google Flights Explore (GetExploreDestinations) endpoint.
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use gflights::parsers::common::{Location, PlaceType, TravelClass};
 use gflights::requests::api::ApiClient;
 use gflights::requests::config::explore::{
-    known_interest_names, known_region_names, mid_from_name, region_from_name, ExploreConfig,
-    ExploreDate, ExploreDuration,
+    resolve_destination, resolve_interest, ExploreConfig, ExploreDate, ExploreDuration,
 };
 use gflights::requests::config::Currency;
 
@@ -38,86 +37,6 @@ impl From<DurationArg> for ExploreDuration {
             DurationArg::TwoWeeks => ExploreDuration::TwoWeeks,
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Interest resolution
-// ---------------------------------------------------------------------------
-
-/// Resolve `--to` value to a `Location` (airport or region).
-///
-/// Accepts:
-/// - IATA airport codes (3 uppercase letters, no `/` prefix) → `PlaceType::Airport`
-/// - Raw region MIDs (`/m/…` or `/g/…`) → `PlaceType::Region`
-/// - Human-readable region names / aliases → looked up in region table
-///
-/// Returns an error with a helpful message when the value is unrecognised.
-fn resolve_destination(raw: &str) -> Result<gflights::parsers::common::Location> {
-    use gflights::parsers::common::{Location, PlaceType};
-
-    // Raw MID passthrough → region type 6.
-    if raw.starts_with("/m/") || raw.starts_with("/g/") {
-        return Ok(Location {
-            loc_identifier: raw.to_string(),
-            loc_type: PlaceType::Region,
-            location_name: None,
-        });
-    }
-
-    // Region name lookup BEFORE IATA heuristic — aliases like "alps" (4 chars)
-    // would otherwise be misclassified as an IATA airport code.
-    if let Some(mid) = region_from_name(raw) {
-        return Ok(Location {
-            loc_identifier: mid.to_string(),
-            loc_type: PlaceType::Region,
-            location_name: Some(raw.to_string()),
-        });
-    }
-
-    // IATA-looking code (2–4 uppercase letters / digits, no spaces) → airport.
-    // Note: the explore endpoint may not filter to specific airports;
-    // region MIDs give better results for destination filtering.
-    if raw.len() <= 4 && raw.chars().all(|c| c.is_ascii_alphanumeric()) {
-        return Ok(Location {
-            loc_identifier: raw.to_uppercase(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        });
-    }
-
-    let regions = known_region_names().join(", ");
-    bail!(
-        "unknown destination {:?}\n\
-         Use an IATA airport code (e.g. --to BCN), a region name ({regions}),\n\
-         or a raw Knowledge-Graph MID (e.g. --to /m/01531v)",
-        raw
-    )
-}
-
-/// Resolve `--interest` value to a Knowledge-Graph MID.
-///
-/// Accepts:
-/// - Raw MIDs (`/m/…` or `/g/…`) → passed through as-is
-/// - Known names / aliases (case-insensitive) → looked up in table
-///
-/// Returns an error with a helpful message when the value is unrecognised.
-fn resolve_interest(raw: &str) -> Result<String> {
-    // Raw MID passthrough.
-    if raw.starts_with("/m/") || raw.starts_with("/g/") {
-        return Ok(raw.to_string());
-    }
-
-    if let Some(mid) = mid_from_name(raw) {
-        return Ok(mid.to_string());
-    }
-
-    let names = known_interest_names().join(", ");
-    bail!(
-        "unknown interest {:?}\n\
-         Known names: {names}\n\
-         Or pass a raw Knowledge-Graph MID, e.g. --interest /m/01rwk",
-        raw
-    )
 }
 
 // ---------------------------------------------------------------------------
