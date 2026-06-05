@@ -89,17 +89,28 @@ pub(crate) fn get_idx<T: serde::de::DeserializeOwned>(
 ///
 /// # Errors
 /// Returns an error if the data is malformed.
+/// Extract every `wrb.fr` data frame from a batchexecute streamed body.
+///
+/// A streamed response interleaves bare numeric length-prefix lines with JSON
+/// data lines, may start with a `)]}'` guard, and can contain blank lines; the
+/// frame count and length/data spacing vary across the multi-frame stream
+/// (search results arrive over several seconds in multiple frames). Every data
+/// frame is a single line beginning with `[["wrb.fr"`, and length lines are
+/// numeric — so filtering all lines for that marker captures every frame
+/// regardless of its position, which a fixed stride (`skip(3).step_by(2)`)
+/// could silently miss.
+fn wrb_frames(body: &str) -> Vec<&str> {
+    body.lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with(r#"[["wrb.fr""#))
+        .collect()
+}
+
 pub(crate) fn decode_outer_object<T>(body: &str) -> Result<Vec<T>>
 where
     T: for<'a> Deserialize<'a> + GetOuterErrorMessages,
 {
-    // Read line from the BufRead
-    let lines: Vec<&str> = body
-        .lines()
-        .skip(3)
-        .step_by(2)
-        .filter(|f| f.trim().starts_with(r#"[["wrb.fr""#))
-        .collect();
+    let lines = wrb_frames(body);
 
     let results = lines
         .iter()
@@ -254,5 +265,39 @@ where
     match aux {
         Aux::T(t) => Ok(Some(t)),
         Aux::Empty(_) | Aux::Null | Aux::Array(_) | Aux::Number(_) => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::wrb_frames;
+
+    #[test]
+    fn collects_all_frames_at_irregular_positions() {
+        // A length line, a data frame, another length line + frame, then a
+        // second data frame with NO length line before it, then a non-wrb
+        // end marker. A fixed `skip(3).step_by(2)` stride would drop a frame.
+        let body = concat!(
+            ")]}'\n",
+            "\n",
+            "26\n",
+            "[[\"wrb.fr\",\"a\",\"[]\"]]\n",
+            "31\n",
+            "[[\"wrb.fr\",\"b\",\"[]\"]]\n",
+            "[[\"wrb.fr\",\"c\",\"[]\"]]\n",
+            "10\n",
+            "[\"e\",4,null,5]\n",
+        );
+        let frames = wrb_frames(body);
+        assert_eq!(frames.len(), 3, "every wrb.fr frame must be captured");
+        assert!(frames[0].contains("\"a\""));
+        assert!(frames[1].contains("\"b\""));
+        assert!(frames[2].contains("\"c\""));
+    }
+
+    #[test]
+    fn ignores_length_lines_and_end_markers() {
+        let body = ")]}'\n5\n[[\"wrb.fr\",\"x\",\"[]\"]]\n[\"di\",12]\n[\"e\",4,null,5]\n";
+        assert_eq!(wrb_frames(body).len(), 1);
     }
 }
