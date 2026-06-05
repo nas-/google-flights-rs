@@ -696,9 +696,20 @@ impl GFlights {
     /// :param proxy:      Route all requests through a proxy URL. Supports
     ///                    ``http://``, ``https://`` and ``socks5://``
     ///                    (e.g. ``"socks5://127.0.0.1:9050"``). ``None`` = direct.
+    /// :param currency:   ISO-4217 currency code applied to every request
+    ///                    (e.g. ``"USD"``, ``"EUR"``, ``"GBP"``). Default ``"EUR"``.
+    /// :param lang:       BCP-47 language subtag applied to every request. Default ``"en"``.
+    /// :param country:    ISO 3166-1 alpha-2 country code applied to every request. Default ``"GB"``.
     #[new]
-    #[pyo3(signature = (user_agent = None, proxy = None))]
-    fn new(user_agent: Option<String>, proxy: Option<String>) -> PyResult<Self> {
+    #[pyo3(signature = (user_agent = None, proxy = None, currency = "EUR", lang = "en", country = "GB"))]
+    fn new(
+        user_agent: Option<String>,
+        proxy: Option<String>,
+        currency: &str,
+        lang: &str,
+        country: &str,
+    ) -> PyResult<Self> {
+        let currency = parse_currency(currency)?;
         let rt = pyo3_async_runtimes::tokio::get_runtime();
         let mut client = match proxy {
             Some(p) => rt
@@ -709,6 +720,7 @@ impl GFlights {
         if let Some(ua) = user_agent {
             client = client.with_user_agent(ua);
         }
+        client = client.with_locale(currency, lang, country);
         Ok(GFlights { client })
     }
 
@@ -749,9 +761,6 @@ impl GFlights {
         max_price = None,
         carry_on = 0,
         checked_bags = 0,
-        currency = "EUR",
-        lang = "en",
-        country = "GB",
     ))]
     #[allow(clippy::too_many_arguments)]
     fn search<'py>(
@@ -772,14 +781,10 @@ impl GFlights {
         max_price: Option<i32>,
         carry_on: u8,
         checked_bags: u8,
-        currency: &str,
-        lang: &str,
-        country: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
         // Validate synchronously — raises ValueError before the coroutine is even awaited.
         let dep_date = parse_date(&date)?;
         let ret_date = return_date.as_deref().map(parse_date).transpose()?;
-        let currency = parse_currency(currency)?;
         let stop_opt = parse_stop_options(stops)?;
         let class = parse_travel_class(travel_class)?;
         let sort_ord = parse_sort_order(sort)?;
@@ -789,8 +794,6 @@ impl GFlights {
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         // Convert &str → String before moving into the 'static async block.
-        let lang = lang.to_string();
-        let country = country.to_string();
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -805,9 +808,6 @@ impl GFlights {
                 .travel_class(class)
                 .stop_options(stop_opt)
                 .sort_order(sort_ord)
-                .currency(currency)
-                .language(&lang)
-                .country(&country)
                 .travelers(travelers)
                 .airlines_include(inc)
                 .airlines_exclude(exc)
@@ -857,9 +857,6 @@ impl GFlights {
         to_airport,
         date,
         months = 1,
-        currency = "EUR",
-        lang = "en",
-        country = "GB",
     ))]
     #[allow(clippy::too_many_arguments)]
     fn price_graph<'py>(
@@ -869,14 +866,8 @@ impl GFlights {
         to_airport: String,
         date: String,
         months: u32,
-        currency: &str,
-        lang: &str,
-        country: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
         let dep_date = parse_date(&date)?;
-        let currency = parse_currency(currency)?;
-        let lang = lang.to_string();
-        let country = country.to_string();
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -888,9 +879,6 @@ impl GFlights {
                 .await
                 .map_err(anyhow_to_py)?
                 .departing_date(dep_date)
-                .currency(currency)
-                .language(&lang)
-                .country(&country)
                 .build()
                 .map_err(anyhow_to_py)?;
 
@@ -940,9 +928,6 @@ impl GFlights {
         dep_end,
         ret_start,
         ret_end,
-        currency = "EUR",
-        lang = "en",
-        country = "GB",
     ))]
     #[allow(clippy::too_many_arguments)]
     fn date_grid<'py>(
@@ -954,17 +939,11 @@ impl GFlights {
         dep_end: String,
         ret_start: String,
         ret_end: String,
-        currency: &str,
-        lang: &str,
-        country: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
         let dep_s = parse_date(&dep_start)?;
         let dep_e = parse_date(&dep_end)?;
         let ret_s = parse_date(&ret_start)?;
         let ret_e = parse_date(&ret_end)?;
-        let currency = parse_currency(currency)?;
-        let lang = lang.to_string();
-        let country = country.to_string();
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -977,9 +956,6 @@ impl GFlights {
                 .map_err(anyhow_to_py)?
                 .departing_date(dep_s)
                 .return_date(ret_s)
-                .currency(currency)
-                .language(&lang)
-                .country(&country)
                 .build()
                 .map_err(anyhow_to_py)?;
 
@@ -1028,9 +1004,6 @@ impl GFlights {
         max_price = None,
         carry_on = 0,
         checked_bags = 0,
-        currency = "EUR",
-        lang = "en",
-        country = "GB",
     ))]
     #[allow(clippy::too_many_arguments)]
     fn multi_city_search<'py>(
@@ -1043,9 +1016,6 @@ impl GFlights {
         max_price: Option<i32>,
         carry_on: u8,
         checked_bags: u8,
-        currency: &str,
-        lang: &str,
-        country: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
         if legs.len() < 2 {
             return Err(pyo3::exceptions::PyValueError::new_err(
@@ -1060,23 +1030,17 @@ impl GFlights {
             })
             .collect::<PyResult<_>>()?;
 
-        let currency = parse_currency(currency)?;
         let class = parse_travel_class(travel_class)?;
         let sort_ord = parse_sort_order(sort)?;
         let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        let lang = lang.to_string();
-        let country = country.to_string();
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut builder = MultiCityConfig::builder()
                 .travellers(travelers)
                 .travel_class(class)
-                .sort_order(sort_ord)
-                .currency(currency)
-                .language(&lang)
-                .country(&country);
+                .sort_order(sort_ord);
 
             if let Some(p) = max_price {
                 builder = builder.max_price(p);
@@ -1136,9 +1100,6 @@ impl GFlights {
         checked = 0u8,
         adults = 1,
         travel_class = "economy",
-        currency = "EUR",
-        lang = "en",
-        country = "GB",
     ))]
     #[allow(clippy::too_many_arguments)]
     fn explore<'py>(
@@ -1154,9 +1115,6 @@ impl GFlights {
         checked: u8,
         adults: u8,
         travel_class: &str,
-        currency: &str,
-        lang: &str,
-        country: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
         let trip_duration = match duration.to_lowercase().as_str() {
             "weekend" => ExploreDuration::Weekend,
@@ -1170,7 +1128,6 @@ impl GFlights {
         };
 
         let class = parse_travel_class(travel_class)?;
-        let currency = parse_currency(currency)?;
         let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
@@ -1188,8 +1145,6 @@ impl GFlights {
             .transpose()
             .map_err(anyhow_to_py)?;
 
-        let lang = lang.to_string();
-        let country = country.to_string();
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -1222,9 +1177,6 @@ impl GFlights {
                 map_bounds: None,
                 travellers: travelers,
                 travel_class: class,
-                currency,
-                language: lang,
-                country,
             };
 
             let results = client
@@ -1287,9 +1239,6 @@ impl GFlights {
         max_hours = None,
         adults = 1,
         travel_class = "economy",
-        currency = "EUR",
-        lang = "en",
-        country = "GB",
     ))]
     #[allow(clippy::too_many_arguments)]
     fn deals<'py>(
@@ -1302,18 +1251,12 @@ impl GFlights {
         max_hours: Option<u32>,
         adults: u8,
         travel_class: &str,
-        currency: &str,
-        lang: &str,
-        country: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
         let outbound_date = parse_date(out)?;
         let return_date = parse_date(ret)?;
         let class = parse_travel_class(travel_class)?;
-        let currency = parse_currency(currency)?;
         let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        let lang = lang.to_string();
-        let country = country.to_string();
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -1340,9 +1283,6 @@ impl GFlights {
                 max_duration_minutes: max_hours.map(|h| h * 60),
                 travel_class: class,
                 travellers: travelers,
-                currency,
-                language: lang,
-                country,
             };
 
             let results = client.request_deals(&config).await.map_err(anyhow_to_py)?;
@@ -1399,9 +1339,6 @@ impl GFlights {
         date,
         months = 3,
         trip_duration_days = None,
-        currency = "EUR",
-        lang = "en",
-        country = "GB",
     ))]
     #[allow(clippy::too_many_arguments)]
     fn cheapest_dates<'py>(
@@ -1412,14 +1349,8 @@ impl GFlights {
         date: String,
         months: u32,
         trip_duration_days: Option<u32>,
-        currency: &str,
-        lang: &str,
-        country: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
         let dep_start = parse_date(&date)?;
-        let currency = parse_currency(currency)?;
-        let lang = lang.to_string();
-        let country = country.to_string();
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -1431,9 +1362,6 @@ impl GFlights {
                 .await
                 .map_err(anyhow_to_py)?
                 .departing_date(dep_start)
-                .currency(currency)
-                .language(&lang)
-                .country(&country)
                 .build()
                 .map_err(anyhow_to_py)?;
 

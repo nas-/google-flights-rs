@@ -137,7 +137,12 @@ class GFlights:
     rate_limited: bool
 
     def __init__(
-        self, user_agent: Optional[str] = None, proxy: Optional[str] = None
+        self,
+        user_agent: Optional[str] = None,
+        proxy: Optional[str] = None,
+        currency: str = ...,
+        lang: str = ...,
+        country: str = ...,
     ) -> None: ...
 
     # Methods return asyncio.Future objects (awaitable); typed as coroutines for IDE support.
@@ -158,9 +163,6 @@ class GFlights:
         max_price: Optional[int] = ...,
         carry_on: int = ...,
         checked_bags: int = ...,
-        currency: str = ...,
-        lang: str = ...,
-        country: str = ...,
     ) -> list[FlightResult]:
         """Search for flights. Returns a coroutine."""
         ...
@@ -171,9 +173,6 @@ class GFlights:
         to_airport: str,
         date: str,
         months: int = ...,
-        currency: str = ...,
-        lang: str = ...,
-        country: str = ...,
     ) -> list[PriceEntry]:
         """Cheapest fare per day over a date range. Returns a coroutine."""
         ...
@@ -186,9 +185,6 @@ class GFlights:
         dep_end: str,
         ret_start: str,
         ret_end: str,
-        currency: str = ...,
-        lang: str = ...,
-        country: str = ...,
     ) -> list[DateGridEntry]:
         """Departure × return price matrix. Returns a coroutine."""
         ...
@@ -202,9 +198,6 @@ class GFlights:
         max_price: Optional[int] = ...,
         carry_on: int = ...,
         checked_bags: int = ...,
-        currency: str = ...,
-        lang: str = ...,
-        country: str = ...,
     ) -> list[FlightResult]:
         """Multi-city (open-jaw) search. Each leg is ``(from, to, "YYYY-MM-DD")``."""
         ...
@@ -221,9 +214,6 @@ class GFlights:
         checked: int = ...,
         adults: int = ...,
         travel_class: str = ...,
-        currency: str = ...,
-        lang: str = ...,
-        country: str = ...,
     ) -> list[ExploreResult]:
         """Explore cheap destinations from an origin airport.
 
@@ -240,9 +230,6 @@ class GFlights:
         max_hours: Optional[int] = ...,
         adults: int = ...,
         travel_class: str = ...,
-        currency: str = ...,
-        lang: str = ...,
-        country: str = ...,
     ) -> list[DealResult]:
         """Find discounted destinations (flight deals) from an origin.
 
@@ -257,9 +244,6 @@ class GFlights:
         date: str,
         months: int = ...,
         trip_duration_days: Optional[int] = ...,
-        currency: str = ...,
-        lang: str = ...,
-        country: str = ...,
     ) -> list[CheapDate]:
         """Find cheapest departure dates sorted by price.
 

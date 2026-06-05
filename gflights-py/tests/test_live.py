@@ -84,9 +84,11 @@ async def test_search_one_stop_filter(client):
 
 
 @live
-async def test_search_currency_us_dollar(client):
+async def test_search_currency_usd():
+    # Currency is a client property — build a USD client and search.
+    client = gflights.GFlights(currency="USD")
     flights = await client.search(
-        from_airport="JFK", to_airport="LAX", date="2026-09-01", currency="us-dollar",
+        from_airport="JFK", to_airport="LAX", date="2026-09-01",
     )
     assert len(flights) > 0
     assert any(f.price is not None for f in flights)
