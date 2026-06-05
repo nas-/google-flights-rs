@@ -32,6 +32,7 @@ use gflights::{
     },
 };
 use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyList};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -109,6 +110,15 @@ fn anyhow_to_py(e: anyhow::Error) -> PyErr {
     GFlightsError::new_err(e.to_string())
 }
 
+/// Render an `Option<T>` for a Python-style `__repr__`: the inner value, or
+/// the literal `None` — never Rust's `Some(..)` wrapper.
+fn repr_opt<T: std::fmt::Display>(o: &Option<T>) -> String {
+    match o {
+        Some(v) => v.to_string(),
+        None => "None".to_string(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Python data classes
 // ---------------------------------------------------------------------------
@@ -137,15 +147,28 @@ pub struct LegInfo {
 impl LegInfo {
     fn __repr__(&self) -> String {
         format!(
-            "LegInfo(from={:?}, to={:?}, dep={} {}, arr={} {}, duration={:?})",
+            "LegInfo(from={:?}, to={:?}, dep={} {}, arr={} {}, duration={})",
             self.from_airport,
             self.to_airport,
             self.departure_date,
             self.departure_time,
             self.arrival_date,
             self.arrival_time,
-            self.duration_minutes,
+            repr_opt(&self.duration_minutes),
         )
+    }
+
+    /// Return this leg as a plain ``dict``.
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("from_airport", &self.from_airport)?;
+        d.set_item("to_airport", &self.to_airport)?;
+        d.set_item("departure_time", &self.departure_time)?;
+        d.set_item("arrival_time", &self.arrival_time)?;
+        d.set_item("departure_date", &self.departure_date)?;
+        d.set_item("arrival_date", &self.arrival_date)?;
+        d.set_item("duration_minutes", self.duration_minutes)?;
+        Ok(d)
     }
 }
 
@@ -168,8 +191,20 @@ impl LayoverInfo {
     fn __repr__(&self) -> String {
         format!(
             "LayoverInfo(airport={:?}, {} min, overnight={})",
-            self.arrival_airport, self.connection_minutes, self.overnight
+            self.arrival_airport,
+            self.connection_minutes,
+            if self.overnight { "True" } else { "False" },
         )
+    }
+
+    /// Return this layover as a plain ``dict``.
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("connection_minutes", self.connection_minutes)?;
+        d.set_item("arrival_airport", &self.arrival_airport)?;
+        d.set_item("departure_airport", &self.departure_airport)?;
+        d.set_item("overnight", self.overnight)?;
+        Ok(d)
     }
 }
 
@@ -191,9 +226,22 @@ pub struct EmissionsInfo {
 impl EmissionsInfo {
     fn __repr__(&self) -> String {
         format!(
-            "EmissionsInfo(vs_avg={:?}%, this={:?}g, typical={:?}g)",
-            self.vs_average_percent, self.co2_this_flight_g, self.co2_typical_route_g,
+            "EmissionsInfo(vs_average_percent={}, co2_this_flight_g={}, co2_typical_route_g={}, co2_lowest_route_g={})",
+            repr_opt(&self.vs_average_percent),
+            repr_opt(&self.co2_this_flight_g),
+            repr_opt(&self.co2_typical_route_g),
+            repr_opt(&self.co2_lowest_route_g),
         )
+    }
+
+    /// Return these emissions figures as a plain ``dict``.
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("vs_average_percent", self.vs_average_percent)?;
+        d.set_item("co2_this_flight_g", self.co2_this_flight_g)?;
+        d.set_item("co2_typical_route_g", self.co2_typical_route_g)?;
+        d.set_item("co2_lowest_route_g", self.co2_lowest_route_g)?;
+        Ok(d)
     }
 }
 
@@ -249,9 +297,39 @@ impl FlightResult {
 
     fn __repr__(&self) -> String {
         format!(
-            "FlightResult(airline={:?}, duration={}min, stops={}, price={:?})",
-            self.airline, self.duration_minutes, self.stops, self.price,
+            "FlightResult(airline={:?}, duration={}min, stops={}, price={})",
+            self.airline,
+            self.duration_minutes,
+            self.stops,
+            repr_opt(&self.price),
         )
+    }
+
+    /// Return the full itinerary as a nested plain ``dict`` (legs, layovers and
+    /// emissions are recursively expanded into dicts/lists).
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("airline", &self.airline)?;
+        d.set_item("duration_minutes", self.duration_minutes)?;
+        d.set_item("stops", self.stops)?;
+        d.set_item("price", self.price)?;
+        d.set_item("booking_token", &self.booking_token)?;
+        let legs = PyList::empty(py);
+        for l in &self.legs {
+            legs.append(l.to_dict(py)?)?;
+        }
+        d.set_item("legs", legs)?;
+        let layovers = PyList::empty(py);
+        for l in &self.layovers {
+            layovers.append(l.to_dict(py)?)?;
+        }
+        d.set_item("layovers", layovers)?;
+        let emissions = match &self.emissions {
+            Some(e) => Some(e.to_dict(py)?),
+            None => None,
+        };
+        d.set_item("emissions", emissions)?;
+        Ok(d)
     }
 }
 
@@ -269,6 +347,14 @@ pub struct PriceEntry {
 impl PriceEntry {
     fn __repr__(&self) -> String {
         format!("PriceEntry(date={:?}, price={})", self.date, self.price)
+    }
+
+    /// Return this entry as a plain ``dict``.
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("date", &self.date)?;
+        d.set_item("price", self.price)?;
+        Ok(d)
     }
 }
 
@@ -291,6 +377,15 @@ impl DateGridEntry {
             "DateGridEntry(dep={:?}, ret={:?}, price={})",
             self.dep_date, self.ret_date, self.price,
         )
+    }
+
+    /// Return this grid cell as a plain ``dict``.
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("dep_date", &self.dep_date)?;
+        d.set_item("ret_date", &self.ret_date)?;
+        d.set_item("price", self.price)?;
+        Ok(d)
     }
 }
 
@@ -321,6 +416,15 @@ impl CheapDate {
                 self.departure_date, self.price,
             ),
         }
+    }
+
+    /// Return this cheapest-date result as a plain ``dict``.
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("departure_date", &self.departure_date)?;
+        d.set_item("return_date", &self.return_date)?;
+        d.set_item("price", self.price)?;
+        Ok(d)
     }
 }
 
@@ -370,9 +474,33 @@ pub struct ExploreResult {
 impl ExploreResult {
     fn __repr__(&self) -> String {
         format!(
-            "ExploreResult(name={:?}, airport={:?}, price={:?})",
-            self.name, self.nearest_airport, self.price,
+            "ExploreResult(name={:?}, airport={:?}, price={})",
+            self.name,
+            self.nearest_airport,
+            repr_opt(&self.price),
         )
+    }
+
+    /// Return this destination as a plain ``dict``.
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("place_id", &self.place_id)?;
+        d.set_item("name", &self.name)?;
+        d.set_item("country", &self.country)?;
+        d.set_item("lat", self.lat)?;
+        d.set_item("lng", self.lng)?;
+        d.set_item("image_url", &self.image_url)?;
+        d.set_item("nearest_airport", &self.nearest_airport)?;
+        d.set_item("flight_airport", &self.flight_airport)?;
+        d.set_item("date_from", &self.date_from)?;
+        d.set_item("date_to", &self.date_to)?;
+        d.set_item("price", self.price)?;
+        d.set_item("airline", &self.airline)?;
+        d.set_item("stops", self.stops)?;
+        d.set_item("flight_duration_minutes", self.flight_duration_minutes)?;
+        d.set_item("accommodation_price", self.accommodation_price)?;
+        d.set_item("booking_token", &self.booking_token)?;
+        Ok(d)
     }
 }
 
@@ -424,9 +552,36 @@ pub struct DealResult {
 impl DealResult {
     fn __repr__(&self) -> String {
         format!(
-            "DealResult(dest={:?}, price={:?}, off={:?}%)",
-            self.destination_city, self.price, self.discount_pct,
+            "DealResult(dest={:?}, price={}, off={}%)",
+            self.destination_city,
+            repr_opt(&self.price),
+            repr_opt(&self.discount_pct),
         )
+    }
+
+    /// Return this deal as a plain ``dict``.
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("origin_iata", &self.origin_iata)?;
+        d.set_item("destination_iata", &self.destination_iata)?;
+        d.set_item("destination_city", &self.destination_city)?;
+        d.set_item("destination_country", &self.destination_country)?;
+        d.set_item("destination_mid", &self.destination_mid)?;
+        d.set_item("outbound_date", &self.outbound_date)?;
+        d.set_item("return_date", &self.return_date)?;
+        d.set_item("price", self.price)?;
+        d.set_item("typical_price", self.typical_price)?;
+        d.set_item("discount_pct", self.discount_pct)?;
+        d.set_item("duration_minutes", self.duration_minutes)?;
+        d.set_item("stops", self.stops)?;
+        d.set_item("airline_code", &self.airline_code)?;
+        d.set_item("airline_name", &self.airline_name)?;
+        d.set_item("image_url", &self.image_url)?;
+        d.set_item("highlights", &self.highlights)?;
+        d.set_item("description", &self.description)?;
+        d.set_item("booking_url", &self.booking_url)?;
+        d.set_item("booking_token", &self.booking_token)?;
+        Ok(d)
     }
 }
 

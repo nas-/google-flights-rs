@@ -24,6 +24,7 @@ class LegInfo:
     arrival_date: str
     duration_minutes: Optional[int]
     def __repr__(self) -> str: ...
+    def to_dict(self) -> dict: ...
 
 class LayoverInfo:
     connection_minutes: int
@@ -31,6 +32,7 @@ class LayoverInfo:
     departure_airport: str
     overnight: bool
     def __repr__(self) -> str: ...
+    def to_dict(self) -> dict: ...
 
 class EmissionsInfo:
     vs_average_percent: Optional[int]
@@ -38,6 +40,7 @@ class EmissionsInfo:
     co2_typical_route_g: Optional[int]
     co2_lowest_route_g: Optional[int]
     def __repr__(self) -> str: ...
+    def to_dict(self) -> dict: ...
 
 class FlightResult:
     airline: str
@@ -52,17 +55,20 @@ class FlightResult:
     @property
     def emissions(self) -> Optional[EmissionsInfo]: ...
     def __repr__(self) -> str: ...
+    def to_dict(self) -> dict: ...
 
 class PriceEntry:
     date: str
     price: int
     def __repr__(self) -> str: ...
+    def to_dict(self) -> dict: ...
 
 class DateGridEntry:
     dep_date: str
     ret_date: str
     price: int
     def __repr__(self) -> str: ...
+    def to_dict(self) -> dict: ...
 
 class CheapDate:
     """One result from :meth:`GFlights.cheapest_dates`, sorted cheapest-first.
@@ -73,6 +79,7 @@ class CheapDate:
     return_date: Optional[str]
     price: int
     def __repr__(self) -> str: ...
+    def to_dict(self) -> dict: ...
 
 class ExploreResult:
     """One destination returned by :meth:`GFlights.explore`."""
@@ -93,6 +100,7 @@ class ExploreResult:
     accommodation_price: Optional[int]
     booking_token: str
     def __repr__(self) -> str: ...
+    def to_dict(self) -> dict: ...
 
 class DealResult:
     """One discounted destination returned by :meth:`GFlights.deals`."""
@@ -116,6 +124,7 @@ class DealResult:
     booking_url: Optional[str]
     booking_token: Optional[str]
     def __repr__(self) -> str: ...
+    def to_dict(self) -> dict: ...
 
 class GFlights:
     """Async Python client for Google Flights, backed by Rust/tokio.
