@@ -44,8 +44,10 @@ fn parse_date(s: &str) -> PyResult<NaiveDate> {
 }
 
 fn parse_currency(s: &str) -> PyResult<Currency> {
-    <Currency as clap::ValueEnum>::from_str(s, true).map_err(|e| {
-        pyo3::exceptions::PyValueError::new_err(format!("unknown currency {s:?}: {e}"))
+    Currency::from_code(s).ok_or_else(|| {
+        pyo3::exceptions::PyValueError::new_err(format!(
+            "unknown currency {s:?} (expected an ISO-4217 code, e.g. \"USD\", \"EUR\", \"GBP\")"
+        ))
     })
 }
 
@@ -572,7 +574,7 @@ impl GFlights {
     /// :param max_price:    Maximum price cap (in the search currency). ``None`` for no cap.
     /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
     /// :param checked_bags: Number of checked bags required (0 = no restriction).
-    /// :param currency:     Currency name (e.g. ``"euro"``, ``"us-dollar"``).
+    /// :param currency:     ISO-4217 currency code (e.g. ``"USD"``, ``"EUR"``, ``"GBP"``).
     /// :param lang:         BCP-47 language subtag (default ``"en"``).
     /// :param country:      ISO 3166-1 alpha-2 country code (default ``"GB"``).
     /// :returns:            Coroutine → ``list[FlightResult]``
@@ -592,7 +594,7 @@ impl GFlights {
         max_price = None,
         carry_on = 0,
         checked_bags = 0,
-        currency = "euro",
+        currency = "EUR",
         lang = "en",
         country = "GB",
     ))]
@@ -691,7 +693,7 @@ impl GFlights {
     /// :param to_airport:   Destination IATA code or city name.
     /// :param date:         Start date as ``"YYYY-MM-DD"``.
     /// :param months:       How many months of price data to fetch (default 1).
-    /// :param currency:     Currency name (e.g. ``"euro"``).
+    /// :param currency:     ISO-4217 currency code (e.g. ``"EUR"``).
     /// :param lang:         BCP-47 language subtag.
     /// :param country:      ISO 3166-1 alpha-2 country code.
     /// :returns:            Coroutine → ``list[PriceEntry]``, sorted by date.
@@ -700,7 +702,7 @@ impl GFlights {
         to_airport,
         date,
         months = 1,
-        currency = "euro",
+        currency = "EUR",
         lang = "en",
         country = "GB",
     ))]
@@ -772,7 +774,7 @@ impl GFlights {
     /// :param dep_end:      Last outbound departure date ``"YYYY-MM-DD"``.
     /// :param ret_start:    First return date ``"YYYY-MM-DD"``.
     /// :param ret_end:      Last return date ``"YYYY-MM-DD"``.
-    /// :param currency:     Currency name (e.g. ``"euro"``).
+    /// :param currency:     ISO-4217 currency code (e.g. ``"EUR"``).
     /// :param lang:         BCP-47 language subtag.
     /// :param country:      ISO 3166-1 alpha-2 country code.
     /// :returns:            Coroutine → ``list[DateGridEntry]``
@@ -783,7 +785,7 @@ impl GFlights {
         dep_end,
         ret_start,
         ret_end,
-        currency = "euro",
+        currency = "EUR",
         lang = "en",
         country = "GB",
     ))]
@@ -859,7 +861,7 @@ impl GFlights {
     /// :param max_price:    Maximum price cap (in the search currency). ``None`` for no cap.
     /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
     /// :param checked_bags: Number of checked bags required (0 = no restriction).
-    /// :param currency:     Currency name (e.g. ``"euro"``).
+    /// :param currency:     ISO-4217 currency code (e.g. ``"EUR"``).
     /// :param lang:         BCP-47 language subtag (default ``"en"``).
     /// :param country:      ISO 3166-1 alpha-2 country code (default ``"GB"``).
     /// :returns:            Coroutine → ``list[FlightResult]``
@@ -871,7 +873,7 @@ impl GFlights {
         max_price = None,
         carry_on = 0,
         checked_bags = 0,
-        currency = "euro",
+        currency = "EUR",
         lang = "en",
         country = "GB",
     ))]
@@ -957,13 +959,14 @@ impl GFlights {
     /// :param month:              Calendar month (1–12) to search in.  ``None`` for any month.
     /// :param duration:           Trip duration: ``"weekend"``, ``"week"``, or ``"2weeks"``.
     /// :param max_price:          Maximum total round-trip price.  ``None`` for no limit.
-    /// :param interest:           Interest category MID string (use ``gflights.Interest.*`` constants).
+    /// :param interest:           Interest name (e.g. ``"beaches"``, ``"climbing"``), an alias,
+    ///                            or a raw ``/m/…`` MID. Unknown values raise ``ValueError``.
     /// :param max_flight_hours:   Maximum one-way flight time in hours.  ``None`` for no limit.
     /// :param carry_on:           Number of carry-on bags (default 0).
     /// :param checked:            Number of checked bags (default 0).
     /// :param adults:             Number of adult passengers (default 1).
     /// :param travel_class:       ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
-    /// :param currency:           Currency name (e.g. ``"euro"``).
+    /// :param currency:           ISO-4217 currency code (e.g. ``"EUR"``).
     /// :param lang:               BCP-47 language subtag (default ``"en"``).
     /// :param country:            ISO 3166-1 alpha-2 country code (default ``"GB"``).
     /// :returns:                  Coroutine → ``list[ExploreResult]``
@@ -978,7 +981,7 @@ impl GFlights {
         checked = 0u8,
         adults = 1,
         travel_class = "economy",
-        currency = "euro",
+        currency = "EUR",
         lang = "en",
         country = "GB",
     ))]
@@ -1022,6 +1025,13 @@ impl GFlights {
         } else {
             None
         };
+
+        // Resolve an interest name/alias (e.g. "beaches") or raw MID to a MID,
+        // raising on unknown values instead of silently returning no results.
+        let interest = interest
+            .map(|i| gflights::requests::config::explore::resolve_interest(&i))
+            .transpose()
+            .map_err(anyhow_to_py)?;
 
         let lang = lang.to_string();
         let country = country.to_string();
@@ -1110,7 +1120,7 @@ impl GFlights {
     /// :param max_hours:     Maximum one-way flight time in hours. ``None`` = no limit.
     /// :param adults:        Number of adult passengers (default 1).
     /// :param travel_class:  ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
-    /// :param currency:      Currency name (e.g. ``"euro"``).
+    /// :param currency:      ISO-4217 currency code (e.g. ``"EUR"``).
     /// :param lang:          BCP-47 language subtag (default ``"en"``).
     /// :param country:       ISO 3166-1 alpha-2 country code (default ``"GB"``).
     /// :returns:             Coroutine → ``list[DealResult]``
@@ -1122,7 +1132,7 @@ impl GFlights {
         max_hours = None,
         adults = 1,
         travel_class = "economy",
-        currency = "euro",
+        currency = "EUR",
         lang = "en",
         country = "GB",
     ))]
@@ -1224,7 +1234,7 @@ impl GFlights {
     /// :param months:             Number of months to scan. Default ``3``.
     /// :param trip_duration_days: Round-trip length in days. ``None`` for one-way
     ///                            date discovery.
-    /// :param currency:           Currency code (default ``"euro"``).
+    /// :param currency:           ISO-4217 currency code (default ``"EUR"``).
     /// :param lang:               BCP-47 language subtag (default ``"en"``).
     /// :param country:            ISO 3166-1 alpha-2 country code (default ``"GB"``).
     /// :returns:                  Coroutine → ``list[CheapDate]``, sorted cheapest first.
@@ -1234,7 +1244,7 @@ impl GFlights {
         date,
         months = 3,
         trip_duration_days = None,
-        currency = "euro",
+        currency = "EUR",
         lang = "en",
         country = "GB",
     ))]
