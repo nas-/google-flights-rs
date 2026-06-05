@@ -1,7 +1,6 @@
 //! Configuration types for the `GetExploreDestinations` endpoint.
 
 use crate::parsers::common::{Location, PlaceType, TravelClass, Travelers};
-use crate::requests::config::Currency;
 
 // ---------------------------------------------------------------------------
 // Duration / date options
@@ -316,15 +315,6 @@ pub struct ExploreConfig {
 
     /// Cabin class.
     pub travel_class: TravelClass,
-
-    /// Currency for prices.
-    pub currency: Currency,
-
-    /// BCP-47 language subtag, e.g. `"en"`, `"fr"`.
-    pub language: String,
-
-    /// ISO 3166-1 alpha-2 country code, e.g. `"GB"`.
-    pub country: String,
 }
 
 impl Default for ExploreConfig {
@@ -342,9 +332,6 @@ impl Default for ExploreConfig {
             map_bounds: None,
             travellers: Travelers::default(),
             travel_class: TravelClass::Economy,
-            currency: Currency::default(),
-            language: "en".to_string(),
-            country: "GB".to_string(),
         }
     }
 }

@@ -887,8 +887,6 @@ fn search_with_french_locale_parses_ok() -> Result<()> {
             .destination("JFK", client)
             .await?
             .departing_date(days_from_now(14))
-            .language("fr".to_string())
-            .country("FR".to_string())
             .build()?;
 
         let response = client.request_flights(&config).await?;

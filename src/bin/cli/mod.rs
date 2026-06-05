@@ -62,6 +62,19 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub proxy: Option<String>,
 
+    /// Result currency for prices, applied to every request (e.g. euro,
+    /// us-dollar, british-pound).
+    #[arg(long, global = true, default_value = "euro")]
+    pub currency: Currency,
+
+    /// BCP-47 language subtag applied to every request (e.g. en, fr, de).
+    #[arg(long, global = true, default_value = "en")]
+    pub lang: String,
+
+    /// ISO 3166-1 alpha-2 country code applied to every request (e.g. GB, FR, US).
+    #[arg(long, global = true, default_value = "GB")]
+    pub country: String,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -160,18 +173,6 @@ pub struct CommonArgs {
     #[arg(long, default_value = "all")]
     pub stops: StopOptions,
 
-    /// Currency for prices.
-    #[arg(long, default_value = "euro")]
-    pub currency: Currency,
-
-    /// BCP-47 language subtag (e.g. en, fr, de).
-    #[arg(long, default_value = "en")]
-    pub lang: String,
-
-    /// ISO 3166-1 alpha-2 country code (e.g. GB, FR, US).
-    #[arg(long, default_value = "GB")]
-    pub country: String,
-
     /// Output format.
     #[arg(long, default_value = "table")]
     pub format: OutputFormat,
@@ -192,10 +193,7 @@ pub async fn build_config(common: &CommonArgs, client: &ApiClient) -> Result<Con
         .departing_date(common.date)
         .travelers(travelers)
         .travel_class(common.class)
-        .stop_options(common.stops)
-        .currency(common.currency.clone())
-        .language(common.lang.clone())
-        .country(common.country.clone());
+        .stop_options(common.stops);
 
     if let Some(ret) = common.r#return {
         builder = builder.return_date(ret);

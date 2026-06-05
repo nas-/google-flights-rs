@@ -44,6 +44,7 @@ async fn main() -> Result<()> {
     if let Some(ua) = cli.user_agent.clone() {
         client = client.with_user_agent(ua);
     }
+    client = client.with_locale(cli.currency.clone(), cli.lang.clone(), cli.country.clone());
 
     match cli.command {
         Some(cmd) => run_command(cmd, &client).await,

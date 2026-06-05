@@ -20,7 +20,8 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let client = ApiClient::new().await;
+    // Currency is a client property — it applies to every request.
+    let client = ApiClient::new().await.with_currency(Currency::USDollar);
 
     let today = Utc::now().date_naive();
     let departing_date = today + Duration::days(10);
@@ -36,7 +37,6 @@ async fn main() -> Result<()> {
         .with_context(|| "Failed to set destination airport")?
         .departing_date(departing_date)
         .return_date(return_date)
-        .currency(Currency::USDollar)
         .build()
         .with_context(|| "Failed to build configuration")?;
 
@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
             "Lowest cost itinerary: Departure on {}, Price: {:.2} {:?}",
             departure_date.format("%Y-%m-%d"),
             price,
-            config.currency
+            client.currency()
         );
     } else {
         println!("No prices found for this itinerary.");

@@ -37,7 +37,7 @@ pub enum TripType {
 /// `departure` and `destination` each hold 1–7 airports.  When multiple
 /// airports are supplied Google Flights treats them as "any of these" for
 /// that end of the journey (e.g. all London-area airports as the origin).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Config {
     pub departing_date: NaiveDate,
     /// One to seven departure airports / city identifiers.
@@ -55,12 +55,7 @@ pub struct Config {
     pub stopover_min: StopoverDuration,
     pub duration_max: TotalDuration,
     pub trip_type: TripType,
-    pub currency: Currency,
     pub fixed_flights: FixedFlights,
-    /// BCP-47 language subtag for the Google Flights UI, e.g. `"en"`, `"fr"`.
-    pub language: String,
-    /// ISO 3166-1 alpha-2 country code for locale, e.g. `"GB"`, `"FR"`.
-    pub country: String,
     /// Sort order applied to the search results.
     pub sort_order: SortOrder,
     /// Airlines / alliances to include (position \[4\] of the per-leg array).
@@ -81,37 +76,6 @@ pub struct Config {
     pub baggage: Option<(u8, u8)>,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            departing_date: NaiveDate::default(),
-            departure: Vec::new(),
-            destination: Vec::new(),
-            stop_options: StopOptions::default(),
-            travel_class: TravelClass::default(),
-            return_date: None,
-            travellers: Travelers::default(),
-            departing_times: FlightTimes::default(),
-            return_times: FlightTimes::default(),
-            stopover_max: StopoverDuration::default(),
-            stopover_min: StopoverDuration::default(),
-            duration_max: TotalDuration::default(),
-            trip_type: TripType::default(),
-            currency: Currency::default(),
-            fixed_flights: FixedFlights::default(),
-            language: "en".to_string(),
-            country: "GB".to_string(),
-            sort_order: SortOrder::default(),
-            airlines_include: Vec::new(),
-            airlines_exclude: Vec::new(),
-            connecting_airports: Vec::new(),
-            lower_emissions: false,
-            max_price: None,
-            baggage: None,
-        }
-    }
-}
-
 impl Config {
     /// Creates a new `Config` object with the specified options.
     #[allow(clippy::too_many_arguments)]
@@ -127,7 +91,6 @@ impl Config {
         return_times: FlightTimes,
         stopover_max: StopoverDuration,
         duration_max: TotalDuration,
-        currency: Option<Currency>,
     ) -> Self {
         let trip_type = match return_date {
             Some(_) => TripType::Return,
@@ -158,10 +121,7 @@ impl Config {
             stopover_min: StopoverDuration::default(),
             duration_max,
             trip_type,
-            currency: currency.unwrap_or_default(),
             fixed_flights,
-            language: "en".to_string(),
-            country: "GB".to_string(),
             sort_order: SortOrder::default(),
             airlines_include: Vec::new(),
             airlines_exclude: Vec::new(),
@@ -589,7 +549,6 @@ mod tests {
             FlightTimes::default(),
             StopoverDuration::default(),
             TotalDuration::default(),
-            None,
         );
         assert!(matches!(cfg.trip_type, TripType::OneWay));
         assert!(cfg.return_date.is_none());
@@ -622,7 +581,6 @@ mod tests {
             FlightTimes::default(),
             StopoverDuration::default(),
             TotalDuration::default(),
-            Some(Currency::Euro),
         );
         assert!(matches!(cfg.trip_type, TripType::Return));
         assert_eq!(cfg.get_diff_days(), Some(7));

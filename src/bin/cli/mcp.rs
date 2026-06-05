@@ -15,7 +15,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdout};
 
 use gflights::parsers::common::{Location, PlaceType, StopOptions, TravelClass, Travelers};
 use gflights::requests::api::ApiClient;
-use gflights::requests::config::{Config, Currency, DealConfig, ExploreConfig, ExploreDate};
+use gflights::requests::config::{Config, DealConfig, ExploreConfig, ExploreDate};
 
 /// MCP protocol revision this server implements.
 const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -271,11 +271,6 @@ fn parse_class(s: &str) -> std::result::Result<TravelClass, String> {
     }
 }
 
-fn parse_currency(s: &str) -> std::result::Result<Currency, String> {
-    <Currency as clap::ValueEnum>::from_str(s, true)
-        .map_err(|e| format!("unknown currency {s:?}: {e}"))
-}
-
 fn parse_stops(s: &str) -> std::result::Result<StopOptions, String> {
     match s.to_lowercase().as_str() {
         "all" | "any" => Ok(StopOptions::All),
@@ -310,12 +305,7 @@ async fn build_route_config(
         .await
         .map_err(|e| e.to_string())?
         .departing_date(date)
-        .travelers(travelers_for(adults)?)
-        .currency(parse_currency(
-            &opt_str(args, "currency").unwrap_or_else(|| "euro".into()),
-        )?)
-        .language(opt_str(args, "lang").unwrap_or_else(|| "en".into()))
-        .country(opt_str(args, "country").unwrap_or_else(|| "GB".into()));
+        .travelers(travelers_for(adults)?);
 
     if let Some(c) = opt_str(args, "class") {
         b = b.travel_class(parse_class(&c)?);
@@ -398,9 +388,6 @@ async fn tool_explore(args: &Value, client: &ApiClient) -> std::result::Result<S
         trip_date,
         max_price: opt_u32(args, "budget").map(|b| b as i32),
         travellers: travelers_for(adults)?,
-        currency: parse_currency(&opt_str(args, "currency").unwrap_or_else(|| "euro".into()))?,
-        language: opt_str(args, "lang").unwrap_or_else(|| "en".into()),
-        country: opt_str(args, "country").unwrap_or_else(|| "GB".into()),
         ..Default::default()
     };
 
@@ -437,9 +424,6 @@ async fn tool_deals(args: &Value, client: &ApiClient) -> std::result::Result<Str
         max_duration_minutes: opt_u32(args, "max_hours").map(|h| h * 60),
         travel_class: class,
         travellers: travelers_for(adults)?,
-        currency: parse_currency(&opt_str(args, "currency").unwrap_or_else(|| "euro".into()))?,
-        language: opt_str(args, "lang").unwrap_or_else(|| "en".into()),
-        country: opt_str(args, "country").unwrap_or_else(|| "GB".into()),
     };
     let deals = client
         .request_deals(&config)

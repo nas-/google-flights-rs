@@ -1,7 +1,6 @@
 //! Configuration and result types for the `GetFlightDealsStreaming` endpoint.
 
 use crate::parsers::common::{Location, TravelClass, Travelers};
-use crate::requests::config::Currency;
 use chrono::NaiveDate;
 
 // ---------------------------------------------------------------------------
@@ -40,15 +39,6 @@ pub struct DealConfig {
 
     /// Traveller counts.
     pub travellers: Travelers,
-
-    /// Currency for prices.
-    pub currency: Currency,
-
-    /// BCP-47 language subtag, e.g. `"en"`.
-    pub language: String,
-
-    /// ISO 3166-1 alpha-2 country code, e.g. `"GB"`.
-    pub country: String,
 }
 
 impl Default for DealConfig {
@@ -62,9 +52,6 @@ impl Default for DealConfig {
             max_duration_minutes: None,
             travel_class: TravelClass::Economy,
             travellers: Travelers::default(),
-            currency: Currency::default(),
-            language: "en".to_string(),
-            country: "GB".to_string(),
         }
     }
 }

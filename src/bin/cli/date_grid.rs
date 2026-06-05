@@ -3,7 +3,7 @@ use chrono::NaiveDate;
 use clap::Parser;
 use gflights::parsers::common::{StopOptions, TravelClass, Travelers};
 use gflights::requests::api::ApiClient;
-use gflights::requests::config::{Config, Currency};
+use gflights::requests::config::Config;
 
 use super::OutputFormat;
 
@@ -46,10 +46,6 @@ pub struct DateGridArgs {
     #[arg(long, default_value = "all")]
     pub stops: StopOptions,
 
-    /// Currency for prices.
-    #[arg(long, default_value = "euro")]
-    pub currency: Currency,
-
     /// Output format.
     #[arg(long, default_value = "table")]
     pub format: OutputFormat,
@@ -69,7 +65,6 @@ pub async fn cmd_date_grid(args: DateGridArgs, client: &ApiClient) -> Result<()>
         .travelers(travelers)
         .travel_class(args.class)
         .stop_options(args.stops)
-        .currency(args.currency.clone())
         .build()?;
 
     let grid = client

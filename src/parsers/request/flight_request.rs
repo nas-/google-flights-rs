@@ -409,6 +409,10 @@ impl SerializeToWeb for CompleteFlightRequest<'_> {
 pub struct MultiCityRequestOptions<'a> {
     pub config: &'a MultiCityConfig,
     pub frontend_version: &'a str,
+    /// BCP-47 language subtag, e.g. `"en"`.
+    pub language: &'a str,
+    /// ISO 3166-1 alpha-2 country code, e.g. `"GB"`.
+    pub country: &'a str,
 }
 
 impl ToRequestBody for MultiCityRequestOptions<'_> {
@@ -450,8 +454,8 @@ impl TryFrom<&MultiCityRequestOptions<'_>> for RequestBody {
             "{endpoint}?f.sid=6921237406276106431&bl={version}&hl={lang}-{country}&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c",
             endpoint = FLIGHT_REQUEST,
             version = opts.frontend_version,
-            lang = cfg.language,
-            country = cfg.country.to_uppercase(),
+            lang = opts.language,
+            country = opts.country.to_uppercase(),
         );
 
         let encoded = utf8_percent_encode(&body, CHARACTERS_TO_ENCODE).to_string();

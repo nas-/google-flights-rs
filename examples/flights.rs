@@ -54,7 +54,8 @@ async fn main() -> Result<()> {
     println!("Outbound: {:?}", first_flight.itinerary);
     println!(
         "Price: {:?} {:?}",
-        first_flight.itinerary_cost.trip_cost, config.currency
+        first_flight.itinerary_cost.trip_cost,
+        client.currency()
     );
     config.fixed_flights.add_element(first_flight)?;
 
@@ -77,7 +78,8 @@ async fn main() -> Result<()> {
             println!("Return:   {:?}", flight.itinerary);
             println!(
                 "Price:    {:?} {:?}",
-                flight.itinerary_cost.trip_cost, config.currency
+                flight.itinerary_cost.trip_cost,
+                client.currency()
             );
             config.fixed_flights.add_element(flight)?;
         } else {
@@ -114,7 +116,7 @@ async fn main() -> Result<()> {
             "Offer: {:?}  Price: {} {:?}",
             offer.airline_names,
             offer.price.unwrap(),
-            config.currency
+            client.currency()
         );
 
         if let Some(token) = offer.click_token.as_deref() {
@@ -132,7 +134,7 @@ async fn main() -> Result<()> {
                     };
                     let price_str = sub
                         .price
-                        .map(|p| format!("{} {:?}", p, config.currency))
+                        .map(|p| format!("{} {:?}", p, client.currency()))
                         .unwrap_or_default();
                     match client.resolve_booking_url(token).await {
                         Ok(url) => println!("  [{label}  {price_str}]  ->  {url}"),

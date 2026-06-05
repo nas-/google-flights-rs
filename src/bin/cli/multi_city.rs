@@ -3,7 +3,7 @@ use chrono::NaiveDate;
 use clap::Parser;
 use gflights::parsers::common::{SortOrder, TravelClass, Travelers};
 use gflights::requests::api::ApiClient;
-use gflights::requests::config::{Currency, MultiCityConfig};
+use gflights::requests::config::MultiCityConfig;
 
 use super::OutputFormat;
 
@@ -68,18 +68,6 @@ pub struct MultiCityArgs {
     #[arg(long, default_value = "best")]
     pub sort: SortOrder,
 
-    /// Currency for prices.
-    #[arg(long, default_value = "euro")]
-    pub currency: Currency,
-
-    /// BCP-47 language subtag (e.g. en, fr, de).
-    #[arg(long, default_value = "en")]
-    pub lang: String,
-
-    /// ISO 3166-1 alpha-2 country code (e.g. GB, FR, US).
-    #[arg(long, default_value = "GB")]
-    pub country: String,
-
     /// Output format.
     #[arg(long, default_value = "table")]
     pub format: OutputFormat,
@@ -95,10 +83,7 @@ pub async fn cmd_multi_city(args: MultiCityArgs, client: &ApiClient) -> Result<(
     let mut builder = MultiCityConfig::builder()
         .travellers(travelers)
         .travel_class(args.class)
-        .sort_order(args.sort)
-        .currency(args.currency)
-        .language(args.lang)
-        .country(args.country);
+        .sort_order(args.sort);
 
     for leg in &args.legs {
         builder = builder

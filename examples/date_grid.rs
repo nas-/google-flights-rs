@@ -49,7 +49,10 @@ async fn main() -> Result<()> {
     if let Some(best) = grid_response.cheapest() {
         println!(
             "Cheapest: depart {} → return {}  =  {} {:?}",
-            best.departure_date, best.return_date, best.price, config.currency
+            best.departure_date,
+            best.return_date,
+            best.price,
+            client.currency()
         );
     } else {
         println!("No prices found.");

@@ -9,7 +9,6 @@ use clap::Parser;
 use gflights::parsers::common::{Location, PlaceType, TravelClass, Travelers};
 use gflights::requests::api::ApiClient;
 use gflights::requests::config::deals::DealConfig;
-use gflights::requests::config::Currency;
 
 use super::OutputFormat;
 
@@ -44,18 +43,6 @@ pub struct DealsArgs {
     #[arg(long, default_value = "economy")]
     pub class: TravelClass,
 
-    /// Currency for prices.
-    #[arg(long, default_value = "euro")]
-    pub currency: Currency,
-
-    /// BCP-47 language subtag.
-    #[arg(long, default_value = "en")]
-    pub lang: String,
-
-    /// ISO 3166-1 alpha-2 country code.
-    #[arg(long, default_value = "GB")]
-    pub country: String,
-
     /// Output format.
     #[arg(long, default_value = "table")]
     pub format: OutputFormat,
@@ -77,9 +64,6 @@ pub async fn cmd_deals(args: DealsArgs, client: &ApiClient) -> Result<()> {
         max_duration_minutes: args.max_hours.map(|h| h * 60),
         travel_class: args.class,
         travellers,
-        currency: args.currency,
-        language: args.lang,
-        country: args.country,
     };
 
     let mut deals = client.request_deals(&config).await?;

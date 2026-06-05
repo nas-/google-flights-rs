@@ -10,7 +10,6 @@ use gflights::requests::api::ApiClient;
 use gflights::requests::config::explore::{
     resolve_destination, resolve_interest, ExploreConfig, ExploreDate, ExploreDuration,
 };
-use gflights::requests::config::Currency;
 
 use super::OutputFormat;
 
@@ -93,18 +92,6 @@ pub struct ExploreArgs {
     #[arg(long, default_value = "economy")]
     pub class: TravelClass,
 
-    /// Currency for prices.
-    #[arg(long, default_value = "euro")]
-    pub currency: Currency,
-
-    /// BCP-47 language subtag.
-    #[arg(long, default_value = "en")]
-    pub lang: String,
-
-    /// ISO 3166-1 alpha-2 country code.
-    #[arg(long, default_value = "GB")]
-    pub country: String,
-
     /// Output format.
     #[arg(long, default_value = "table")]
     pub format: OutputFormat,
@@ -153,9 +140,6 @@ pub async fn cmd_explore(args: ExploreArgs, client: &ApiClient) -> Result<()> {
         map_bounds: None,
         travellers: travelers,
         travel_class: args.class,
-        currency: args.currency,
-        language: args.lang,
-        country: args.country,
     };
 
     let mut results = client.request_explore(&config).await?;

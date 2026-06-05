@@ -29,6 +29,7 @@ use reqwest::{Client, Response, StatusCode};
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Returned when the Google Flights API responds with HTTP 429 (Too Many Requests).
 ///
@@ -103,6 +104,12 @@ pub struct ApiClient {
     /// construction (see [`pick_user_agent`]) or overridden via
     /// [`ApiClient::with_user_agent`].
     user_agent: String,
+    /// Result currency applied to every request (sent via the locale header).
+    currency: Currency,
+    /// BCP-47 language subtag applied to every request, e.g. `"en"`.
+    language: String,
+    /// ISO 3166-1 alpha-2 country code applied to every request, e.g. `"GB"`.
+    country: String,
 }
 
 impl ApiClient {
@@ -164,6 +171,9 @@ impl ApiClient {
             rate_limited: Arc::new(AtomicBool::new(false)),
             retry_config: RetryConfig::default(),
             user_agent,
+            currency: Currency::default(),
+            language: "en".to_string(),
+            country: "GB".to_string(),
         })
     }
 
@@ -205,6 +215,52 @@ impl ApiClient {
         &self.user_agent
     }
 
+    /// Sets the result currency applied to every request on this client.
+    pub fn with_currency(mut self, currency: Currency) -> Self {
+        self.currency = currency;
+        self
+    }
+
+    /// Sets the BCP-47 language subtag (e.g. `"en"`, `"fr"`) for every request.
+    pub fn with_language(mut self, language: impl Into<String>) -> Self {
+        self.language = language.into();
+        self
+    }
+
+    /// Sets the ISO 3166-1 alpha-2 country code (e.g. `"GB"`, `"US"`) for every request.
+    pub fn with_country(mut self, country: impl Into<String>) -> Self {
+        self.country = country.into();
+        self
+    }
+
+    /// Sets currency, language and country in one call.
+    pub fn with_locale(
+        mut self,
+        currency: Currency,
+        language: impl Into<String>,
+        country: impl Into<String>,
+    ) -> Self {
+        self.currency = currency;
+        self.language = language.into();
+        self.country = country.into();
+        self
+    }
+
+    /// Returns the currency this client applies to every request.
+    pub fn currency(&self) -> &Currency {
+        &self.currency
+    }
+
+    /// Returns the language subtag this client applies to every request.
+    pub fn language(&self) -> &str {
+        &self.language
+    }
+
+    /// Returns the country code this client applies to every request.
+    pub fn country(&self) -> &str {
+        &self.country
+    }
+
     /// Returns `true` if this client has been halted by a 429 response.
     ///
     /// All clones of the same `ApiClient` share this flag.
@@ -237,7 +293,7 @@ impl ApiClient {
             frontend_version: self.frontend_version.clone(),
         };
         let city_response: &str = &self
-            .do_request(&options, None, "en", "GB")
+            .do_request(&options, None, &self.language, &self.country)
             .await?
             .text()
             .await?;
@@ -280,16 +336,16 @@ impl ApiClient {
             stopover_min: &args.stopover_min,
             duration_max: &args.duration_max,
             frontend_version: &self.frontend_version,
-            language: &args.language,
-            country: &args.country,
+            language: &self.language,
+            country: &self.country,
             sort_order: &args.sort_order,
         };
         let body = self
             .do_request(
                 &req_options,
-                Some(args.currency.clone()),
-                &args.language,
-                &args.country,
+                Some(self.currency.clone()),
+                &self.language,
+                &self.country,
             )
             .await?
             .text()
@@ -460,9 +516,9 @@ impl ApiClient {
             let res = self
                 .do_request(
                     &req_options,
-                    Some(args.currency.clone()),
-                    &args.language,
-                    &args.country,
+                    Some(self.currency.clone()),
+                    &self.language,
+                    &self.country,
                 )
                 .await?;
             match res.text().await {
@@ -547,8 +603,8 @@ impl ApiClient {
             duration_max: &args.duration_max,
             frontend_version: &self.frontend_version,
             fixed_flights: &args.fixed_flights,
-            language: &args.language,
-            country: &args.country,
+            language: &self.language,
+            country: &self.country,
             sort_order: &server_sort,
             airlines_include: &args.airlines_include,
             airlines_exclude: &args.airlines_exclude,
@@ -560,9 +616,9 @@ impl ApiClient {
         Ok(self
             .do_request(
                 &req_options,
-                Some(args.currency.clone()),
-                &args.language,
-                &args.country,
+                Some(self.currency.clone()),
+                &self.language,
+                &self.country,
             )
             .await?
             .text()
@@ -611,13 +667,15 @@ impl ApiClient {
         let req_options = MultiCityRequestOptions {
             config: args,
             frontend_version: &self.frontend_version,
+            language: &self.language,
+            country: &self.country,
         };
         let body = self
             .do_request(
                 &req_options,
-                Some(args.currency.clone()),
-                &args.language,
-                &args.country,
+                Some(self.currency.clone()),
+                &self.language,
+                &self.country,
             )
             .await?
             .text()
@@ -677,13 +735,15 @@ impl ApiClient {
         let req_options = ExploreRequestOptions {
             config,
             frontend_version: &self.frontend_version,
+            language: &self.language,
+            country: &self.country,
         };
         let body = self
             .do_request(
                 &req_options,
-                Some(config.currency.clone()),
-                &config.language,
-                &config.country,
+                Some(self.currency.clone()),
+                &self.language,
+                &self.country,
             )
             .await?
             .text()
@@ -708,13 +768,15 @@ impl ApiClient {
         let req_options = DealsRequestOptions {
             config,
             frontend_version: &self.frontend_version,
+            language: &self.language,
+            country: &self.country,
         };
         let body = self
             .do_request(
                 &req_options,
-                Some(config.currency.clone()),
-                &config.language,
-                &config.country,
+                Some(self.currency.clone()),
+                &self.language,
+                &self.country,
             )
             .await?
             .text()
@@ -1027,7 +1089,6 @@ const USER_AGENTS: &[&str] = &[
 /// the wall clock at construction time has enough entropy to vary the choice
 /// across separately-constructed clients.
 fn pick_user_agent() -> &'static str {
-    use std::time::{SystemTime, UNIX_EPOCH};
     let idx = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.subsec_nanos() as usize)
@@ -1183,6 +1244,9 @@ mod tests {
             rate_limited: Arc::new(AtomicBool::new(false)),
             retry_config: RetryConfig::default(),
             user_agent: pick_user_agent().to_string(),
+            currency: Currency::default(),
+            language: "en".to_string(),
+            country: "GB".to_string(),
         }
     }
 

@@ -31,6 +31,10 @@ use anyhow::Result;
 pub struct DealsRequestOptions<'a> {
     pub config: &'a DealConfig,
     pub frontend_version: &'a str,
+    /// BCP-47 language subtag, e.g. `"en"`.
+    pub language: &'a str,
+    /// ISO 3166-1 alpha-2 country code, e.g. `"GB"`.
+    pub country: &'a str,
 }
 
 impl ToRequestBody for DealsRequestOptions<'_> {
@@ -86,8 +90,8 @@ impl TryFrom<&DealsRequestOptions<'_>> for RequestBody {
         let url = format!(
             "{FLIGHT_DEALS_URL}?f.sid=6921237406276106431&bl={version}&hl={lang}-{country}&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c",
             version = opts.frontend_version,
-            lang = cfg.language,
-            country = cfg.country.to_uppercase(),
+            lang = opts.language,
+            country = opts.country.to_uppercase(),
         );
 
         let encoded = utf8_percent_encode(&body, CHARACTERS_TO_ENCODE).to_string();
@@ -147,6 +151,8 @@ mod tests {
         let opts = DealsRequestOptions {
             config: &cfg(),
             frontend_version: "boq_test_p0",
+            language: "en",
+            country: "GB",
         };
         let body = opts.to_request_body().unwrap();
         assert!(body.url.contains("GetFlightDealsStreaming"));
@@ -158,6 +164,8 @@ mod tests {
         let opts = DealsRequestOptions {
             config: &cfg(),
             frontend_version: "v",
+            language: "en",
+            country: "GB",
         };
         let body = opts.to_request_body().unwrap();
         // Percent-encoded body still contains the literal IATA and dates.
@@ -174,6 +182,8 @@ mod tests {
         let opts = DealsRequestOptions {
             config: &c,
             frontend_version: "v",
+            language: "en",
+            country: "GB",
         };
         // Decode the percent-encoded body to inspect the structure.
         let body = opts.to_request_body().unwrap();
