@@ -585,6 +585,91 @@ impl DealResult {
     }
 }
 
+/// One booking channel (OTA / partner) inside an :class:`Offer`.
+#[pyclass(get_all)]
+#[derive(Clone, Debug)]
+pub struct BookingOption {
+    /// Partner / OTA display names for this channel (e.g. ``["Lufthansa"]``).
+    pub partner_names: Vec<String>,
+    /// Price for this specific channel, or ``None``.
+    pub price: Option<i32>,
+    /// Resolved booking deep link for this channel, or ``None`` if no click
+    /// token was available / resolution failed.
+    pub booking_url: Option<String>,
+}
+
+#[pymethods]
+impl BookingOption {
+    fn __repr__(&self) -> String {
+        format!(
+            "BookingOption(partners={:?}, price={}, booking_url={})",
+            self.partner_names,
+            repr_opt(&self.price),
+            repr_opt(&self.booking_url),
+        )
+    }
+
+    /// Return this booking channel as a plain ``dict``.
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("partner_names", &self.partner_names)?;
+        d.set_item("price", self.price)?;
+        d.set_item("booking_url", &self.booking_url)?;
+        Ok(d)
+    }
+}
+
+/// One booking option (priced offer) returned by :meth:`GFlights.offer`.
+#[pyclass]
+#[derive(Clone, Debug)]
+pub struct Offer {
+    /// Airline display names involved in this offer.
+    #[pyo3(get)]
+    pub airline_names: Vec<String>,
+    /// Total price in the client currency, or ``None``.
+    #[pyo3(get)]
+    pub price: Option<i32>,
+    /// Resolved booking deep link, or ``None`` if unavailable.
+    #[pyo3(get)]
+    pub booking_url: Option<String>,
+    sub_options: Vec<BookingOption>,
+}
+
+#[pymethods]
+impl Offer {
+    /// Per-OTA booking sub-options (different channels / prices for this offer).
+    #[getter]
+    fn sub_options(&self, py: Python<'_>) -> PyResult<Vec<Py<BookingOption>>> {
+        self.sub_options
+            .iter()
+            .map(|o| Py::new(py, o.clone()))
+            .collect()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Offer(airlines={:?}, price={}, booking_url={})",
+            self.airline_names,
+            repr_opt(&self.price),
+            repr_opt(&self.booking_url),
+        )
+    }
+
+    /// Return this offer as a nested plain ``dict`` (sub-options recursed).
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("airline_names", &self.airline_names)?;
+        d.set_item("price", self.price)?;
+        d.set_item("booking_url", &self.booking_url)?;
+        let subs = PyList::empty(py);
+        for o in &self.sub_options {
+            subs.append(o.to_dict(py)?)?;
+        }
+        d.set_item("sub_options", subs)?;
+        Ok(d)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Conversions from gflights types to Python types
 // ---------------------------------------------------------------------------
@@ -1654,6 +1739,186 @@ impl GFlights {
         })
     }
 
+    /// Price the cheapest itinerary on a route and return its booking offers.
+    ///
+    /// Runs a search, locks in the cheapest outbound (and, for round trips, the
+    /// cheapest return), then fetches booking offers and resolves each one's
+    /// final booking URL.
+    ///
+    /// :param from_airport: Departure IATA code or city name.
+    /// :param to_airport:   Destination IATA code or city name.
+    /// :param date:         Departure date as ``"YYYY-MM-DD"``.
+    /// :param return_date:  Return date for round-trips.  ``None`` for one-way.
+    /// :param adults:       Number of adult passengers (default 1).
+    /// :param travel_class: ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
+    /// :param stops:        ``"all"`` / ``"nonstop"`` / ``"one-stop"``.
+    /// :param sort:         ``"best"`` / ``"price"`` / ``"duration"`` / etc.
+    /// :param airlines_include: IATA codes or alliances to include.
+    /// :param airlines_exclude: IATA codes or alliances to exclude.
+    /// :param via:          Require a connection through these airports.
+    /// :param lower_emissions: Restrict to below-average CO₂ flights.
+    /// :param max_price:    Maximum price cap (in the client currency). ``None`` for no cap.
+    /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
+    /// :param checked_bags: Number of checked bags required (0 = no restriction).
+    /// :returns:            Coroutine → ``list[Offer]``, sorted cheapest first.
+    #[pyo3(signature = (
+        from_airport,
+        to_airport,
+        date,
+        return_date = None,
+        adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
+        travel_class = "economy",
+        stops = "all",
+        sort = "best",
+        airlines_include = vec![],
+        airlines_exclude = vec![],
+        via = vec![],
+        lower_emissions = false,
+        max_price = None,
+        carry_on = 0,
+        checked_bags = 0,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn offer<'py>(
+        &self,
+        py: Python<'py>,
+        from_airport: String,
+        to_airport: String,
+        date: String,
+        return_date: Option<String>,
+        adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
+        travel_class: &str,
+        stops: &str,
+        sort: &str,
+        airlines_include: Vec<String>,
+        airlines_exclude: Vec<String>,
+        via: Vec<String>,
+        lower_emissions: bool,
+        max_price: Option<i32>,
+        carry_on: u8,
+        checked_bags: u8,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let dep_date = parse_date(&date)?;
+        let ret_date = return_date.as_deref().map(parse_date).transpose()?;
+        let filters = SearchFilters::parse(
+            adults,
+            children,
+            infants_in_seat,
+            infants_on_lap,
+            travel_class,
+            stops,
+            sort,
+            airlines_include,
+            airlines_exclude,
+            via,
+            lower_emissions,
+            max_price,
+            carry_on,
+            checked_bags,
+        )?;
+        let client = self.client.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let mut builder = Config::builder()
+                .departure(&from_airport, &client)
+                .await
+                .map_err(anyhow_to_py)?
+                .destination(&to_airport, &client)
+                .await
+                .map_err(anyhow_to_py)?
+                .departing_date(dep_date);
+            builder = filters.apply(builder);
+            if let Some(r) = ret_date {
+                builder = builder.return_date(r);
+            }
+            let config = builder.build().map_err(anyhow_to_py)?;
+
+            // Lock in the cheapest outbound (and return for round trips).
+            let first = client
+                .request_flights(&config)
+                .await
+                .map_err(anyhow_to_py)?
+                .get_all_flights()
+                .into_iter()
+                .next();
+            let first = match first {
+                Some(f) => f,
+                None => {
+                    return Python::with_gil(|_py| Ok(Vec::<Py<Offer>>::new()));
+                }
+            };
+            config
+                .fixed_flights
+                .add_element(first)
+                .map_err(anyhow_to_py)?;
+            if config.return_date.is_some() {
+                if let Some(ret) = client
+                    .request_flights(&config)
+                    .await
+                    .map_err(anyhow_to_py)?
+                    .get_all_flights()
+                    .into_iter()
+                    .next()
+                {
+                    config
+                        .fixed_flights
+                        .add_element(ret)
+                        .map_err(anyhow_to_py)?;
+                }
+            }
+
+            let offers = client.request_offer(&config).await.map_err(anyhow_to_py)?;
+            let mut groups: Vec<_> = offers
+                .response
+                .iter()
+                .flat_map(|r| &r.offers)
+                .filter(|o| o.price.is_some())
+                .cloned()
+                .collect();
+            groups.sort_by_key(|o| o.price.unwrap_or(i32::MAX));
+
+            // Resolve booking URLs (network) before re-acquiring the GIL.
+            let mut resolved: Vec<Offer> = Vec::with_capacity(groups.len());
+            for g in groups {
+                let booking_url = match g.click_token.as_deref() {
+                    Some(t) => client.resolve_booking_url(t).await.ok(),
+                    None => None,
+                };
+                let mut sub_options = Vec::with_capacity(g.sub_options.len());
+                for s in &g.sub_options {
+                    let url = match s.click_token.as_deref() {
+                        Some(t) => client.resolve_booking_url(t).await.ok(),
+                        None => None,
+                    };
+                    sub_options.push(BookingOption {
+                        partner_names: s.partner_names.clone(),
+                        price: s.price,
+                        booking_url: url,
+                    });
+                }
+                resolved.push(Offer {
+                    airline_names: g.airline_names.clone(),
+                    price: g.price,
+                    booking_url,
+                    sub_options,
+                });
+            }
+
+            Python::with_gil(|py| {
+                resolved
+                    .into_iter()
+                    .map(|o| Py::new(py, o))
+                    .collect::<PyResult<Vec<_>>>()
+            })
+        })
+    }
+
     /// `True` if the last request was rate-limited by Google (HTTP 429).
     #[getter]
     fn rate_limited(&self) -> bool {
@@ -1693,6 +1958,8 @@ fn _gflights(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<CheapDate>()?;
     m.add_class::<ExploreResult>()?;
     m.add_class::<DealResult>()?;
+    m.add_class::<Offer>()?;
+    m.add_class::<BookingOption>()?;
     m.add("GFlightsError", m.py().get_type::<GFlightsError>())?;
     Ok(())
 }

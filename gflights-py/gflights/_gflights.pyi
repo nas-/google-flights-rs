@@ -126,6 +126,24 @@ class DealResult:
     def __repr__(self) -> str: ...
     def to_dict(self) -> dict: ...
 
+class BookingOption:
+    """One booking channel (OTA / partner) inside an :class:`Offer`."""
+    partner_names: list[str]
+    price: Optional[int]
+    booking_url: Optional[str]
+    def __repr__(self) -> str: ...
+    def to_dict(self) -> dict: ...
+
+class Offer:
+    """One priced booking option returned by :meth:`GFlights.offer`."""
+    airline_names: list[str]
+    price: Optional[int]
+    booking_url: Optional[str]
+    @property
+    def sub_options(self) -> list[BookingOption]: ...
+    def __repr__(self) -> str: ...
+    def to_dict(self) -> dict: ...
+
 class GFlights:
     """Async Python client for Google Flights, backed by Rust/tokio.
 
@@ -301,6 +319,35 @@ class GFlights:
         Pass ``trip_duration_days=N`` for round-trip fixed-length results;
         omit (or pass ``None``) for one-way date discovery.
         Returns a coroutine.
+        """
+        ...
+
+    async def offer(
+        self,
+        from_airport: str,
+        to_airport: str,
+        date: str,
+        return_date: Optional[str] = ...,
+        adults: int = ...,
+        children: int = ...,
+        infants_in_seat: int = ...,
+        infants_on_lap: int = ...,
+        travel_class: str = ...,
+        stops: str = ...,
+        sort: str = ...,
+        airlines_include: list[str] = ...,
+        airlines_exclude: list[str] = ...,
+        via: list[str] = ...,
+        lower_emissions: bool = ...,
+        max_price: Optional[int] = ...,
+        carry_on: int = ...,
+        checked_bags: int = ...,
+    ) -> list[Offer]:
+        """Price the cheapest itinerary and return booking offers.
+
+        Searches, locks in the cheapest outbound (and return for round trips),
+        fetches booking offers and resolves each one's booking URL.
+        Returns a coroutine → ``list[Offer]``, cheapest first.
         """
         ...
 
