@@ -153,6 +153,9 @@ class GFlights:
         date: str,
         return_date: Optional[str] = ...,
         adults: int = ...,
+        children: int = ...,
+        infants_in_seat: int = ...,
+        infants_on_lap: int = ...,
         travel_class: str = ...,
         stops: str = ...,
         sort: str = ...,
@@ -193,6 +196,9 @@ class GFlights:
         self,
         legs: list[tuple[str, str, str]],
         adults: int = ...,
+        children: int = ...,
+        infants_in_seat: int = ...,
+        infants_on_lap: int = ...,
         travel_class: str = ...,
         sort: str = ...,
         max_price: Optional[int] = ...,
@@ -213,6 +219,9 @@ class GFlights:
         carry_on: int = ...,
         checked: int = ...,
         adults: int = ...,
+        children: int = ...,
+        infants_in_seat: int = ...,
+        infants_on_lap: int = ...,
         travel_class: str = ...,
     ) -> list[ExploreResult]:
         """Explore cheap destinations from an origin airport.
@@ -229,6 +238,9 @@ class GFlights:
         nonstop: bool = ...,
         max_hours: Optional[int] = ...,
         adults: int = ...,
+        children: int = ...,
+        infants_in_seat: int = ...,
+        infants_on_lap: int = ...,
         travel_class: str = ...,
     ) -> list[DealResult]:
         """Find discounted destinations (flight deals) from an origin.

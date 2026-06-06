@@ -39,6 +39,18 @@ pub struct DealsArgs {
     #[arg(long, default_value = "1")]
     pub adults: u32,
 
+    /// Number of children (2–11 years).
+    #[arg(long, default_value = "0")]
+    pub children: u32,
+
+    /// Number of infants in their own seat.
+    #[arg(long = "infants-seat", default_value = "0")]
+    pub infants_seat: u32,
+
+    /// Number of lap infants.
+    #[arg(long = "infants-lap", default_value = "0")]
+    pub infants_lap: u32,
+
     /// Travel class.
     #[arg(long, default_value = "economy")]
     pub class: TravelClass,
@@ -54,7 +66,12 @@ pub async fn cmd_deals(args: DealsArgs, client: &ApiClient) -> Result<()> {
         loc_type: PlaceType::Airport,
         location_name: None,
     };
-    let travellers = Travelers::new(vec![args.adults as i32, 0, 0, 0])?;
+    let travellers = Travelers::new(vec![
+        args.adults as i32,
+        args.children as i32,
+        args.infants_lap as i32,
+        args.infants_seat as i32,
+    ])?;
 
     let config = DealConfig {
         origin: vec![origin],

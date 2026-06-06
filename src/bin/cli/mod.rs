@@ -165,6 +165,18 @@ pub struct CommonArgs {
     #[arg(long, default_value = "1")]
     pub adults: u32,
 
+    /// Number of children (2–11 years).
+    #[arg(long, default_value = "0")]
+    pub children: u32,
+
+    /// Number of infants in their own seat.
+    #[arg(long = "infants-seat", default_value = "0")]
+    pub infants_seat: u32,
+
+    /// Number of lap infants.
+    #[arg(long = "infants-lap", default_value = "0")]
+    pub infants_lap: u32,
+
     /// Travel class.
     #[arg(long, default_value = "economy")]
     pub class: TravelClass,
@@ -183,7 +195,12 @@ pub struct CommonArgs {
 // ---------------------------------------------------------------------------
 
 pub async fn build_config(common: &CommonArgs, client: &ApiClient) -> Result<Config> {
-    let travelers = Travelers::new(vec![common.adults as i32, 0, 0, 0])?;
+    let travelers = Travelers::new(vec![
+        common.adults as i32,
+        common.children as i32,
+        common.infants_lap as i32,
+        common.infants_seat as i32,
+    ])?;
 
     let mut builder = Config::builder()
         .departure(&common.from, client)

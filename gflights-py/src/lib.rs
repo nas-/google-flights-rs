@@ -751,6 +751,9 @@ impl GFlights {
         date,
         return_date = None,
         adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
         travel_class = "economy",
         stops = "all",
         sort = "best",
@@ -771,6 +774,9 @@ impl GFlights {
         date: String,
         return_date: Option<String>,
         adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
         travel_class: &str,
         stops: &str,
         sort: &str,
@@ -790,8 +796,13 @@ impl GFlights {
         let sort_ord = parse_sort_order(sort)?;
         let inc = parse_airline_filters(&airlines_include)?;
         let exc = parse_airline_filters(&airlines_exclude)?;
-        let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let travelers = gflights::parsers::common::Travelers::new(vec![
+            adults.into(),
+            children.into(),
+            infants_on_lap.into(),
+            infants_in_seat.into(),
+        ])
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         // Convert &str → String before moving into the 'static async block.
         let client = self.client.clone();
@@ -999,6 +1010,9 @@ impl GFlights {
     #[pyo3(signature = (
         legs,
         adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
         travel_class = "economy",
         sort = "best",
         max_price = None,
@@ -1011,6 +1025,9 @@ impl GFlights {
         py: Python<'py>,
         legs: Vec<(String, String, String)>,
         adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
         travel_class: &str,
         sort: &str,
         max_price: Option<i32>,
@@ -1032,8 +1049,13 @@ impl GFlights {
 
         let class = parse_travel_class(travel_class)?;
         let sort_ord = parse_sort_order(sort)?;
-        let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let travelers = gflights::parsers::common::Travelers::new(vec![
+            adults.into(),
+            children.into(),
+            infants_on_lap.into(),
+            infants_in_seat.into(),
+        ])
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -1099,6 +1121,9 @@ impl GFlights {
         carry_on = 0u8,
         checked = 0u8,
         adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
         travel_class = "economy",
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -1114,6 +1139,9 @@ impl GFlights {
         carry_on: u8,
         checked: u8,
         adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
         travel_class: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
         let trip_duration = match duration.to_lowercase().as_str() {
@@ -1128,8 +1156,13 @@ impl GFlights {
         };
 
         let class = parse_travel_class(travel_class)?;
-        let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let travelers = gflights::parsers::common::Travelers::new(vec![
+            adults.into(),
+            children.into(),
+            infants_on_lap.into(),
+            infants_in_seat.into(),
+        ])
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let max_flight_duration_minutes = max_flight_hours.map(|h| h * 60);
         let baggage = if carry_on > 0 || checked > 0 {
@@ -1238,6 +1271,9 @@ impl GFlights {
         nonstop = false,
         max_hours = None,
         adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
         travel_class = "economy",
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -1250,13 +1286,21 @@ impl GFlights {
         nonstop: bool,
         max_hours: Option<u32>,
         adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
         travel_class: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
         let outbound_date = parse_date(out)?;
         let return_date = parse_date(ret)?;
         let class = parse_travel_class(travel_class)?;
-        let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let travelers = gflights::parsers::common::Travelers::new(vec![
+            adults.into(),
+            children.into(),
+            infants_on_lap.into(),
+            infants_in_seat.into(),
+        ])
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
