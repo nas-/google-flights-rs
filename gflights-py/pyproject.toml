@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "gflights"
-version = "0.2.1"
+version = "0.3.0"
 description = "Unofficial async Python client for Google Flights, powered by a Rust backend"
 readme = "README.md"
 license = { text = "MIT" }

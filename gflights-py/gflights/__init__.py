@@ -11,14 +11,14 @@ Quick start::
         client = Client()
 
         # Single search
-        flights = await client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01")
+        flights = await client.search(origin="LHR", destination="JFK", date="2026-08-01")
         for f in flights:
             print(f.airline, f"{f.duration_minutes // 60}h{f.duration_minutes % 60}m", f.price)
 
         # Concurrent searches — no extra threads needed
         lhr_jfk, mad_mex = await asyncio.gather(
-            client.search(from_airport="LHR", to_airport="JFK", date="2026-09-01"),
-            client.search(from_airport="MAD", to_airport="MEX", date="2026-09-01"),
+            client.search(origin="LHR", destination="JFK", date="2026-09-01"),
+            client.search(origin="MAD", destination="MEX", date="2026-09-01"),
         )
 
     asyncio.run(main())
@@ -44,6 +44,8 @@ from gflights._gflights import (  # noqa: F401
 from gflights._types import (  # noqa: F401
     Currency,
     Duration,
+    Passengers,
+    SearchFilters,
     SortOrder,
     StopFilter,
     TravelClass,
@@ -65,6 +67,8 @@ __all__ = [
     "BookingOption",
     "Currency",
     "Duration",
+    "Passengers",
+    "SearchFilters",
     "TravelClass",
     "StopFilter",
     "SortOrder",

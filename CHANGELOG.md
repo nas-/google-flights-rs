@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] — 2026-06-06
 
 ### Added
 
@@ -19,10 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with resolved booking URLs. New `Offer` / `BookingOption` result classes.
 - **Children & infant passengers** — `children`, `infants_in_seat` and
   `infants_on_lap` on every passenger endpoint (CLI `--children`,
-  `--infants-seat`, `--infants-lap`; matching Python kwargs).
+  `--infants-seat`, `--infants-lap`; on the Python client via `Passengers`).
 - **Full filters on price/date endpoints** — `price_graph`, `date_grid` and
   `cheapest_dates` now accept the same filters as `search` (class, stops,
   airlines, via, max price, baggage, lower emissions, passengers).
+- **Python `Passengers` and `SearchFilters` dataclasses** — group the
+  per-traveller counts and the shared result filters into two objects instead
+  of passing a dozen keyword arguments to every method. Both are exported from
+  `gflights` and carry sensible defaults.
 - **`Currency` enum** and `datetime.date` inputs in the Python client; date
   arguments accept `"YYYY-MM-DD"` strings or `datetime.date` objects.
 - **Rotating User-Agent pool** — each `ApiClient` now selects a real desktop
@@ -53,6 +57,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `country` move from per-call arguments to the `Client(...)` constructor.
   `currency` takes an ISO-4217 code (e.g. `"USD"`) or a `Currency` member —
   the old kebab `ValueEnum` names (`us-dollar`) are no longer accepted.
+- **Python: route arguments renamed `from_airport`/`to_airport` →
+  `origin`/`destination` (breaking).** Each still accepts an IATA code or a
+  city name; the new names reflect that. Applies to every route method
+  (`search`, `price_graph`, `date_grid`, `cheapest_dates`, `offer`) plus
+  `explore`/`deals` (`origin`).
+- **Python: passenger counts and result filters are grouped (breaking).** The
+  route methods now take `passengers=Passengers(...)` and
+  `filters=SearchFilters(...)` instead of individual `adults` / `stops` / `sort`
+  / `via` / … keyword arguments.
+- **Python `deals` signature aligned with the other methods (breaking).**
+  `out`/`ret` → `date`/`return_date`, and the boolean `nonstop` → `stops`
+  (a `StopFilter`; the deals endpoint only distinguishes non-stop from
+  any-stops).
 - Result classes gained `.to_dict()` and pythonic `__repr__` (no leaked Rust
   `Some(..)`).
 - CLI: `--currency` / `--lang` / `--country` are now global flags instead of

@@ -8,8 +8,9 @@ duration).  Every method also accepts the plain ``str`` form.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal
+from typing import List, Literal, Optional
 
 TravelClass = Literal["economy", "premium-economy", "business", "first"]
 """Cabin class filter for :meth:`Client.search`."""
@@ -22,6 +23,76 @@ SortOrder = Literal["best", "price", "duration", "departure-time", "arrival-time
 
 Duration = Literal["weekend", "week", "2weeks"]
 """Trip-duration choice for :meth:`Client.explore`."""
+
+
+@dataclass
+class Passengers:
+    """The passenger party for a search.
+
+    Group the per-traveller counts into one argument instead of passing four
+    separate integers to every method. The total must be between 1 and 9 with
+    at least one adult; the engine raises :exc:`ValueError` otherwise.
+
+    :param adults: Adults aged 12+ (default 1).
+    :param children: Children aged 2–11 (default 0).
+    :param infants_in_seat: Infants in their own seat (default 0).
+    :param infants_on_lap: Lap infants (default 0).
+
+    Example::
+
+        from gflights import Passengers
+        await client.search(origin="LHR", destination="JFK", date="2026-08-01",
+                            passengers=Passengers(adults=2, children=1))
+    """
+
+    adults: int = 1
+    children: int = 0
+    infants_in_seat: int = 0
+    infants_on_lap: int = 0
+
+
+@dataclass
+class SearchFilters:
+    """Result filters shared by the route-search endpoints.
+
+    Group the optional filters into one argument instead of passing them
+    individually. Pass only the fields you care about; the rest keep their
+    defaults.
+
+    .. note::
+       Not every endpoint honours every field. :meth:`Client.price_graph`,
+       :meth:`Client.date_grid` and :meth:`Client.cheapest_dates` ignore
+       ``sort`` (their results have a fixed order).
+
+    :param travel_class: Cabin class (default ``"economy"``).
+    :param stops: Stop-count filter (default ``"all"``).
+    :param sort: Result ordering (default ``"best"``).
+    :param airlines_include: IATA codes or alliances to include
+        (e.g. ``["BA", "ONEWORLD"]``).
+    :param airlines_exclude: IATA codes or alliances to exclude.
+    :param via: Require a connection through these airports.
+    :param lower_emissions: Restrict to below-average CO₂ flights.
+    :param max_price: Maximum price cap in the client currency.
+    :param carry_on: Carry-on bags required (0 = no restriction).
+    :param checked_bags: Checked bags required (0 = no restriction).
+
+    Example::
+
+        from gflights import SearchFilters
+        await client.search(origin="LHR", destination="JFK", date="2026-08-01",
+                            filters=SearchFilters(stops="nonstop", sort="price"))
+    """
+
+    travel_class: TravelClass = "economy"
+    stops: StopFilter = "all"
+    sort: SortOrder = "best"
+    airlines_include: List[str] = field(default_factory=list)
+    airlines_exclude: List[str] = field(default_factory=list)
+    via: List[str] = field(default_factory=list)
+    lower_emissions: bool = False
+    max_price: Optional[int] = None
+    carry_on: int = 0
+    checked_bags: int = 0
 
 
 class Currency(str, Enum):

@@ -350,30 +350,41 @@ cd gflights-py && maturin develop
 
 ### Quick start
 
+Route arguments are `origin` / `destination` (each takes an IATA code **or** a
+city name). Passenger counts are grouped into a `Passengers` object and the
+shared result filters into a `SearchFilters` object — pass only what you need.
+
 ```python
 import asyncio
-from gflights import Client
+from gflights import Client, Passengers, SearchFilters
 
 async def main():
     client = Client()
 
     # One-way search
     flights = await client.search(
-        from_airport="LHR", to_airport="JFK", date="2026-08-01",
+        origin="LHR", destination="JFK", date="2026-08-01",
     )
     for f in flights:
         print(f.airline, f.duration_minutes, f.price)
 
+    # Two adults + a child, non-stop only, sorted by price
+    flights = await client.search(
+        origin="LHR", destination="JFK", date="2026-08-01",
+        passengers=Passengers(adults=2, children=1),
+        filters=SearchFilters(stops="nonstop", sort="price"),
+    )
+
     # Price graph — cheapest fare per day over 3 months
     graph = await client.price_graph(
-        from_airport="LHR", to_airport="JFK", date="2026-08-01", months=3
+        origin="LHR", destination="JFK", date="2026-08-01", months=3
     )
     cheapest = min(graph, key=lambda e: e.price)
     print(cheapest.date, cheapest.price)
 
     # Departure × return price grid
     grid = await client.date_grid(
-        from_airport="LHR", to_airport="JFK",
+        origin="LHR", destination="JFK",
         dep_start="2026-08-01", dep_end="2026-08-07",
         ret_start="2026-08-14", ret_end="2026-08-21",
     )
@@ -382,14 +393,14 @@ async def main():
 
     # Cheapest departure dates (one-way)
     dates = await client.cheapest_dates(
-        from_airport="LHR", to_airport="JFK", date="2026-08-01", months=3
+        origin="LHR", destination="JFK", date="2026-08-01", months=3
     )
     for d in dates[:5]:
         print(d.departure_date, d.price)
 
     # Cheapest round-trip combinations (7-night stay)
     rt_dates = await client.cheapest_dates(
-        from_airport="LHR", to_airport="JFK",
+        origin="LHR", destination="JFK",
         date="2026-08-01", months=3, trip_duration_days=7
     )
     for d in rt_dates[:5]:
@@ -397,7 +408,7 @@ async def main():
 
     # Explore cheap destinations
     dests = await client.explore(
-        from_airport="LUX", month=9, duration="week",
+        origin="LUX", month=9, duration="week",
         max_price=200, interest="beaches",
     )
     for d in sorted(dests, key=lambda x: x.price or 9999)[:5]:
@@ -405,8 +416,8 @@ async def main():
 
     # Run multiple searches concurrently
     lhr_jfk, mad_mex = await asyncio.gather(
-        client.search(from_airport="LHR", to_airport="JFK", date="2026-09-01"),
-        client.search(from_airport="MAD", to_airport="MEX", date="2026-09-01"),
+        client.search(origin="LHR", destination="JFK", date="2026-09-01"),
+        client.search(origin="MAD", destination="MEX", date="2026-09-01"),
     )
 
 asyncio.run(main())
@@ -419,7 +430,7 @@ Input validation errors (bad date, unknown currency, etc.) raise `ValueError`.
 
 ```python
 try:
-    flights = await client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01")
+    flights = await client.search(origin="LHR", destination="JFK", date="2026-08-01")
 except gflights.GFlightsError as e:
     print(f"API error: {e}")
 except ValueError as e:

@@ -23,6 +23,31 @@ def test_type_aliases_exported():
     assert SortOrder is not None
 
 
+def test_param_dataclasses_exported():
+    from gflights import Passengers, SearchFilters
+
+    # Sensible defaults: a single adult, no filtering.
+    p = Passengers()
+    assert (p.adults, p.children, p.infants_in_seat, p.infants_on_lap) == (1, 0, 0, 0)
+    f = SearchFilters()
+    assert f.stops == "all" and f.sort == "best" and f.travel_class == "economy"
+    # default_factory lists are independent per instance
+    assert SearchFilters().via is not f.via
+
+
+async def test_search_accepts_passengers_and_filters():
+    from gflights import Passengers, SearchFilters
+
+    client = gflights.Client()
+    fut = client.search(
+        origin="LHR", destination="JFK", date="2026-08-01",
+        passengers=Passengers(adults=2, children=1),
+        filters=SearchFilters(stops="nonstop", sort="price"),
+    )
+    assert inspect.isawaitable(fut)
+    fut.cancel()
+
+
 def test_gflights_instantiates():
     client = gflights.Client()
     assert repr(client) == "Client()"
@@ -41,14 +66,14 @@ def test_reset_rate_limit_does_not_raise():
 async def test_search_returns_awaitable():
     """Methods return awaitables (asyncio.Future) when called inside an event loop."""
     client = gflights.Client()
-    fut = client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01")
+    fut = client.search(origin="LHR", destination="JFK", date="2026-08-01")
     assert inspect.isawaitable(fut)
     fut.cancel()  # don't actually run the network call
 
 
 async def test_price_graph_returns_awaitable():
     client = gflights.Client()
-    fut = client.price_graph(from_airport="LHR", to_airport="JFK", date="2026-08-01")
+    fut = client.price_graph(origin="LHR", destination="JFK", date="2026-08-01")
     assert inspect.isawaitable(fut)
     fut.cancel()
 
@@ -56,7 +81,7 @@ async def test_price_graph_returns_awaitable():
 async def test_date_grid_returns_awaitable():
     client = gflights.Client()
     fut = client.date_grid(
-        from_airport="LHR", to_airport="JFK",
+        origin="LHR", destination="JFK",
         dep_start="2026-08-01", dep_end="2026-08-03",
         ret_start="2026-08-15", ret_end="2026-08-17",
     )
@@ -84,7 +109,7 @@ async def test_multi_city_search_raises_for_single_leg():
 
 async def test_cheapest_dates_returns_awaitable():
     client = gflights.Client()
-    fut = client.cheapest_dates(from_airport="LHR", to_airport="JFK", date="2026-08-01")
+    fut = client.cheapest_dates(origin="LHR", destination="JFK", date="2026-08-01")
     assert inspect.isawaitable(fut)
     fut.cancel()
 
@@ -92,7 +117,7 @@ async def test_cheapest_dates_returns_awaitable():
 async def test_cheapest_dates_round_trip_returns_awaitable():
     client = gflights.Client()
     fut = client.cheapest_dates(
-        from_airport="LHR", to_airport="JFK",
+        origin="LHR", destination="JFK",
         date="2026-08-01", months=3, trip_duration_days=7,
     )
     assert inspect.isawaitable(fut)

@@ -26,9 +26,9 @@ from gflights import Client
 async def main():
     client = Client(currency="USD", country="US")
     flights = await client.search(
-        from_airport="LHR",
-        to_airport="JFK",
-        date="2026-09-15",   # str or datetime.date
+        origin="LHR",         # IATA code or city name
+        destination="JFK",
+        date="2026-09-15",    # str or datetime.date
     )
     for f in flights[:5]:
         print(f.airline, f.price, f.duration_minutes, "min", f.stops, "stop(s)")
@@ -54,8 +54,9 @@ or `datetime.date` objects.
 - `explore` — discover cheap destinations from an origin airport.
 - `deals` — discounted destinations from an origin (price vs typical price).
 - `offer` — price the cheapest itinerary and resolve real booking URLs.
-- Children and infant passengers on every passenger endpoint
-  (`children`, `infants_in_seat`, `infants_on_lap`).
+- Passenger counts grouped into a `Passengers` object and shared result filters
+  into a `SearchFilters` object (adults, children, infants; class, stops, sort,
+  airlines, via, max price, baggage, lower emissions).
 - Typed results (`FlightResult`, `CheapDate`, `ExploreResult`, `DealResult`,
   `Offer`, `BookingOption`, `EmissionsInfo`, `LayoverInfo`, `LegInfo`) with
   `.to_dict()` and clean `__repr__`, plus full `.pyi` stubs for IDE/mypy.
@@ -78,7 +79,7 @@ All API calls raise `GFlightsError` on network or parse failures:
 from gflights import Client, GFlightsError
 
 try:
-    flights = await client.search(from_airport="LHR", to_airport="JFK", date="2026-09-15")
+    flights = await client.search(origin="LHR", destination="JFK", date="2026-09-15")
 except GFlightsError as e:
     print("lookup failed:", e)
 ```
