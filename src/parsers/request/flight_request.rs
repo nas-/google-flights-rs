@@ -230,7 +230,13 @@ impl SerializeToWeb for SingleLegStruct<'_> {
         //   [6]  departure date string "YYYY-MM-DD"
         //   [7]  max total duration [minutes] or null
         //   [8]  pre-selected itinerary (offer flow) or null
-        //   [9]  connecting airport IATA codes ["CDG"] or null
+        //   [9]  connecting ("via") airport IATA codes ["CDG"] or null.
+        //        NOTE: this is byte-identical to Google's own web-UI request
+        //        (verified against a live DevTools capture: leg[9] = ["DXB"]),
+        //        but the filter is a *soft* server-side hint — the response
+        //        still includes non-stop itineraries that skip the via airport
+        //        (shown under "other flights"). Strict filtering is client-side:
+        //        see `Itinerary::connects_via`.
         //   [10] unknown (always null)
         //   [11] min layover minutes or null
         //   [12] max layover minutes or null
@@ -1293,5 +1299,48 @@ mod tests {
         };
         let with_str = leg_with_emissions.serialize_to_web().unwrap();
         assert!(with_str.ends_with(",[1],3]"), "with emissions: {with_str}");
+    }
+
+    /// Lock the connecting-airport ("via") encoding at position [9] against a
+    /// real Google Flights web-UI DevTools capture (CDG→SIN via DXB):
+    /// the leg's [9] element must be exactly `["DXB"]`.
+    #[test]
+    fn single_leg_via_matches_devtools_capture() {
+        let cdg = Location {
+            loc_identifier: "CDG".to_string(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let sin = Location {
+            loc_identifier: "SIN".to_string(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        };
+        let times = FlightTimes::default();
+        let via = ["DXB".to_string()];
+        let leg = SingleLegStruct {
+            departure: vec![vec![&cdg]],
+            arrival: vec![vec![&sin]],
+            times: &times,
+            stop_options: &StopOptions::All,
+            date: "2026-07-03",
+            stopover_max: &StopoverDuration::UNLIMITED,
+            stopover_min: &StopoverDuration::UNLIMITED,
+            duration_max: &TotalDuration::UNLIMITED,
+            chosen_itinerary: None,
+            airlines_include: &[],
+            airlines_exclude: &[],
+            connecting_airports: &via,
+            lower_emissions: false,
+        };
+        // Capture leg (CDG→SIN, via DXB):
+        //   [[[["CDG",0]]],[[["SIN",0]]],null,*,null,null,"2026-07-03",
+        //    null,null,["DXB"],null,null,null,null,3]
+        // Our serializer emits the same shape; assert the [9] = ["DXB"] slice.
+        let s = leg.serialize_to_web().unwrap();
+        assert!(
+            s.contains(r#"\"2026-07-03\",null,null,[\"DXB\"],null,"#),
+            "via [9] must encode as [\"DXB\"] like the web UI: {s}"
+        );
     }
 }

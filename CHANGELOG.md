@@ -60,6 +60,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Strict `via` (connecting-airport) filter.** Google's connecting-airport
+  filter is a *soft* server-side hint — the `other_flights` container still
+  returns non-stop itineraries that skip the requested airport. Results are now
+  filtered client-side so a `via` search only returns itineraries that actually
+  connect through one of the requested airports. New
+  `Itinerary::connects_via` / `Itinerary::layover_airports` and
+  `FlightResponseContainer::get_all_flights_via`; the wire encoding at leg
+  position `[9]` is verified byte-identical to the Google web UI. Applied to
+  CLI `search` and the Python `search` / `offer` paths.
 - PyPI project page showed no description: the Python package now ships a
   `readme` (`gflights-py/README.md`) so the long description is rendered.
 - `explore(interest=...)` now resolves interest names (e.g. `"beaches"`) and

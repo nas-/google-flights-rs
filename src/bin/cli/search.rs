@@ -70,7 +70,9 @@ pub async fn cmd_search(args: SearchArgs, client: &ApiClient) -> Result<()> {
     }
 
     let results = client.request_flights(&config).await?;
-    let mut flights = results.get_all_flights();
+    // Strict "via": Google's other_flights container leaks non-stops that skip
+    // the requested connecting airport, so filter client-side.
+    let mut flights = results.get_all_flights_via(&config.connecting_airports);
 
     // Client-side sort — guarantees the requested order regardless of what
     // Google returns.  `Best` keeps Google's own ordering.

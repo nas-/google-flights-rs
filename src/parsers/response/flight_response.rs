@@ -299,6 +299,36 @@ impl Itinerary {
     pub fn departure_date(&self) -> Option<NaiveDate> {
         self.flight_details.first()?.departure_date.to_naive()
     }
+
+    /// IATA codes of every connecting (layover) airport, in order.
+    ///
+    /// Derived from the inter-leg arrival airports — i.e. the airport each
+    /// layover lands at. Empty for a non-stop itinerary.
+    pub fn layover_airports(&self) -> Vec<&str> {
+        self.connection_info.as_ref().map_or_else(Vec::new, |v| {
+            v.iter().map(|c| c.arrival_airport.as_str()).collect()
+        })
+    }
+
+    /// Returns `true` if this itinerary connects through **any** of the given
+    /// IATA airport codes (case-insensitive).
+    ///
+    /// Google's connecting-airport ("via") filter is a *soft* server-side hint:
+    /// the response still includes non-stop itineraries that don't route through
+    /// the requested airports (they appear under "other flights" in the web UI).
+    /// Use this to apply a strict client-side filter when you want results
+    /// restricted to itineraries that actually stop at a via airport.
+    ///
+    /// An empty `airports` slice always returns `true` (no restriction).
+    pub fn connects_via(&self, airports: &[String]) -> bool {
+        if airports.is_empty() {
+            return true;
+        }
+        let layovers = self.layover_airports();
+        airports
+            .iter()
+            .any(|want| layovers.iter().any(|got| got.eq_ignore_ascii_case(want)))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -517,11 +547,25 @@ impl FlightResponseContainer {
     /// `departure_token`.  Google's streaming API often sends the same flight
     /// in multiple `wrb.fr` chunks; this method keeps only the first occurrence.
     pub fn get_all_flights(&self) -> Vec<ItineraryContainer> {
+        self.get_all_flights_via(&[])
+    }
+
+    /// Like [`Self::get_all_flights`] but strictly restricts results to
+    /// itineraries connecting through one of `connecting_airports` (the "via"
+    /// filter). An empty slice imposes no restriction.
+    ///
+    /// Google's server-side via filter is soft: the `best_flights` container
+    /// honours it, but the `other_flights` container still returns non-stop
+    /// itineraries that skip the via airport. Because both containers are
+    /// merged here, this client-side pass is what makes "via" strict — see
+    /// [`Itinerary::connects_via`].
+    pub fn get_all_flights_via(&self, connecting_airports: &[String]) -> Vec<ItineraryContainer> {
         let mut seen = std::collections::HashSet::new();
         self.responses
             .iter()
             .filter_map(|r| r.maybe_get_all_flights())
             .flatten()
+            .filter(|f| f.itinerary.connects_via(connecting_airports))
             .filter(|f| seen.insert(f.itinerary_cost.departure_token.clone()))
             .collect()
     }
@@ -689,6 +733,37 @@ mod tests {
         // individual leg durations
         assert_eq!(it.flight_details[0].leg_duration_minutes, Some(65));
         assert_eq!(it.flight_details[1].leg_duration_minutes, Some(55));
+    }
+
+    #[test]
+    fn test_connects_via_strict_filter() {
+        // LX→ZRH→MXP, one layover at ZRH.
+        let mystr = r#"["LX", ["SWISS"], [[null, null, null, "LUX", "Luxembourg Airport", "Zurich Airport", "ZRH", null, [10, 50], null, [11, 55], 65, [], 1, "76 cm", null, 1, "Airbus A220-100 Passenger", null, false, [2024, 1, 27], [2024, 1, 27], ["LX", "751", null, "SWISS"], null, null, 1, null, null, null, null, "76 centimetres", 40497], [null, null, "Helvetic", "ZRH", "Zurich Airport", "Milan Malpensa Airport", "MXP", null, [13, 10], null, [14, 5], 55, [null, null, null, null, null, true], 2, "74 cm", null, 1, "Embraer 195 E2", [null, true], false, [2024, 1, 27], [2024, 1, 27], ["LX", "1628", null, "SWISS"], null, null, 1, null, null, null, null, "74 centimetres", 37467]], "LUX", [2024, 1, 27], [10, 50], "MXP", [2024, 1, 27], [14, 5], 195, null, null, false, [[75, "ZRH", "ZRH", null, "Zurich Airport", "ZÃ¼rich", "Zurich Airport", "ZÃ¼rich"]], null, null, null, "G3nUPe", [[1705070296848121, 139803069, 858572], null, null, null, null, [[2]]], 1, null, null, [null, null, 1, -9, null, true, true, 78000, 86000, null, 119000, 1, false], [1], [["LX", "SWISS", "https://www.swiss.com/gb/en/prepare/special-care"]]]"#;
+        let it: Itinerary = serde_json::from_str(mystr).unwrap();
+
+        assert_eq!(it.layover_airports(), vec!["ZRH"]);
+        // Empty filter = no restriction.
+        assert!(it.connects_via(&[]));
+        // Matches the actual layover (case-insensitive).
+        assert!(it.connects_via(&["ZRH".to_string()]));
+        assert!(it.connects_via(&["zrh".to_string()]));
+        // Any-of semantics: one of the requested airports matches.
+        assert!(it.connects_via(&["DXB".to_string(), "ZRH".to_string()]));
+        // No requested airport on the route → excluded.
+        assert!(!it.connects_via(&["DXB".to_string()]));
+    }
+
+    #[test]
+    fn test_connects_via_nonstop_excluded() {
+        // LG direct LUX→MXP, no connection_info → never matches a via filter.
+        let mystr = r#"["LG", ["Luxair"], [[null, null, null, "LUX", "Luxembourg Airport", "Milan Malpensa Airport", "MXP", null, [11, 10], null, [12, 25], 75, [], 1, "76 cm", null, 1, "Dash-8", null, false, [2024, 1, 27], [2024, 1, 27], ["LG", "6993", null, "Luxair"], null, null, 1, null, null, null, null, "76 centimetres", 35968]], "LUX", [2024, 1, 27], [11, 10], "MXP", [2024, 1, 27], [12, 25], 75, null, null, false, null, null, null, ["ITA"], "VDOwRb", [[1705070296848121, 139803069, 858572], null, null, null, null, [[6]]], 1, null, null, [null, null, 1, -58, null, true, true, 36000, 86000, [true], 119000, 1, false], [1], [["LG", "Luxair", "x"]]]"#;
+        let it: Itinerary = serde_json::from_str(mystr).unwrap();
+        assert!(it.layover_airports().is_empty());
+        assert_eq!(it.stop_count(), 0);
+        // Non-stop never connects via anything → strict via filter drops it.
+        assert!(!it.connects_via(&["DXB".to_string()]));
+        // But no filter still keeps it.
+        assert!(it.connects_via(&[]));
     }
 
     #[test]

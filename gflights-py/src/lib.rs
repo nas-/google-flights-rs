@@ -981,11 +981,13 @@ impl Client {
             }
 
             let config = builder.build().map_err(anyhow_to_py)?;
+            // Strict "via": filter out non-stops that Google's other_flights
+            // container returns even when a connecting airport is requested.
             let flights = client
                 .request_flights(&config)
                 .await
                 .map_err(anyhow_to_py)?
-                .get_all_flights();
+                .get_all_flights_via(&config.connecting_airports);
 
             Python::with_gil(|py| {
                 flights
@@ -1814,11 +1816,13 @@ impl Client {
             let config = builder.build().map_err(anyhow_to_py)?;
 
             // Lock in the cheapest outbound (and return for round trips).
+            // Honour the "via" filter strictly so the fixed leg connects through
+            // the requested airport.
             let first = client
                 .request_flights(&config)
                 .await
                 .map_err(anyhow_to_py)?
-                .get_all_flights()
+                .get_all_flights_via(&config.connecting_airports)
                 .into_iter()
                 .next();
             let first = match first {
@@ -1836,7 +1840,7 @@ impl Client {
                     .request_flights(&config)
                     .await
                     .map_err(anyhow_to_py)?
-                    .get_all_flights()
+                    .get_all_flights_via(&config.connecting_airports)
                     .into_iter()
                     .next()
                 {
