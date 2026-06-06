@@ -5,20 +5,20 @@ All search methods are coroutines — use with ``await`` or ``asyncio.gather``.
 Quick start::
 
     import asyncio
-    import gflights
+    from gflights import Client
 
     async def main():
-        client = gflights.GFlights()
+        client = Client()
 
         # Single search
-        flights = await client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01")
+        flights = await client.search(origin="LHR", destination="JFK", date="2026-08-01")
         for f in flights:
             print(f.airline, f"{f.duration_minutes // 60}h{f.duration_minutes % 60}m", f.price)
 
         # Concurrent searches — no extra threads needed
         lhr_jfk, mad_mex = await asyncio.gather(
-            client.search(from_airport="LHR", to_airport="JFK", date="2026-09-01"),
-            client.search(from_airport="MAD", to_airport="MEX", date="2026-09-01"),
+            client.search(origin="LHR", destination="JFK", date="2026-09-01"),
+            client.search(origin="MAD", destination="MEX", date="2026-09-01"),
         )
 
     asyncio.run(main())
@@ -26,22 +26,33 @@ Quick start::
 
 from __future__ import annotations
 
+from gflights._client import Client  # noqa: F401
 from gflights._gflights import (  # noqa: F401
+    BookingOption,
     CheapDate,
     DateGridEntry,
+    DealResult,
     EmissionsInfo,
     ExploreResult,
     FlightResult,
-    GFlights,
     GFlightsError,
     LayoverInfo,
     LegInfo,
+    Offer,
     PriceEntry,
 )
-from gflights._types import SortOrder, StopFilter, TravelClass  # noqa: F401
+from gflights._types import (  # noqa: F401
+    Currency,
+    Duration,
+    Passengers,
+    SearchFilters,
+    SortOrder,
+    StopFilter,
+    TravelClass,
+)
 
 __all__ = [
-    "GFlights",
+    "Client",
     "GFlightsError",
     "FlightResult",
     "LegInfo",
@@ -51,6 +62,13 @@ __all__ = [
     "DateGridEntry",
     "CheapDate",
     "ExploreResult",
+    "DealResult",
+    "Offer",
+    "BookingOption",
+    "Currency",
+    "Duration",
+    "Passengers",
+    "SearchFilters",
     "TravelClass",
     "StopFilter",
     "SortOrder",

@@ -2,6 +2,7 @@ use super::config::Currency;
 use crate::parsers;
 use crate::parsers::common::FixedFlights;
 use crate::parsers::constants::{CLK_URL, FLIGHTS_MAIN_PAGE};
+use crate::requests::config::deals::{DealConfig, DealResult};
 use crate::requests::config::explore::ExploreResult;
 use crate::requests::config::{Config, ExploreConfig, MultiCityConfig, TripType};
 use anyhow::Result;
@@ -15,6 +16,8 @@ use parsers::city_response::ResponseInnerBodyParsed;
 use parsers::common::ToRequestBody;
 use parsers::date_grid_request::{DateGridRequestOptions, DATE_GRID_MAX_CELLS};
 use parsers::date_grid_response::{parse_date_grid_response, CheapDate, DateGridResponse};
+use parsers::deals_request::DealsRequestOptions;
+use parsers::deals_response::parse_deals_response;
 use parsers::explore_request::ExploreRequestOptions;
 use parsers::explore_response::parse_explore_response;
 use parsers::flight_request::{FlightRequestOptions, MultiCityRequestOptions};
@@ -26,6 +29,7 @@ use reqwest::{Client, Response, StatusCode};
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Returned when the Google Flights API responds with HTTP 429 (Too Many Requests).
 ///
@@ -96,6 +100,16 @@ pub struct ApiClient {
     rate_limited: Arc<AtomicBool>,
     /// Retry policy for transient server errors and timeouts.
     retry_config: RetryConfig,
+    /// User-Agent sent with every request. Chosen from a rotating pool at
+    /// construction (see [`pick_user_agent`]) or overridden via
+    /// [`ApiClient::with_user_agent`].
+    user_agent: String,
+    /// Result currency applied to every request (sent via the locale header).
+    currency: Currency,
+    /// BCP-47 language subtag applied to every request, e.g. `"en"`.
+    language: String,
+    /// ISO 3166-1 alpha-2 country code applied to every request, e.g. `"GB"`.
+    country: String,
 }
 
 impl ApiClient {
@@ -108,18 +122,59 @@ impl ApiClient {
 
     /// Creates a new instance of `ApiClient` with a custom rate limiter.
     pub async fn new_with_ratelimit(rate_limiter_quota: Quota) -> Self {
+        // A proxy-less client cannot fail to build (same guarantee as
+        // `reqwest::Client::new`, which panics on failure).
+        Self::build(rate_limiter_quota, None)
+            .await
+            .expect("building a proxy-less HTTP client never fails")
+    }
+
+    /// Creates a new instance of `ApiClient` whose requests are routed through
+    /// the given proxy.
+    ///
+    /// The proxy applies to every request, including the one-time frontend
+    /// version probe. Supports `http://`, `https://`, and `socks5://` URLs
+    /// (e.g. `"http://user:pass@host:3128"`, `"socks5://127.0.0.1:9050"`).
+    ///
+    /// # Errors
+    /// Returns an error if the proxy URL is invalid or the HTTP client cannot
+    /// be built with it.
+    ///
+    /// ```rust
+    /// # use gflights::requests::api::ApiClient;
+    /// # async fn example() -> anyhow::Result<()> {
+    /// let client = ApiClient::new_with_proxy("socks5://127.0.0.1:9050").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn new_with_proxy(proxy: impl Into<String>) -> Result<Self> {
+        let rate_limiter_quota = Quota::per_second(NonZeroU32::MIN.saturating_add(9));
+        Self::build(rate_limiter_quota, Some(proxy.into())).await
+    }
+
+    /// Shared construction path: builds the HTTP client (optionally through a
+    /// proxy), selects a User-Agent, and probes the frontend version using that
+    /// same client so the proxy (if any) covers every request.
+    async fn build(rate_limiter_quota: Quota, proxy: Option<String>) -> Result<Self> {
         let rate_limiter: Arc<DefaultDirectRateLimiter> =
             Arc::new(DefaultDirectRateLimiter::direct(rate_limiter_quota));
-        let frontend_version = get_frontend_version().await;
+        let user_agent = pick_user_agent().to_string();
+        tracing::debug!(%user_agent, proxy = ?proxy, "constructing client");
+        let client = build_reqwest_client(proxy.as_deref())?;
+        let frontend_version = get_frontend_version(&user_agent, &client).await;
 
-        Self {
+        Ok(Self {
             rate_limiter,
-            client: Arc::new(Client::new()),
+            client: Arc::new(client),
             frontend_version: frontend_version
                 .unwrap_or("boq_travel-frontend-flights-ui_20260527.01_p0".into()),
             rate_limited: Arc::new(AtomicBool::new(false)),
             retry_config: RetryConfig::default(),
-        }
+            user_agent,
+            currency: Currency::default(),
+            language: "en".to_string(),
+            country: "GB".to_string(),
+        })
     }
 
     /// Overrides the retry policy for this client.
@@ -134,6 +189,76 @@ impl ApiClient {
     pub fn with_retry_config(mut self, retry_config: RetryConfig) -> Self {
         self.retry_config = retry_config;
         self
+    }
+
+    /// Overrides the User-Agent header for this client.
+    ///
+    /// By default a User-Agent is chosen from a small rotating pool of real
+    /// desktop browser strings at construction time, so traffic from repeated
+    /// client creation is not trivially fingerprintable by a single static
+    /// value. Use this to pin a specific User-Agent instead.
+    ///
+    /// ```rust
+    /// # use gflights::requests::api::ApiClient;
+    /// # async fn example() {
+    /// let client = ApiClient::new().await
+    ///     .with_user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0");
+    /// # }
+    /// ```
+    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
+        self.user_agent = user_agent.into();
+        self
+    }
+
+    /// Returns the User-Agent this client sends with every request.
+    pub fn user_agent(&self) -> &str {
+        &self.user_agent
+    }
+
+    /// Sets the result currency applied to every request on this client.
+    pub fn with_currency(mut self, currency: Currency) -> Self {
+        self.currency = currency;
+        self
+    }
+
+    /// Sets the BCP-47 language subtag (e.g. `"en"`, `"fr"`) for every request.
+    pub fn with_language(mut self, language: impl Into<String>) -> Self {
+        self.language = language.into();
+        self
+    }
+
+    /// Sets the ISO 3166-1 alpha-2 country code (e.g. `"GB"`, `"US"`) for every request.
+    pub fn with_country(mut self, country: impl Into<String>) -> Self {
+        self.country = country.into();
+        self
+    }
+
+    /// Sets currency, language and country in one call.
+    pub fn with_locale(
+        mut self,
+        currency: Currency,
+        language: impl Into<String>,
+        country: impl Into<String>,
+    ) -> Self {
+        self.currency = currency;
+        self.language = language.into();
+        self.country = country.into();
+        self
+    }
+
+    /// Returns the currency this client applies to every request.
+    pub fn currency(&self) -> &Currency {
+        &self.currency
+    }
+
+    /// Returns the language subtag this client applies to every request.
+    pub fn language(&self) -> &str {
+        &self.language
+    }
+
+    /// Returns the country code this client applies to every request.
+    pub fn country(&self) -> &str {
+        &self.country
     }
 
     /// Returns `true` if this client has been halted by a 429 response.
@@ -168,7 +293,7 @@ impl ApiClient {
             frontend_version: self.frontend_version.clone(),
         };
         let city_response: &str = &self
-            .do_request(&options, None, "en", "GB")
+            .do_request(&options, None, &self.language, &self.country)
             .await?
             .text()
             .await?;
@@ -211,16 +336,16 @@ impl ApiClient {
             stopover_min: &args.stopover_min,
             duration_max: &args.duration_max,
             frontend_version: &self.frontend_version,
-            language: &args.language,
-            country: &args.country,
+            language: &self.language,
+            country: &self.country,
             sort_order: &args.sort_order,
         };
         let body = self
             .do_request(
                 &req_options,
-                Some(args.currency.clone()),
-                &args.language,
-                &args.country,
+                Some(self.currency.clone()),
+                &self.language,
+                &self.country,
             )
             .await?
             .text()
@@ -391,9 +516,9 @@ impl ApiClient {
             let res = self
                 .do_request(
                     &req_options,
-                    Some(args.currency.clone()),
-                    &args.language,
-                    &args.country,
+                    Some(self.currency.clone()),
+                    &self.language,
+                    &self.country,
                 )
                 .await?;
             match res.text().await {
@@ -478,8 +603,8 @@ impl ApiClient {
             duration_max: &args.duration_max,
             frontend_version: &self.frontend_version,
             fixed_flights: &args.fixed_flights,
-            language: &args.language,
-            country: &args.country,
+            language: &self.language,
+            country: &self.country,
             sort_order: &server_sort,
             airlines_include: &args.airlines_include,
             airlines_exclude: &args.airlines_exclude,
@@ -491,9 +616,9 @@ impl ApiClient {
         Ok(self
             .do_request(
                 &req_options,
-                Some(args.currency.clone()),
-                &args.language,
-                &args.country,
+                Some(self.currency.clone()),
+                &self.language,
+                &self.country,
             )
             .await?
             .text()
@@ -542,13 +667,15 @@ impl ApiClient {
         let req_options = MultiCityRequestOptions {
             config: args,
             frontend_version: &self.frontend_version,
+            language: &self.language,
+            country: &self.country,
         };
         let body = self
             .do_request(
                 &req_options,
-                Some(args.currency.clone()),
-                &args.language,
-                &args.country,
+                Some(self.currency.clone()),
+                &self.language,
+                &self.country,
             )
             .await?
             .text()
@@ -608,18 +735,53 @@ impl ApiClient {
         let req_options = ExploreRequestOptions {
             config,
             frontend_version: &self.frontend_version,
+            language: &self.language,
+            country: &self.country,
         };
         let body = self
             .do_request(
                 &req_options,
-                Some(config.currency.clone()),
-                &config.language,
-                &config.country,
+                Some(self.currency.clone()),
+                &self.language,
+                &self.country,
             )
             .await?
             .text()
             .await?;
         parse_explore_response(&body)
+    }
+
+    /// Requests discounted destinations (flight deals) from an origin.
+    ///
+    /// # Arguments
+    /// * `config` — A [`DealConfig`] describing the origin, trip-length anchor,
+    ///   and optional filters.
+    ///
+    /// # Returns
+    /// A `Vec<DealResult>` of discounted destinations with price vs typical
+    /// price, discount percentage, and a ready-to-open booking deep link.
+    #[tracing::instrument(skip_all, fields(
+        origin = ?config.origin.iter().map(|l| l.loc_identifier.as_str()).collect::<Vec<_>>(),
+    ))]
+    pub async fn request_deals(&self, config: &DealConfig) -> Result<Vec<DealResult>> {
+        tracing::info!("Requesting flight deals");
+        let req_options = DealsRequestOptions {
+            config,
+            frontend_version: &self.frontend_version,
+            language: &self.language,
+            country: &self.country,
+        };
+        let body = self
+            .do_request(
+                &req_options,
+                Some(self.currency.clone()),
+                &self.language,
+                &self.country,
+            )
+            .await?
+            .text()
+            .await?;
+        parse_deals_response(&body)
     }
 
     /// Resolves a `click_token` from an `OfferGroup` or `BookingSubOption`
@@ -759,7 +921,7 @@ impl ApiClient {
             .client
             .post(&url)
             .body(body)
-            .headers(get_headers(None, "en", "GB")?)
+            .headers(get_headers(None, "en", "GB", &self.user_agent)?)
             .send()
             .await?
             .text()
@@ -804,7 +966,8 @@ impl ApiClient {
         }
 
         let req_payload = options.to_request_body()?;
-        let headers = get_headers(currency, language, country)?;
+        tracing::debug!(user_agent = %self.user_agent, "outgoing request User-Agent");
+        let headers = get_headers(currency, language, country, &self.user_agent)?;
 
         let decoded_body = percent_encoding::percent_decode_str(&req_payload.body)
             .decode_utf8_lossy()
@@ -902,12 +1065,44 @@ impl ApiClient {
     }
 }
 
-/// Static base headers shared by all requests.
+/// Fallback User-Agent used if a supplied override is not a valid header value
+/// (in practice never, since real User-Agent strings are ASCII).
+const DEFAULT_USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0";
+
+/// Pool of real desktop browser User-Agent strings spanning several
+/// browser/OS combinations. One is chosen per [`ApiClient`] construction so a
+/// single static User-Agent does not fingerprint all traffic from this client.
+const USER_AGENTS: &[&str] = &[
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:126.0) Gecko/20100101 Firefox/126.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+];
+
+/// Picks a User-Agent from [`USER_AGENTS`] using a cheap time-seeded index.
+///
+/// No external RNG dependency is needed: the sub-second nanosecond component of
+/// the wall clock at construction time has enough entropy to vary the choice
+/// across separately-constructed clients.
+fn pick_user_agent() -> &'static str {
+    let idx = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as usize)
+        .unwrap_or(0)
+        % USER_AGENTS.len();
+    USER_AGENTS[idx]
+}
+
+/// Static base headers shared by all requests, with the given User-Agent.
 ///
 /// Note: `x-goog-batchexecute-bgr` is intentionally omitted — its value is
 /// difficult to reverse-engineer and its absence only slightly reduces result
 /// accuracy.
-fn base_headers() -> HeaderMap {
+fn base_headers(user_agent: &str) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(
         reqwest::header::ACCEPT_LANGUAGE,
@@ -927,9 +1122,8 @@ fn base_headers() -> HeaderMap {
     );
     headers.insert(
         reqwest::header::USER_AGENT,
-        HeaderValue::from_static(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        ),
+        HeaderValue::from_str(user_agent)
+            .unwrap_or_else(|_| HeaderValue::from_static(DEFAULT_USER_AGENT)),
     );
     headers.insert(reqwest::header::ACCEPT, HeaderValue::from_static("*/*"));
     headers
@@ -941,8 +1135,13 @@ fn base_headers() -> HeaderMap {
 /// Returns an error if the formatted header string contains characters that
 /// are not valid as an HTTP header value (in practice this never occurs since
 /// all [`Currency`] codes and locale tags are plain ASCII).
-fn get_headers(currency: Option<Currency>, language: &str, country: &str) -> Result<HeaderMap> {
-    let mut headers = base_headers();
+fn get_headers(
+    currency: Option<Currency>,
+    language: &str,
+    country: &str,
+    user_agent: &str,
+) -> Result<HeaderMap> {
+    let mut headers = base_headers(user_agent);
     if let Some(currency) = currency {
         let country_upper = country.to_uppercase();
         let currency_header = format!(
@@ -959,10 +1158,26 @@ fn get_headers(currency: Option<Currency>, language: &str, country: &str) -> Res
     Ok(headers)
 }
 
-/// Retrieves the frontend version from the Google Flights website.
-async fn get_frontend_version() -> Option<String> {
-    let client = Client::new();
-    let headers = base_headers(); // no currency header needed for the version fetch
+/// Builds a reqwest [`Client`], optionally routing all traffic through `proxy`.
+///
+/// `proxy` accepts `http://`, `https://`, and `socks5://` URLs. Returns an
+/// error if the proxy URL is invalid or the client cannot be built.
+fn build_reqwest_client(proxy: Option<&str>) -> Result<Client> {
+    let mut builder = Client::builder();
+    if let Some(url) = proxy {
+        builder = builder.proxy(
+            reqwest::Proxy::all(url).map_err(|e| anyhow::anyhow!("invalid proxy {url:?}: {e}"))?,
+        );
+    }
+    builder
+        .build()
+        .map_err(|e| anyhow::anyhow!("failed to build HTTP client: {e}"))
+}
+
+/// Retrieves the frontend version from the Google Flights website, reusing the
+/// supplied client so any configured proxy applies here too.
+async fn get_frontend_version(user_agent: &str, client: &Client) -> Option<String> {
+    let headers = base_headers(user_agent); // no currency header needed for the version fetch
     let url = FLIGHTS_MAIN_PAGE.to_string();
     let res = client.get(&url).headers(headers).send().await.ok()?;
 
@@ -1028,6 +1243,10 @@ mod tests {
             frontend_version: "test".into(),
             rate_limited: Arc::new(AtomicBool::new(false)),
             retry_config: RetryConfig::default(),
+            user_agent: pick_user_agent().to_string(),
+            currency: Currency::default(),
+            language: "en".to_string(),
+            country: "GB".to_string(),
         }
     }
 
@@ -1035,6 +1254,51 @@ mod tests {
     fn not_rate_limited_by_default() {
         let client = make_client();
         assert!(!client.is_rate_limited());
+    }
+
+    #[test]
+    fn pick_user_agent_is_from_pool() {
+        assert!(USER_AGENTS.contains(&pick_user_agent()));
+    }
+
+    #[test]
+    fn user_agent_pool_is_nonempty_and_valid_headers() {
+        assert!(!USER_AGENTS.is_empty());
+        for ua in USER_AGENTS {
+            assert!(
+                HeaderValue::from_str(ua).is_ok(),
+                "User-Agent is not a valid header value: {ua}"
+            );
+        }
+    }
+
+    #[test]
+    fn with_user_agent_overrides_and_getter_reflects_it() {
+        let client = make_client().with_user_agent("Custom-UA/1.0");
+        assert_eq!(client.user_agent(), "Custom-UA/1.0");
+    }
+
+    #[test]
+    fn default_client_user_agent_is_from_pool() {
+        let client = make_client();
+        assert!(USER_AGENTS.contains(&client.user_agent()));
+    }
+
+    #[test]
+    fn build_client_accepts_valid_proxies_and_none() {
+        assert!(build_reqwest_client(None).is_ok());
+        assert!(build_reqwest_client(Some("http://127.0.0.1:3128")).is_ok());
+        assert!(build_reqwest_client(Some("https://proxy.example.com:8443")).is_ok());
+        assert!(build_reqwest_client(Some("socks5://127.0.0.1:9050")).is_ok());
+    }
+
+    #[test]
+    fn build_client_rejects_invalid_proxy() {
+        let err = build_reqwest_client(Some("http://has a space/")).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid proxy"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

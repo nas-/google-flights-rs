@@ -9,19 +9,25 @@ use rustyline::DefaultEditor;
 
 pub mod cheap;
 pub mod date_grid;
+pub mod deals;
 pub mod explore;
 pub mod graph;
+pub mod mcp;
 pub mod multi_city;
 pub mod offer;
 pub mod search;
+pub mod select;
 
 use cheap::{cmd_cheap, CheapArgs};
 use date_grid::{cmd_date_grid, DateGridArgs};
+use deals::{cmd_deals, DealsArgs};
 use explore::{cmd_explore, ExploreArgs};
 use graph::{cmd_graph, GraphArgs};
+use mcp::run_mcp;
 use multi_city::{cmd_multi_city, MultiCityArgs};
 use offer::{cmd_offer, OfferArgs};
 use search::{cmd_search, SearchArgs};
+use select::{cmd_select, SelectArgs};
 
 // ---------------------------------------------------------------------------
 // Output format
@@ -46,6 +52,29 @@ pub enum OutputFormat {
 #[derive(Parser, Debug)]
 #[command(name = "gflights", version, about, long_about = None)]
 pub struct Cli {
+    /// Override the User-Agent header (default: a random real desktop browser
+    /// string chosen per run).
+    #[arg(long, global = true)]
+    pub user_agent: Option<String>,
+
+    /// Route all requests through a proxy (e.g. http://host:3128,
+    /// socks5://127.0.0.1:9050). Supports http(s) and socks5.
+    #[arg(long, global = true)]
+    pub proxy: Option<String>,
+
+    /// Result currency for prices, applied to every request (e.g. euro,
+    /// us-dollar, british-pound).
+    #[arg(long, global = true, default_value = "euro")]
+    pub currency: Currency,
+
+    /// BCP-47 language subtag applied to every request (e.g. en, fr, de).
+    #[arg(long, global = true, default_value = "en")]
+    pub lang: String,
+
+    /// ISO 3166-1 alpha-2 country code applied to every request (e.g. GB, FR, US).
+    #[arg(long, global = true, default_value = "GB")]
+    pub country: String,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -69,6 +98,11 @@ pub enum Commands {
     DateGrid(DateGridArgs),
     /// Show booking offers (with airline prices and URLs) for a specific itinerary.
     Offer(OfferArgs),
+    /// Interactively pick outbound (and return) flights, then a booking offer.
+    ///
+    /// Numbered prompts let you choose each leg, then an offer; prints the
+    /// resolved booking URL. Works one-shot or inside the REPL.
+    Select(SelectArgs),
     /// Multi-city (open-jaw) flight search across 2+ legs.
     ///
     /// Specify each leg with --leg FROM,TO,DATE (repeatable).
@@ -87,6 +121,18 @@ pub enum Commands {
     /// Example: gflights explore --from LUX --month 7 --duration week --budget 300
     #[command(name = "explore")]
     Explore(ExploreArgs),
+    /// Find discounted destinations from an origin (Google Flights deals).
+    ///
+    /// Example: gflights deals --from LUX --out 2026-06-20 --ret 2026-06-24 --nonstop
+    #[command(name = "deals")]
+    Deals(DealsArgs),
+    /// Run as an MCP (Model Context Protocol) server over stdio.
+    ///
+    /// Exposes flight tools (search, price_graph, cheapest_dates, explore,
+    /// deals) to MCP clients such as Claude Desktop. Speaks JSON-RPC 2.0 on
+    /// stdin/stdout.
+    #[command(name = "mcp")]
+    Mcp,
     /// Exit the interactive REPL (alias: exit).
     #[command(alias = "exit")]
     Quit,
@@ -119,6 +165,18 @@ pub struct CommonArgs {
     #[arg(long, default_value = "1")]
     pub adults: u32,
 
+    /// Number of children (2–11 years).
+    #[arg(long, default_value = "0")]
+    pub children: u32,
+
+    /// Number of infants in their own seat.
+    #[arg(long = "infants-seat", default_value = "0")]
+    pub infants_seat: u32,
+
+    /// Number of lap infants.
+    #[arg(long = "infants-lap", default_value = "0")]
+    pub infants_lap: u32,
+
     /// Travel class.
     #[arg(long, default_value = "economy")]
     pub class: TravelClass,
@@ -126,18 +184,6 @@ pub struct CommonArgs {
     /// Stop filter.
     #[arg(long, default_value = "all")]
     pub stops: StopOptions,
-
-    /// Currency for prices.
-    #[arg(long, default_value = "euro")]
-    pub currency: Currency,
-
-    /// BCP-47 language subtag (e.g. en, fr, de).
-    #[arg(long, default_value = "en")]
-    pub lang: String,
-
-    /// ISO 3166-1 alpha-2 country code (e.g. GB, FR, US).
-    #[arg(long, default_value = "GB")]
-    pub country: String,
 
     /// Output format.
     #[arg(long, default_value = "table")]
@@ -149,7 +195,12 @@ pub struct CommonArgs {
 // ---------------------------------------------------------------------------
 
 pub async fn build_config(common: &CommonArgs, client: &ApiClient) -> Result<Config> {
-    let travelers = Travelers::new(vec![common.adults as i32, 0, 0, 0])?;
+    let travelers = Travelers::new(vec![
+        common.adults as i32,
+        common.children as i32,
+        common.infants_lap as i32,
+        common.infants_seat as i32,
+    ])?;
 
     let mut builder = Config::builder()
         .departure(&common.from, client)
@@ -159,10 +210,7 @@ pub async fn build_config(common: &CommonArgs, client: &ApiClient) -> Result<Con
         .departing_date(common.date)
         .travelers(travelers)
         .travel_class(common.class)
-        .stop_options(common.stops)
-        .currency(common.currency.clone())
-        .language(common.lang.clone())
-        .country(common.country.clone());
+        .stop_options(common.stops);
 
     if let Some(ret) = common.r#return {
         builder = builder.return_date(ret);
@@ -181,9 +229,12 @@ pub async fn run_command(cmd: Commands, client: &ApiClient) -> Result<()> {
         Commands::Graph(args) => cmd_graph(args, client).await,
         Commands::DateGrid(args) => cmd_date_grid(args, client).await,
         Commands::Offer(args) => cmd_offer(args, client).await,
+        Commands::Select(args) => cmd_select(args, client).await,
         Commands::MultiCity(args) => cmd_multi_city(args, client).await,
         Commands::Cheap(args) => cmd_cheap(args, client).await,
         Commands::Explore(args) => cmd_explore(args, client).await,
+        Commands::Deals(args) => cmd_deals(args, client).await,
+        Commands::Mcp => run_mcp(client).await,
         Commands::Quit => Ok(()),
     }
 }
@@ -223,6 +274,10 @@ Commands:
   offer --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--return <DATE>]
     (same filters as search)
 
+  select --from <CODE> --to <CODE> --date <YYYY-MM-DD> [--return <DATE>]
+    Interactively pick outbound (and return) flights by number, then an
+    offer; prints the booking URL. Enter a number, or 'q' to cancel.
+
   cheap --from <CODE> --to <CODE> --date <YYYY-MM-DD>
     Options:  --months <N>       (months to scan, default 3)
               --trip-days <N>    (round-trip length in nights; omit for one-way)
@@ -242,6 +297,10 @@ Commands:
                 raw MID: /m/01rwk  (any Knowledge-Graph MID accepted)
               --max-flight-hours <N>
               --carry-on <N>  --checked <N>
+              --adults --class --currency --lang --country --format
+
+  deals --from <CODE> --out <YYYY-MM-DD> --ret <YYYY-MM-DD>
+    Options:  --nonstop  --max-hours <N>
               --adults --class --currency --lang --country --format
 
   quit / exit

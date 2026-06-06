@@ -18,8 +18,9 @@ Search flights, compare prices across a date range, retrieve booking offers, and
 - **Price graph** — cheapest fares across a configurable date range
 - **Date grid** — full departure × return price matrix for round trips
 - **Booking offers** — airline/OTA offers with prices and booking URLs
+- **Flight deals** — discounted destinations from an origin (price vs typical, discount %, booking link)
 - **City / airport lookup** — resolve city names and IATA codes
-- **Multi-airport search** — up to 4 departure or destination airports
+- **Multi-airport search** — up to 7 departure or destination airports
 - **Airline / alliance filters** — include or exclude specific airlines or alliances (oneworld, SkyTeam, Star Alliance)
 - **Connection filters** — require layover through specific airports; set min/max layover duration
 - **Lower-emissions filter** — restrict to flights with below-average CO₂
@@ -76,6 +77,9 @@ gflights dgrid --from LHR --to JFK \
 
 # Booking offers with clickable URLs (OSC 8, supported in most modern terminals)
 gflights offer --from FRA --to SIN --date 2026-10-01
+
+# Find discounted destinations (Google Flights deals)
+gflights deals --from LUX --out 2026-06-20 --ret 2026-06-24 --nonstop
 
 # Explore cheap destinations (Google Flights Explore)
 gflights explore --from LUX --month 9 --duration week --budget 150 --interest climbing
@@ -143,6 +147,77 @@ gflights> quit
 | `--stops <STOPS>` | `all` | Stop filter |
 | `--currency <CURRENCY>` | `euro` | Result currency |
 | `--format <FORMAT>` | `table` | `table` · `json` |
+
+### Global flags (any subcommand)
+
+| Flag | Default | Description |
+|---|---|---|
+| `--proxy <URL>` | none | Route all requests through a proxy. Supports `http://`, `https://`, `socks5://` (e.g. `socks5://127.0.0.1:9050`). |
+| `--user-agent <UA>` | random | Override the User-Agent. By default a real desktop browser string is chosen from a rotating pool per run. |
+
+```sh
+# Search through a local SOCKS5 proxy
+gflights --proxy socks5://127.0.0.1:9050 search --from LHR --to JFK --date 2026-09-15
+```
+
+---
+
+## Proxy & Docker sidecar
+
+Every request — including the one-time frontend-version probe — is routed
+through the configured proxy:
+
+```rust
+let client = ApiClient::new_with_proxy("socks5://127.0.0.1:9050").await?;
+```
+
+```python
+from gflights import Client
+client = Client(proxy="socks5://127.0.0.1:9050")
+```
+
+For rotating egress IPs, run a proxy as a sidecar container and share its
+network namespace. The included [`docker-compose.yml`](docker-compose.yml) shows
+the pattern — `gflights` runs with `network_mode: "service:proxy"`, so all of
+its traffic leaves through the `proxy` container:
+
+```sh
+docker compose run --rm gflights search --from LHR --to JFK --date 2026-09-15
+```
+
+Swap the `proxy` service for any HTTP/SOCKS5 proxy (or a rotating-IP service)
+without touching the `gflights` service.
+
+---
+
+## MCP server
+
+Run gflights as a [Model Context Protocol](https://modelcontextprotocol.io)
+server over stdio, exposing flight tools to MCP clients such as Claude Desktop:
+
+```sh
+gflights mcp
+```
+
+It speaks JSON-RPC 2.0 on stdin/stdout and exposes these tools: `search`,
+`price_graph`, `cheapest_dates`, `explore`, `deals`. Each maps its JSON arguments
+to the same library calls the CLI uses and returns the result as JSON.
+
+Example client configuration (Claude Desktop `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "gflights": {
+      "command": "gflights",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+The global `--proxy` and `--user-agent` flags work here too, e.g.
+`"args": ["--proxy", "socks5://127.0.0.1:9050", "mcp"]`.
 
 ---
 
@@ -275,30 +350,41 @@ cd gflights-py && maturin develop
 
 ### Quick start
 
+Route arguments are `origin` / `destination` (each takes an IATA code **or** a
+city name). Passenger counts are grouped into a `Passengers` object and the
+shared result filters into a `SearchFilters` object — pass only what you need.
+
 ```python
 import asyncio
-import gflights
+from gflights import Client, Passengers, SearchFilters
 
 async def main():
-    client = gflights.GFlights()
+    client = Client()
 
     # One-way search
     flights = await client.search(
-        from_airport="LHR", to_airport="JFK", date="2026-08-01",
+        origin="LHR", destination="JFK", date="2026-08-01",
     )
     for f in flights:
         print(f.airline, f.duration_minutes, f.price)
 
+    # Two adults + a child, non-stop only, sorted by price
+    flights = await client.search(
+        origin="LHR", destination="JFK", date="2026-08-01",
+        passengers=Passengers(adults=2, children=1),
+        filters=SearchFilters(stops="nonstop", sort="price"),
+    )
+
     # Price graph — cheapest fare per day over 3 months
     graph = await client.price_graph(
-        from_airport="LHR", to_airport="JFK", date="2026-08-01", months=3
+        origin="LHR", destination="JFK", date="2026-08-01", months=3
     )
     cheapest = min(graph, key=lambda e: e.price)
     print(cheapest.date, cheapest.price)
 
     # Departure × return price grid
     grid = await client.date_grid(
-        from_airport="LHR", to_airport="JFK",
+        origin="LHR", destination="JFK",
         dep_start="2026-08-01", dep_end="2026-08-07",
         ret_start="2026-08-14", ret_end="2026-08-21",
     )
@@ -307,14 +393,14 @@ async def main():
 
     # Cheapest departure dates (one-way)
     dates = await client.cheapest_dates(
-        from_airport="LHR", to_airport="JFK", date="2026-08-01", months=3
+        origin="LHR", destination="JFK", date="2026-08-01", months=3
     )
     for d in dates[:5]:
         print(d.departure_date, d.price)
 
     # Cheapest round-trip combinations (7-night stay)
     rt_dates = await client.cheapest_dates(
-        from_airport="LHR", to_airport="JFK",
+        origin="LHR", destination="JFK",
         date="2026-08-01", months=3, trip_duration_days=7
     )
     for d in rt_dates[:5]:
@@ -322,7 +408,7 @@ async def main():
 
     # Explore cheap destinations
     dests = await client.explore(
-        from_airport="LUX", month=9, duration="week",
+        origin="LUX", month=9, duration="week",
         max_price=200, interest="beaches",
     )
     for d in sorted(dests, key=lambda x: x.price or 9999)[:5]:
@@ -330,8 +416,8 @@ async def main():
 
     # Run multiple searches concurrently
     lhr_jfk, mad_mex = await asyncio.gather(
-        client.search(from_airport="LHR", to_airport="JFK", date="2026-09-01"),
-        client.search(from_airport="MAD", to_airport="MEX", date="2026-09-01"),
+        client.search(origin="LHR", destination="JFK", date="2026-09-01"),
+        client.search(origin="MAD", destination="MEX", date="2026-09-01"),
     )
 
 asyncio.run(main())
@@ -344,7 +430,7 @@ Input validation errors (bad date, unknown currency, etc.) raise `ValueError`.
 
 ```python
 try:
-    flights = await client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01")
+    flights = await client.search(origin="LHR", destination="JFK", date="2026-08-01")
 except gflights.GFlightsError as e:
     print(f"API error: {e}")
 except ValueError as e:

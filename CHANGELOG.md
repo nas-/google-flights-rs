@@ -5,7 +5,91 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] — 2026-06-06
+
+### Added
+
+- **Flight deals** (`GetFlightDealsStreaming`) — `ApiClient::request_deals` /
+  `DealConfig` / `DealResult` return discounted destinations from an origin with
+  price vs typical price, discount %, airline, stops, duration, dates, and a
+  ready-to-open booking deep link. Exposed via the `deals` CLI subcommand, the
+  Python `Client.deals(...)` method, an MCP `deals` tool, and `examples/deals.rs`.
+  Supports `--nonstop` and `--max-hours` filters.
+- **Python `offer()`** — price the cheapest itinerary and return booking offers
+  with resolved booking URLs. New `Offer` / `BookingOption` result classes.
+- **Children & infant passengers** — `children`, `infants_in_seat` and
+  `infants_on_lap` on every passenger endpoint (CLI `--children`,
+  `--infants-seat`, `--infants-lap`; on the Python client via `Passengers`).
+- **Full filters on price/date endpoints** — `price_graph`, `date_grid` and
+  `cheapest_dates` now accept the same filters as `search` (class, stops,
+  airlines, via, max price, baggage, lower emissions, passengers).
+- **Python `Passengers` and `SearchFilters` dataclasses** — group the
+  per-traveller counts and the shared result filters into two objects instead
+  of passing a dozen keyword arguments to every method. Both are exported from
+  `gflights` and carry sensible defaults.
+- **`Currency` enum** and `datetime.date` inputs in the Python client; date
+  arguments accept `"YYYY-MM-DD"` strings or `datetime.date` objects.
+- **Rotating User-Agent pool** — each `ApiClient` now selects a real desktop
+  browser User-Agent from a pool at construction instead of sending one fixed
+  string, reducing trivial fingerprinting. Override with
+  `ApiClient::with_user_agent(...)`, the CLI `--user-agent` flag, or the Python
+  `Client(user_agent=...)` argument. New `ApiClient::user_agent()` getter.
+- **Proxy support** — route every request (including the frontend-version
+  probe) through an `http://`, `https://`, or `socks5://` proxy via
+  `ApiClient::new_with_proxy(...)`, the CLI `--proxy` flag, or the Python
+  `Client(proxy=...)` argument. Added a `Dockerfile` and `docker-compose.yml`
+  demonstrating a proxy-sidecar deployment with a shared network namespace.
+- **`select` subcommand** — interactive booking flow: pick an outbound flight
+  (and a return for round trips) by number, then a booking offer, and get the
+  resolved booking URL. Works one-shot or inside the REPL.
+- **`mcp` subcommand** — run as a Model Context Protocol server over stdio
+  (JSON-RPC 2.0), exposing `search`, `price_graph`, `cheapest_dates`,
+  `explore`, and `deals` tools to MCP clients such as Claude Desktop. Honours
+  the global `--proxy` and `--user-agent` flags.
+
+### Changed
+
+- **Python: `GFlights` → `Client` (breaking).** The public client is now
+  `gflights.Client`, a pure-Python wrapper over the Rust engine with explicitly
+  typed signatures, full docstrings, and input normalization. No back-compat
+  alias.
+- **Python: locale is a client property (breaking).** `currency` / `lang` /
+  `country` move from per-call arguments to the `Client(...)` constructor.
+  `currency` takes an ISO-4217 code (e.g. `"USD"`) or a `Currency` member —
+  the old kebab `ValueEnum` names (`us-dollar`) are no longer accepted.
+- **Python: route arguments renamed `from_airport`/`to_airport` →
+  `origin`/`destination` (breaking).** Each still accepts an IATA code or a
+  city name; the new names reflect that. Applies to every route method
+  (`search`, `price_graph`, `date_grid`, `cheapest_dates`, `offer`) plus
+  `explore`/`deals` (`origin`).
+- **Python: passenger counts and result filters are grouped (breaking).** The
+  route methods now take `passengers=Passengers(...)` and
+  `filters=SearchFilters(...)` instead of individual `adults` / `stops` / `sort`
+  / `via` / … keyword arguments.
+- **Python `deals` signature aligned with the other methods (breaking).**
+  `out`/`ret` → `date`/`return_date`, and the boolean `nonstop` → `stops`
+  (a `StopFilter`; the deals endpoint only distinguishes non-stop from
+  any-stops).
+- Result classes gained `.to_dict()` and pythonic `__repr__` (no leaked Rust
+  `Some(..)`).
+- CLI: `--currency` / `--lang` / `--country` are now global flags instead of
+  per-subcommand options.
+
+### Fixed
+
+- **Strict `via` (connecting-airport) filter.** Google's connecting-airport
+  filter is a *soft* server-side hint — the `other_flights` container still
+  returns non-stop itineraries that skip the requested airport. Results are now
+  filtered client-side so a `via` search only returns itineraries that actually
+  connect through one of the requested airports. New
+  `Itinerary::connects_via` / `Itinerary::layover_airports` and
+  `FlightResponseContainer::get_all_flights_via`; the wire encoding at leg
+  position `[9]` is verified byte-identical to the Google web UI. Applied to
+  CLI `search` and the Python `search` / `offer` paths.
+- PyPI project page showed no description: the Python package now ships a
+  `readme` (`gflights-py/README.md`) so the long description is rendered.
+- `explore(interest=...)` now resolves interest names (e.g. `"beaches"`) and
+  raises on unknown values instead of silently returning no results.
 
 ---
 

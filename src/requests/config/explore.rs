@@ -1,7 +1,6 @@
 //! Configuration types for the `GetExploreDestinations` endpoint.
 
-use crate::parsers::common::{Location, TravelClass, Travelers};
-use crate::requests::config::Currency;
+use crate::parsers::common::{Location, PlaceType, TravelClass, Travelers};
 
 // ---------------------------------------------------------------------------
 // Duration / date options
@@ -145,6 +144,27 @@ pub fn known_interest_names() -> &'static [&'static str] {
     ]
 }
 
+/// Resolve an interest name or raw MID to a Knowledge-Graph MID.
+///
+/// Accepts raw `/m/…` or `/g/…` MIDs (passed through), known names/aliases
+/// (resolved via [`mid_from_name`]), and returns an error otherwise. Use this
+/// everywhere a user supplies an interest so bad values fail loudly instead of
+/// silently returning no results.
+pub fn resolve_interest(raw: &str) -> anyhow::Result<String> {
+    if raw.starts_with("/m/") || raw.starts_with("/g/") {
+        return Ok(raw.to_string());
+    }
+    if let Some(mid) = mid_from_name(raw) {
+        return Ok(mid.to_string());
+    }
+    let names = known_interest_names().join(", ");
+    anyhow::bail!(
+        "unknown interest {raw:?}\n\
+         Known names: {names}\n\
+         Or pass a raw Knowledge-Graph MID, e.g. /m/01rwk"
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Region MID constants
 // ---------------------------------------------------------------------------
@@ -207,6 +227,42 @@ pub fn known_region_names() -> &'static [&'static str] {
     &["northern europe", "alps"]
 }
 
+/// Resolve a destination value to a [`Location`] (airport or region).
+///
+/// Accepts raw region MIDs (`/m/…`, `/g/…` → region type), known region
+/// names/aliases (via [`region_from_name`]), and short IATA-looking codes
+/// (→ airport type). Region names are checked before the IATA heuristic so a
+/// 4-letter alias like `alps` is not misread as an airport code.
+pub fn resolve_destination(raw: &str) -> anyhow::Result<Location> {
+    if raw.starts_with("/m/") || raw.starts_with("/g/") {
+        return Ok(Location {
+            loc_identifier: raw.to_string(),
+            loc_type: PlaceType::Region,
+            location_name: None,
+        });
+    }
+    if let Some(mid) = region_from_name(raw) {
+        return Ok(Location {
+            loc_identifier: mid.to_string(),
+            loc_type: PlaceType::Region,
+            location_name: Some(raw.to_string()),
+        });
+    }
+    if raw.len() <= 4 && raw.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Ok(Location {
+            loc_identifier: raw.to_uppercase(),
+            loc_type: PlaceType::Airport,
+            location_name: None,
+        });
+    }
+    let regions = known_region_names().join(", ");
+    anyhow::bail!(
+        "unknown destination {raw:?}\n\
+         Use an IATA airport code (e.g. BCN), a region name ({regions}),\n\
+         or a raw Knowledge-Graph MID (e.g. /m/01531v)"
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Main config struct
 // ---------------------------------------------------------------------------
@@ -259,15 +315,6 @@ pub struct ExploreConfig {
 
     /// Cabin class.
     pub travel_class: TravelClass,
-
-    /// Currency for prices.
-    pub currency: Currency,
-
-    /// BCP-47 language subtag, e.g. `"en"`, `"fr"`.
-    pub language: String,
-
-    /// ISO 3166-1 alpha-2 country code, e.g. `"GB"`.
-    pub country: String,
 }
 
 impl Default for ExploreConfig {
@@ -285,9 +332,6 @@ impl Default for ExploreConfig {
             map_bounds: None,
             travellers: Travelers::default(),
             travel_class: TravelClass::Economy,
-            currency: Currency::default(),
-            language: "en".to_string(),
-            country: "GB".to_string(),
         }
     }
 }

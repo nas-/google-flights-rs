@@ -11,6 +11,7 @@ import os
 
 import pytest
 import gflights
+from gflights import SearchFilters
 
 live = pytest.mark.skipif(
     not os.environ.get("RUN_LIVE_TESTS"),
@@ -20,19 +21,19 @@ live = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def client():
-    return gflights.GFlights()
+    return gflights.Client()
 
 
 @live
 async def test_search_returns_flights(client):
-    flights = await client.search(from_airport="LHR", to_airport="JFK", date="2026-09-01")
+    flights = await client.search(origin="LHR", destination="JFK", date="2026-09-01")
     assert isinstance(flights, list)
     assert len(flights) > 0
 
 
 @live
 async def test_search_flight_result_types(client):
-    flights = await client.search(from_airport="MXP", to_airport="CDG", date="2026-09-15")
+    flights = await client.search(origin="MXP", destination="CDG", date="2026-09-15")
     assert len(flights) > 0
     f = flights[0]
     assert isinstance(f.airline, str) and len(f.airline) > 0
@@ -44,7 +45,7 @@ async def test_search_flight_result_types(client):
 
 @live
 async def test_search_legs_populated(client):
-    flights = await client.search(from_airport="MXP", to_airport="LHR", date="2026-09-10")
+    flights = await client.search(origin="MXP", destination="LHR", date="2026-09-10")
     assert len(flights) > 0
     f = flights[0]
     legs = f.legs
@@ -59,7 +60,7 @@ async def test_search_legs_populated(client):
 @live
 async def test_search_round_trip(client):
     flights = await client.search(
-        from_airport="LHR", to_airport="JFK",
+        origin="LHR", destination="JFK",
         date="2026-09-01", return_date="2026-09-15",
     )
     assert len(flights) > 0
@@ -68,7 +69,8 @@ async def test_search_round_trip(client):
 @live
 async def test_search_nonstop_filter(client):
     flights = await client.search(
-        from_airport="LHR", to_airport="JFK", date="2026-09-01", stops="nonstop",
+        origin="LHR", destination="JFK", date="2026-09-01",
+        filters=SearchFilters(stops="nonstop"),
     )
     for f in flights:
         assert f.stops == 0, f"expected nonstop, got {f.stops} stops for {f.airline}"
@@ -77,16 +79,19 @@ async def test_search_nonstop_filter(client):
 @live
 async def test_search_one_stop_filter(client):
     flights = await client.search(
-        from_airport="LUX", to_airport="NRT", date="2026-09-01", stops="one-stop",
+        origin="LUX", destination="NRT", date="2026-09-01",
+        filters=SearchFilters(stops="one-stop"),
     )
     for f in flights:
         assert f.stops <= 1
 
 
 @live
-async def test_search_currency_us_dollar(client):
+async def test_search_currency_usd():
+    # Currency is a client property — build a USD client and search.
+    client = gflights.Client(currency="USD")
     flights = await client.search(
-        from_airport="JFK", to_airport="LAX", date="2026-09-01", currency="us-dollar",
+        origin="JFK", destination="LAX", date="2026-09-01",
     )
     assert len(flights) > 0
     assert any(f.price is not None for f in flights)
@@ -96,7 +101,8 @@ async def test_search_currency_us_dollar(client):
 async def test_search_airline_include_filter(client):
     # Google returns codeshare partners alongside the filtered airline.
     flights = await client.search(
-        from_airport="LHR", to_airport="JFK", date="2026-09-01", airlines_include=["BA"],
+        origin="LHR", destination="JFK", date="2026-09-01",
+        filters=SearchFilters(airlines_include=["BA"]),
     )
     assert len(flights) > 0
     airlines = {f.airline for f in flights}
@@ -105,9 +111,10 @@ async def test_search_airline_include_filter(client):
 
 @live
 async def test_search_airline_exclude_filter(client):
-    flights_all = await client.search(from_airport="CDG", to_airport="JFK", date="2026-09-01")
+    flights_all = await client.search(origin="CDG", destination="JFK", date="2026-09-01")
     flights_no_af = await client.search(
-        from_airport="CDG", to_airport="JFK", date="2026-09-01", airlines_exclude=["AF"],
+        origin="CDG", destination="JFK", date="2026-09-01",
+        filters=SearchFilters(airlines_exclude=["AF"]),
     )
     assert len(flights_no_af) > 0
     assert len(flights_no_af) <= len(flights_all)
@@ -116,7 +123,7 @@ async def test_search_airline_exclude_filter(client):
 @live
 async def test_price_graph_returns_entries(client):
     entries = await client.price_graph(
-        from_airport="LHR", to_airport="JFK", date="2026-09-01", months=2,
+        origin="LHR", destination="JFK", date="2026-09-01", months=2,
     )
     assert isinstance(entries, list) and len(entries) > 0
     e = entries[0]
@@ -127,7 +134,7 @@ async def test_price_graph_returns_entries(client):
 @live
 async def test_price_graph_dates_are_sorted(client):
     entries = await client.price_graph(
-        from_airport="MXP", to_airport="NRT", date="2026-09-01", months=1,
+        origin="MXP", destination="NRT", date="2026-09-01", months=1,
     )
     dates = [e.date for e in entries]
     assert dates == sorted(dates), "price graph entries not sorted by date"
@@ -136,7 +143,7 @@ async def test_price_graph_dates_are_sorted(client):
 @live
 async def test_date_grid_returns_entries(client):
     entries = await client.date_grid(
-        from_airport="LHR", to_airport="JFK",
+        origin="LHR", destination="JFK",
         dep_start="2026-09-01", dep_end="2026-09-03",
         ret_start="2026-09-15", ret_end="2026-09-17",
     )
@@ -150,7 +157,7 @@ async def test_date_grid_returns_entries(client):
 @live
 async def test_date_grid_all_dates_in_range(client):
     entries = await client.date_grid(
-        from_airport="MXP", to_airport="LHR",
+        origin="MXP", destination="LHR",
         dep_start="2026-09-01", dep_end="2026-09-02",
         ret_start="2026-09-10", ret_end="2026-09-11",
     )
@@ -163,8 +170,8 @@ async def test_date_grid_all_dates_in_range(client):
 async def test_concurrent_searches(client):
     """asyncio.gather runs both searches concurrently — no threads needed."""
     r1, r2 = await asyncio.gather(
-        client.search(from_airport="LHR", to_airport="JFK", date="2026-09-01"),
-        client.search(from_airport="MAD", to_airport="MEX", date="2026-09-01"),
+        client.search(origin="LHR", destination="JFK", date="2026-09-01"),
+        client.search(origin="MAD", destination="MEX", date="2026-09-01"),
     )
     assert len(r1) > 0 and len(r2) > 0
 
@@ -172,7 +179,8 @@ async def test_concurrent_searches(client):
 @live
 async def test_search_lower_emissions_filter(client):
     flights = await client.search(
-        from_airport="LHR", to_airport="AMS", date="2026-09-01", lower_emissions=True,
+        origin="LHR", destination="AMS", date="2026-09-01",
+        filters=SearchFilters(lower_emissions=True),
     )
     assert isinstance(flights, list)
 
@@ -190,7 +198,7 @@ async def test_rate_limit_flag_and_reset():
     - reset_rate_limit() clears it to False
     - requests succeed again after reset (or were never blocked to begin with)
     """
-    burst_client = gflights.GFlights()
+    burst_client = gflights.Client()
     assert not burst_client.rate_limited, "should start not rate-limited"
 
     # reset when already clear is a safe no-op
@@ -206,7 +214,7 @@ async def test_rate_limit_flag_and_reset():
         ("CPH", "JFK"), ("ARN", "JFK"), ("HEL", "JFK"),
     ]
     results = await asyncio.gather(
-        *(burst_client.search(from_airport=dep, to_airport=arr, date="2026-09-15")
+        *(burst_client.search(origin=dep, destination=arr, date="2026-09-15")
           for dep, arr in routes),
         return_exceptions=True,
     )
@@ -225,7 +233,7 @@ async def test_rate_limit_flag_and_reset():
 
         # a subsequent single search should succeed after reset
         flights = await burst_client.search(
-            from_airport="LHR", to_airport="JFK", date="2026-09-15"
+            origin="LHR", destination="JFK", date="2026-09-15"
         )
         assert isinstance(flights, list)
     else:

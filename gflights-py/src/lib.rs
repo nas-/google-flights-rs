@@ -1,13 +1,13 @@
-﻿//! Private Rust extension module — import via the `gflights` Python package.
+//! Private Rust extension module — import via the `gflights` Python package.
 //!
 //! Build with `maturin develop` (editable install) or `maturin build --release`.
 //!
 //! ```python
 //! import asyncio
-//! import gflights
+//! from gflights import Client
 //!
 //! async def main():
-//!     client = gflights.GFlights()
+//!     client = Client()
 //!     flights = await client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01")
 //!     for f in flights:
 //!         print(f.airline, f.duration_minutes, f.price)
@@ -22,13 +22,17 @@
 use anyhow::Context as _;
 use chrono::{Months, NaiveDate};
 use gflights::{
-    parsers::common::{AirlineFilter, SortOrder, StopOptions, TravelClass},
+    parsers::common::{AirlineFilter, SortOrder, StopOptions, TravelClass, Travelers},
     requests::{
         api::ApiClient,
-        config::{Config, Currency, ExploreConfig, ExploreDate, ExploreDuration, MultiCityConfig},
+        config::{
+            Config, ConfigBuilder, Currency, DealConfig, ExploreConfig, ExploreDate,
+            ExploreDuration, MultiCityConfig,
+        },
     },
 };
 use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyList};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,8 +45,10 @@ fn parse_date(s: &str) -> PyResult<NaiveDate> {
 }
 
 fn parse_currency(s: &str) -> PyResult<Currency> {
-    <Currency as clap::ValueEnum>::from_str(s, true).map_err(|e| {
-        pyo3::exceptions::PyValueError::new_err(format!("unknown currency {s:?}: {e}"))
+    Currency::from_code(s).ok_or_else(|| {
+        pyo3::exceptions::PyValueError::new_err(format!(
+            "unknown currency {s:?} (expected an ISO-4217 code, e.g. \"USD\", \"EUR\", \"GBP\")"
+        ))
     })
 }
 
@@ -104,6 +110,51 @@ fn anyhow_to_py(e: anyhow::Error) -> PyErr {
     GFlightsError::new_err(e.to_string())
 }
 
+/// Render an `Option<T>` for a Python-style `__repr__`: the inner value, or
+/// the literal `None` — never Rust's `Some(..)` wrapper.
+fn repr_opt<T: std::fmt::Display>(o: &Option<T>) -> String {
+    match o {
+        Some(v) => v.to_string(),
+        None => "None".to_string(),
+    }
+}
+
+/// Generate the repetitive `#[pymethods] impl` (a `__repr__` plus a flat
+/// `to_dict`) for a simple result pyclass.
+///
+/// The leading `|s|` on `repr` and on each `dict` value is **not** a closure —
+/// it names the binding the macro introduces for `&self` (`let s = self;`).
+/// Passing the receiver name in this way sidesteps macro hygiene: `self` of the
+/// generated methods can only be referenced from inside the macro, so the
+/// caller's field expressions go through the caller-named binding instead.
+macro_rules! py_data_class {
+    (
+        $ty:ty,
+        repr = | $rself:ident | $repr:expr,
+        dict = { $($key:literal => | $dself:ident | $val:expr),+ $(,)? } $(,)?
+    ) => {
+        #[pymethods]
+        impl $ty {
+            fn __repr__(&self) -> String {
+                let $rself = self;
+                $repr
+            }
+
+            /// Return this object as a plain ``dict``.
+            fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+                let d = PyDict::new(py);
+                $(
+                    {
+                        let $dself = self;
+                        d.set_item($key, $val)?;
+                    }
+                )+
+                Ok(d)
+            }
+        }
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Python data classes
 // ---------------------------------------------------------------------------
@@ -128,20 +179,27 @@ pub struct LegInfo {
     pub duration_minutes: Option<i32>,
 }
 
-#[pymethods]
-impl LegInfo {
-    fn __repr__(&self) -> String {
-        format!(
-            "LegInfo(from={:?}, to={:?}, dep={} {}, arr={} {}, duration={:?})",
-            self.from_airport,
-            self.to_airport,
-            self.departure_date,
-            self.departure_time,
-            self.arrival_date,
-            self.arrival_time,
-            self.duration_minutes,
-        )
-    }
+py_data_class! {
+    LegInfo,
+    repr = |s| format!(
+        "LegInfo(from={:?}, to={:?}, dep={} {}, arr={} {}, duration={})",
+        s.from_airport,
+        s.to_airport,
+        s.departure_date,
+        s.departure_time,
+        s.arrival_date,
+        s.arrival_time,
+        repr_opt(&s.duration_minutes),
+    ),
+    dict = {
+        "from_airport" => |s| &s.from_airport,
+        "to_airport" => |s| &s.to_airport,
+        "departure_time" => |s| &s.departure_time,
+        "arrival_time" => |s| &s.arrival_time,
+        "departure_date" => |s| &s.departure_date,
+        "arrival_date" => |s| &s.arrival_date,
+        "duration_minutes" => |s| s.duration_minutes,
+    },
 }
 
 /// Details about one layover / connection between two legs.
@@ -158,14 +216,20 @@ pub struct LayoverInfo {
     pub overnight: bool,
 }
 
-#[pymethods]
-impl LayoverInfo {
-    fn __repr__(&self) -> String {
-        format!(
-            "LayoverInfo(airport={:?}, {} min, overnight={})",
-            self.arrival_airport, self.connection_minutes, self.overnight
-        )
-    }
+py_data_class! {
+    LayoverInfo,
+    repr = |s| format!(
+        "LayoverInfo(airport={:?}, {} min, overnight={})",
+        s.arrival_airport,
+        s.connection_minutes,
+        if s.overnight { "True" } else { "False" },
+    ),
+    dict = {
+        "connection_minutes" => |s| s.connection_minutes,
+        "arrival_airport" => |s| &s.arrival_airport,
+        "departure_airport" => |s| &s.departure_airport,
+        "overnight" => |s| s.overnight,
+    },
 }
 
 /// CO₂ / emissions data for an itinerary (all values in grams).
@@ -182,17 +246,24 @@ pub struct EmissionsInfo {
     pub co2_lowest_route_g: Option<i64>,
 }
 
-#[pymethods]
-impl EmissionsInfo {
-    fn __repr__(&self) -> String {
-        format!(
-            "EmissionsInfo(vs_avg={:?}%, this={:?}g, typical={:?}g)",
-            self.vs_average_percent, self.co2_this_flight_g, self.co2_typical_route_g,
-        )
-    }
+py_data_class! {
+    EmissionsInfo,
+    repr = |s| format!(
+        "EmissionsInfo(vs_average_percent={}, co2_this_flight_g={}, co2_typical_route_g={}, co2_lowest_route_g={})",
+        repr_opt(&s.vs_average_percent),
+        repr_opt(&s.co2_this_flight_g),
+        repr_opt(&s.co2_typical_route_g),
+        repr_opt(&s.co2_lowest_route_g),
+    ),
+    dict = {
+        "vs_average_percent" => |s| s.vs_average_percent,
+        "co2_this_flight_g" => |s| s.co2_this_flight_g,
+        "co2_typical_route_g" => |s| s.co2_typical_route_g,
+        "co2_lowest_route_g" => |s| s.co2_lowest_route_g,
+    },
 }
 
-/// One flight itinerary returned by :meth:`GFlights.search`.
+/// One flight itinerary returned by :meth:`Client.search`.
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct FlightResult {
@@ -208,7 +279,7 @@ pub struct FlightResult {
     /// Price in the requested currency, or `None` if unavailable.
     #[pyo3(get)]
     pub price: Option<i32>,
-    /// Raw booking token — pass to :meth:`GFlights.offers` for booking URLs.
+    /// Raw booking token — pass to :meth:`Client.offer` for booking URLs.
     #[pyo3(get)]
     pub booking_token: String,
     legs: Vec<LegInfo>,
@@ -244,9 +315,39 @@ impl FlightResult {
 
     fn __repr__(&self) -> String {
         format!(
-            "FlightResult(airline={:?}, duration={}min, stops={}, price={:?})",
-            self.airline, self.duration_minutes, self.stops, self.price,
+            "FlightResult(airline={:?}, duration={}min, stops={}, price={})",
+            self.airline,
+            self.duration_minutes,
+            self.stops,
+            repr_opt(&self.price),
         )
+    }
+
+    /// Return the full itinerary as a nested plain ``dict`` (legs, layovers and
+    /// emissions are recursively expanded into dicts/lists).
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("airline", &self.airline)?;
+        d.set_item("duration_minutes", self.duration_minutes)?;
+        d.set_item("stops", self.stops)?;
+        d.set_item("price", self.price)?;
+        d.set_item("booking_token", &self.booking_token)?;
+        let legs = PyList::empty(py);
+        for l in &self.legs {
+            legs.append(l.to_dict(py)?)?;
+        }
+        d.set_item("legs", legs)?;
+        let layovers = PyList::empty(py);
+        for l in &self.layovers {
+            layovers.append(l.to_dict(py)?)?;
+        }
+        d.set_item("layovers", layovers)?;
+        let emissions = match &self.emissions {
+            Some(e) => Some(e.to_dict(py)?),
+            None => None,
+        };
+        d.set_item("emissions", emissions)?;
+        Ok(d)
     }
 }
 
@@ -260,11 +361,13 @@ pub struct PriceEntry {
     pub price: i32,
 }
 
-#[pymethods]
-impl PriceEntry {
-    fn __repr__(&self) -> String {
-        format!("PriceEntry(date={:?}, price={})", self.date, self.price)
-    }
+py_data_class! {
+    PriceEntry,
+    repr = |s| format!("PriceEntry(date={:?}, price={})", s.date, s.price),
+    dict = {
+        "date" => |s| &s.date,
+        "price" => |s| s.price,
+    },
 }
 
 /// One cell in the departure × return date grid.
@@ -279,17 +382,20 @@ pub struct DateGridEntry {
     pub price: i32,
 }
 
-#[pymethods]
-impl DateGridEntry {
-    fn __repr__(&self) -> String {
-        format!(
-            "DateGridEntry(dep={:?}, ret={:?}, price={})",
-            self.dep_date, self.ret_date, self.price,
-        )
-    }
+py_data_class! {
+    DateGridEntry,
+    repr = |s| format!(
+        "DateGridEntry(dep={:?}, ret={:?}, price={})",
+        s.dep_date, s.ret_date, s.price,
+    ),
+    dict = {
+        "dep_date" => |s| &s.dep_date,
+        "ret_date" => |s| &s.ret_date,
+        "price" => |s| s.price,
+    },
 }
 
-/// One result from `GFlights.cheapest_dates`.
+/// One result from `Client.cheapest_dates`.
 ///
 /// `return_date` is `None` for one-way searches and set for round-trip searches.
 #[pyclass(get_all)]
@@ -303,23 +409,26 @@ pub struct CheapDate {
     pub price: i32,
 }
 
-#[pymethods]
-impl CheapDate {
-    fn __repr__(&self) -> String {
-        match &self.return_date {
-            Some(ret) => format!(
-                "CheapDate(dep={:?}, ret={:?}, price={})",
-                self.departure_date, ret, self.price,
-            ),
-            None => format!(
-                "CheapDate(dep={:?}, price={})",
-                self.departure_date, self.price,
-            ),
-        }
-    }
+py_data_class! {
+    CheapDate,
+    repr = |s| match &s.return_date {
+        Some(ret) => format!(
+            "CheapDate(dep={:?}, ret={:?}, price={})",
+            s.departure_date, ret, s.price,
+        ),
+        None => format!(
+            "CheapDate(dep={:?}, price={})",
+            s.departure_date, s.price,
+        ),
+    },
+    dict = {
+        "departure_date" => |s| &s.departure_date,
+        "return_date" => |s| &s.return_date,
+        "price" => |s| s.price,
+    },
 }
 
-/// One explore destination returned by :meth:`GFlights.explore`.
+/// One explore destination returned by :meth:`Client.explore`.
 #[pyclass(get_all)]
 #[derive(Clone, Debug)]
 pub struct ExploreResult {
@@ -361,13 +470,185 @@ pub struct ExploreResult {
     pub booking_token: String,
 }
 
+py_data_class! {
+    ExploreResult,
+    repr = |s| format!(
+        "ExploreResult(name={:?}, airport={:?}, price={})",
+        s.name,
+        s.nearest_airport,
+        repr_opt(&s.price),
+    ),
+    dict = {
+        "place_id" => |s| &s.place_id,
+        "name" => |s| &s.name,
+        "country" => |s| &s.country,
+        "lat" => |s| s.lat,
+        "lng" => |s| s.lng,
+        "image_url" => |s| &s.image_url,
+        "nearest_airport" => |s| &s.nearest_airport,
+        "flight_airport" => |s| &s.flight_airport,
+        "date_from" => |s| &s.date_from,
+        "date_to" => |s| &s.date_to,
+        "price" => |s| s.price,
+        "airline" => |s| &s.airline,
+        "stops" => |s| s.stops,
+        "flight_duration_minutes" => |s| s.flight_duration_minutes,
+        "accommodation_price" => |s| s.accommodation_price,
+        "booking_token" => |s| &s.booking_token,
+    },
+}
+
+/// One discounted destination returned by :meth:`Client.deals`.
+#[pyclass(get_all)]
+#[derive(Clone, Debug)]
+pub struct DealResult {
+    /// Origin airport IATA code.
+    pub origin_iata: String,
+    /// Destination airport IATA code.
+    pub destination_iata: String,
+    /// Destination city name.
+    pub destination_city: String,
+    /// Destination country name.
+    pub destination_country: String,
+    /// Destination Google place MID, or ``None``.
+    pub destination_mid: Option<String>,
+    /// Outbound date as ``"YYYY-MM-DD"``, or ``None``.
+    pub outbound_date: Option<String>,
+    /// Return date as ``"YYYY-MM-DD"``, or ``None``.
+    pub return_date: Option<String>,
+    /// Deal price (round trip), or ``None``.
+    pub price: Option<i32>,
+    /// Typical price for this route, or ``None``.
+    pub typical_price: Option<i32>,
+    /// Percentage below typical price (e.g. ``68``), or ``None``.
+    pub discount_pct: Option<i32>,
+    /// Total flight duration in minutes, or ``None``.
+    pub duration_minutes: Option<u32>,
+    /// Number of stops (0 = non-stop), or ``None``.
+    pub stops: Option<u8>,
+    /// Operating airline code (``"*"`` for mixed), or ``None``.
+    pub airline_code: Option<String>,
+    /// Operating airline name, or ``None``.
+    pub airline_name: Option<String>,
+    /// Cover image URL, or ``None``.
+    pub image_url: Option<String>,
+    /// Short highlight phrases for the destination.
+    pub highlights: Vec<String>,
+    /// One-line description, or ``None``.
+    pub description: Option<String>,
+    /// Absolute Google Flights booking deep link, or ``None``.
+    pub booking_url: Option<String>,
+    /// Opaque booking token, or ``None``.
+    pub booking_token: Option<String>,
+}
+
+py_data_class! {
+    DealResult,
+    repr = |s| format!(
+        "DealResult(dest={:?}, price={}, off={}%)",
+        s.destination_city,
+        repr_opt(&s.price),
+        repr_opt(&s.discount_pct),
+    ),
+    dict = {
+        "origin_iata" => |s| &s.origin_iata,
+        "destination_iata" => |s| &s.destination_iata,
+        "destination_city" => |s| &s.destination_city,
+        "destination_country" => |s| &s.destination_country,
+        "destination_mid" => |s| &s.destination_mid,
+        "outbound_date" => |s| &s.outbound_date,
+        "return_date" => |s| &s.return_date,
+        "price" => |s| s.price,
+        "typical_price" => |s| s.typical_price,
+        "discount_pct" => |s| s.discount_pct,
+        "duration_minutes" => |s| s.duration_minutes,
+        "stops" => |s| s.stops,
+        "airline_code" => |s| &s.airline_code,
+        "airline_name" => |s| &s.airline_name,
+        "image_url" => |s| &s.image_url,
+        "highlights" => |s| &s.highlights,
+        "description" => |s| &s.description,
+        "booking_url" => |s| &s.booking_url,
+        "booking_token" => |s| &s.booking_token,
+    },
+}
+
+/// One booking channel (OTA / partner) inside an :class:`Offer`.
+#[pyclass(get_all)]
+#[derive(Clone, Debug)]
+pub struct BookingOption {
+    /// Partner / OTA display names for this channel (e.g. ``["Lufthansa"]``).
+    pub partner_names: Vec<String>,
+    /// Price for this specific channel, or ``None``.
+    pub price: Option<i32>,
+    /// Resolved booking deep link for this channel, or ``None`` if no click
+    /// token was available / resolution failed.
+    pub booking_url: Option<String>,
+}
+
+py_data_class! {
+    BookingOption,
+    repr = |s| format!(
+        "BookingOption(partners={:?}, price={}, booking_url={})",
+        s.partner_names,
+        repr_opt(&s.price),
+        repr_opt(&s.booking_url),
+    ),
+    dict = {
+        "partner_names" => |s| &s.partner_names,
+        "price" => |s| s.price,
+        "booking_url" => |s| &s.booking_url,
+    },
+}
+
+/// One booking option (priced offer) returned by :meth:`Client.offer`.
+#[pyclass]
+#[derive(Clone, Debug)]
+pub struct Offer {
+    /// Airline display names involved in this offer.
+    #[pyo3(get)]
+    pub airline_names: Vec<String>,
+    /// Total price in the client currency, or ``None``.
+    #[pyo3(get)]
+    pub price: Option<i32>,
+    /// Resolved booking deep link, or ``None`` if unavailable.
+    #[pyo3(get)]
+    pub booking_url: Option<String>,
+    sub_options: Vec<BookingOption>,
+}
+
 #[pymethods]
-impl ExploreResult {
+impl Offer {
+    /// Per-OTA booking sub-options (different channels / prices for this offer).
+    #[getter]
+    fn sub_options(&self, py: Python<'_>) -> PyResult<Vec<Py<BookingOption>>> {
+        self.sub_options
+            .iter()
+            .map(|o| Py::new(py, o.clone()))
+            .collect()
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "ExploreResult(name={:?}, airport={:?}, price={:?})",
-            self.name, self.nearest_airport, self.price,
+            "Offer(airlines={:?}, price={}, booking_url={})",
+            self.airline_names,
+            repr_opt(&self.price),
+            repr_opt(&self.booking_url),
         )
+    }
+
+    /// Return this offer as a nested plain ``dict`` (sub-options recursed).
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("airline_names", &self.airline_names)?;
+        d.set_item("price", self.price)?;
+        d.set_item("booking_url", &self.booking_url)?;
+        let subs = PyList::empty(py);
+        for o in &self.sub_options {
+            subs.append(o.to_dict(py)?)?;
+        }
+        d.set_item("sub_options", subs)?;
+        Ok(d)
     }
 }
 
@@ -444,41 +725,143 @@ fn itinerary_container_to_flight(
 }
 
 // ---------------------------------------------------------------------------
+// Shared search filters
+// ---------------------------------------------------------------------------
+
+/// Parsed + validated filters shared by every search-like endpoint
+/// (`search`, `price_graph`, `date_grid`, `cheapest_dates`).
+///
+/// Built synchronously from the Python kwargs so invalid input raises
+/// `ValueError` before any coroutine is awaited, then applied to a
+/// [`ConfigBuilder`] inside the async block.
+struct SearchFilters {
+    travelers: Travelers,
+    class: TravelClass,
+    stop_opt: StopOptions,
+    sort_ord: SortOrder,
+    inc: Vec<AirlineFilter>,
+    exc: Vec<AirlineFilter>,
+    via: Vec<String>,
+    lower_emissions: bool,
+    max_price: Option<i32>,
+    carry_on: u8,
+    checked_bags: u8,
+}
+
+impl SearchFilters {
+    #[allow(clippy::too_many_arguments)]
+    fn parse(
+        adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
+        travel_class: &str,
+        stops: &str,
+        sort: &str,
+        airlines_include: Vec<String>,
+        airlines_exclude: Vec<String>,
+        via: Vec<String>,
+        lower_emissions: bool,
+        max_price: Option<i32>,
+        carry_on: u8,
+        checked_bags: u8,
+    ) -> PyResult<Self> {
+        let travelers = Travelers::new(vec![
+            adults.into(),
+            children.into(),
+            infants_on_lap.into(),
+            infants_in_seat.into(),
+        ])
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok(SearchFilters {
+            travelers,
+            class: parse_travel_class(travel_class)?,
+            stop_opt: parse_stop_options(stops)?,
+            sort_ord: parse_sort_order(sort)?,
+            inc: parse_airline_filters(&airlines_include)?,
+            exc: parse_airline_filters(&airlines_exclude)?,
+            via,
+            lower_emissions,
+            max_price,
+            carry_on,
+            checked_bags,
+        })
+    }
+
+    /// Apply every filter to a builder, consuming `self`.
+    fn apply(self, mut builder: ConfigBuilder) -> ConfigBuilder {
+        builder = builder
+            .travel_class(self.class)
+            .stop_options(self.stop_opt)
+            .sort_order(self.sort_ord)
+            .travelers(self.travelers)
+            .airlines_include(self.inc)
+            .airlines_exclude(self.exc)
+            .lower_emissions(self.lower_emissions);
+        if let Some(p) = self.max_price {
+            builder = builder.max_price(p);
+        }
+        if self.carry_on > 0 || self.checked_bags > 0 {
+            builder = builder.baggage(self.carry_on, self.checked_bags);
+        }
+        for airport in &self.via {
+            builder = builder.add_connecting_airport(airport);
+        }
+        builder
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main Python class
 // ---------------------------------------------------------------------------
 
-/// Async Python client for Google Flights, backed by a fast Rust/tokio core.
-///
-/// All three search methods are coroutines — use with ``await``.
-/// Multiple calls can run concurrently with ``asyncio.gather``.
-///
-/// Example::
-///
-///     import asyncio, gflights
-///
-///     async def main():
-///         client = gflights.GFlights()
-///         lhr_jfk, mad_mex = await asyncio.gather(
-///             client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01"),
-///             client.search(from_airport="MAD", to_airport="MEX", date="2026-08-01"),
-///         )
-///
-///     asyncio.run(main())
-#[pyclass]
-pub struct GFlights {
+/// Internal Rust engine. The public, ergonomic surface is the pure-Python
+/// :class:`gflights.Client` wrapper, which normalizes inputs and owns the
+/// typed signatures and docstrings. Do not use ``_Client`` directly.
+#[pyclass(name = "_Client")]
+pub struct Client {
     client: ApiClient,
 }
 
 #[pymethods]
-impl GFlights {
+impl Client {
     /// Create a new client.
     ///
     /// The constructor is synchronous (fast — just initialises the HTTP client).
     /// All search methods are async coroutines.
+    ///
+    /// :param user_agent: Override the User-Agent header. By default a real
+    ///                    desktop browser string is chosen from a rotating pool
+    ///                    per client, so traffic is not trivially fingerprinted.
+    /// :param proxy:      Route all requests through a proxy URL. Supports
+    ///                    ``http://``, ``https://`` and ``socks5://``
+    ///                    (e.g. ``"socks5://127.0.0.1:9050"``). ``None`` = direct.
+    /// :param currency:   ISO-4217 currency code applied to every request
+    ///                    (e.g. ``"USD"``, ``"EUR"``, ``"GBP"``). Default ``"EUR"``.
+    /// :param lang:       BCP-47 language subtag applied to every request. Default ``"en"``.
+    /// :param country:    ISO 3166-1 alpha-2 country code applied to every request. Default ``"GB"``.
     #[new]
-    fn new() -> Self {
-        let client = pyo3_async_runtimes::tokio::get_runtime().block_on(ApiClient::new());
-        GFlights { client }
+    #[pyo3(signature = (user_agent = None, proxy = None, currency = "EUR", lang = "en", country = "GB"))]
+    fn new(
+        user_agent: Option<String>,
+        proxy: Option<String>,
+        currency: &str,
+        lang: &str,
+        country: &str,
+    ) -> PyResult<Self> {
+        let currency = parse_currency(currency)?;
+        let rt = pyo3_async_runtimes::tokio::get_runtime();
+        let mut client = match proxy {
+            Some(p) => rt
+                .block_on(ApiClient::new_with_proxy(p))
+                .map_err(anyhow_to_py)?,
+            None => rt.block_on(ApiClient::new()),
+        };
+        if let Some(ua) = user_agent {
+            client = client.with_user_agent(ua);
+        }
+        client = client.with_locale(currency, lang, country);
+        Ok(Client { client })
     }
 
     /// Search for flights.
@@ -498,9 +881,6 @@ impl GFlights {
     /// :param max_price:    Maximum price cap (in the search currency). ``None`` for no cap.
     /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
     /// :param checked_bags: Number of checked bags required (0 = no restriction).
-    /// :param currency:     Currency name (e.g. ``"euro"``, ``"us-dollar"``).
-    /// :param lang:         BCP-47 language subtag (default ``"en"``).
-    /// :param country:      ISO 3166-1 alpha-2 country code (default ``"GB"``).
     /// :returns:            Coroutine → ``list[FlightResult]``
     #[pyo3(signature = (
         from_airport,
@@ -508,6 +888,9 @@ impl GFlights {
         date,
         return_date = None,
         adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
         travel_class = "economy",
         stops = "all",
         sort = "best",
@@ -518,9 +901,6 @@ impl GFlights {
         max_price = None,
         carry_on = 0,
         checked_bags = 0,
-        currency = "euro",
-        lang = "en",
-        country = "GB",
     ))]
     #[allow(clippy::too_many_arguments)]
     fn search<'py>(
@@ -531,6 +911,9 @@ impl GFlights {
         date: String,
         return_date: Option<String>,
         adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
         travel_class: &str,
         stops: &str,
         sort: &str,
@@ -541,25 +924,28 @@ impl GFlights {
         max_price: Option<i32>,
         carry_on: u8,
         checked_bags: u8,
-        currency: &str,
-        lang: &str,
-        country: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
         // Validate synchronously — raises ValueError before the coroutine is even awaited.
         let dep_date = parse_date(&date)?;
         let ret_date = return_date.as_deref().map(parse_date).transpose()?;
-        let currency = parse_currency(currency)?;
-        let stop_opt = parse_stop_options(stops)?;
-        let class = parse_travel_class(travel_class)?;
-        let sort_ord = parse_sort_order(sort)?;
-        let inc = parse_airline_filters(&airlines_include)?;
-        let exc = parse_airline_filters(&airlines_exclude)?;
-        let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let filters = SearchFilters::parse(
+            adults,
+            children,
+            infants_in_seat,
+            infants_on_lap,
+            travel_class,
+            stops,
+            sort,
+            airlines_include,
+            airlines_exclude,
+            via,
+            lower_emissions,
+            max_price,
+            carry_on,
+            checked_bags,
+        )?;
 
         // Convert &str → String before moving into the 'static async block.
-        let lang = lang.to_string();
-        let country = country.to_string();
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -570,37 +956,20 @@ impl GFlights {
                 .destination(&to_airport, &client)
                 .await
                 .map_err(anyhow_to_py)?
-                .departing_date(dep_date)
-                .travel_class(class)
-                .stop_options(stop_opt)
-                .sort_order(sort_ord)
-                .currency(currency)
-                .language(&lang)
-                .country(&country)
-                .travelers(travelers)
-                .airlines_include(inc)
-                .airlines_exclude(exc)
-                .lower_emissions(lower_emissions);
-
-            if let Some(p) = max_price {
-                builder = builder.max_price(p);
-            }
-            if carry_on > 0 || checked_bags > 0 {
-                builder = builder.baggage(carry_on, checked_bags);
-            }
-            for airport in &via {
-                builder = builder.add_connecting_airport(airport);
-            }
+                .departing_date(dep_date);
+            builder = filters.apply(builder);
             if let Some(r) = ret_date {
                 builder = builder.return_date(r);
             }
 
             let config = builder.build().map_err(anyhow_to_py)?;
+            // Strict "via": filter out non-stops that Google's other_flights
+            // container returns even when a connecting airport is requested.
             let flights = client
                 .request_flights(&config)
                 .await
                 .map_err(anyhow_to_py)?
-                .get_all_flights();
+                .get_all_flights_via(&config.connecting_airports);
 
             Python::with_gil(|py| {
                 flights
@@ -617,18 +986,35 @@ impl GFlights {
     /// :param to_airport:   Destination IATA code or city name.
     /// :param date:         Start date as ``"YYYY-MM-DD"``.
     /// :param months:       How many months of price data to fetch (default 1).
-    /// :param currency:     Currency name (e.g. ``"euro"``).
-    /// :param lang:         BCP-47 language subtag.
-    /// :param country:      ISO 3166-1 alpha-2 country code.
+    /// :param adults:       Number of adult passengers (default 1).
+    /// :param travel_class: ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
+    /// :param stops:        ``"all"`` / ``"nonstop"`` / ``"one-stop"``.
+    /// :param airlines_include: IATA codes or alliances to include.
+    /// :param airlines_exclude: IATA codes or alliances to exclude.
+    /// :param via:          Require a connection through these airports.
+    /// :param lower_emissions: Restrict to below-average CO₂ flights.
+    /// :param max_price:    Maximum price cap (in the client currency). ``None`` for no cap.
+    /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
+    /// :param checked_bags: Number of checked bags required (0 = no restriction).
     /// :returns:            Coroutine → ``list[PriceEntry]``, sorted by date.
     #[pyo3(signature = (
         from_airport,
         to_airport,
         date,
         months = 1,
-        currency = "euro",
-        lang = "en",
-        country = "GB",
+        adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
+        travel_class = "economy",
+        stops = "all",
+        airlines_include = vec![],
+        airlines_exclude = vec![],
+        via = vec![],
+        lower_emissions = false,
+        max_price = None,
+        carry_on = 0,
+        checked_bags = 0,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn price_graph<'py>(
@@ -638,30 +1024,50 @@ impl GFlights {
         to_airport: String,
         date: String,
         months: u32,
-        currency: &str,
-        lang: &str,
-        country: &str,
+        adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
+        travel_class: &str,
+        stops: &str,
+        airlines_include: Vec<String>,
+        airlines_exclude: Vec<String>,
+        via: Vec<String>,
+        lower_emissions: bool,
+        max_price: Option<i32>,
+        carry_on: u8,
+        checked_bags: u8,
     ) -> PyResult<Bound<'py, PyAny>> {
         let dep_date = parse_date(&date)?;
-        let currency = parse_currency(currency)?;
-        let lang = lang.to_string();
-        let country = country.to_string();
+        let filters = SearchFilters::parse(
+            adults,
+            children,
+            infants_in_seat,
+            infants_on_lap,
+            travel_class,
+            stops,
+            "best",
+            airlines_include,
+            airlines_exclude,
+            via,
+            lower_emissions,
+            max_price,
+            carry_on,
+            checked_bags,
+        )?;
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let config = Config::builder()
+            let mut builder = Config::builder()
                 .departure(&from_airport, &client)
                 .await
                 .map_err(anyhow_to_py)?
                 .destination(&to_airport, &client)
                 .await
                 .map_err(anyhow_to_py)?
-                .departing_date(dep_date)
-                .currency(currency)
-                .language(&lang)
-                .country(&country)
-                .build()
-                .map_err(anyhow_to_py)?;
+                .departing_date(dep_date);
+            builder = filters.apply(builder);
+            let config = builder.build().map_err(anyhow_to_py)?;
 
             let graph = client
                 .request_graph(&config, Months::new(months))
@@ -698,9 +1104,16 @@ impl GFlights {
     /// :param dep_end:      Last outbound departure date ``"YYYY-MM-DD"``.
     /// :param ret_start:    First return date ``"YYYY-MM-DD"``.
     /// :param ret_end:      Last return date ``"YYYY-MM-DD"``.
-    /// :param currency:     Currency name (e.g. ``"euro"``).
-    /// :param lang:         BCP-47 language subtag.
-    /// :param country:      ISO 3166-1 alpha-2 country code.
+    /// :param adults:       Number of adult passengers (default 1).
+    /// :param travel_class: ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
+    /// :param stops:        ``"all"`` / ``"nonstop"`` / ``"one-stop"``.
+    /// :param airlines_include: IATA codes or alliances to include.
+    /// :param airlines_exclude: IATA codes or alliances to exclude.
+    /// :param via:          Require a connection through these airports.
+    /// :param lower_emissions: Restrict to below-average CO₂ flights.
+    /// :param max_price:    Maximum price cap (in the client currency). ``None`` for no cap.
+    /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
+    /// :param checked_bags: Number of checked bags required (0 = no restriction).
     /// :returns:            Coroutine → ``list[DateGridEntry]``
     #[pyo3(signature = (
         from_airport,
@@ -709,9 +1122,19 @@ impl GFlights {
         dep_end,
         ret_start,
         ret_end,
-        currency = "euro",
-        lang = "en",
-        country = "GB",
+        adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
+        travel_class = "economy",
+        stops = "all",
+        airlines_include = vec![],
+        airlines_exclude = vec![],
+        via = vec![],
+        lower_emissions = false,
+        max_price = None,
+        carry_on = 0,
+        checked_bags = 0,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn date_grid<'py>(
@@ -723,21 +1146,44 @@ impl GFlights {
         dep_end: String,
         ret_start: String,
         ret_end: String,
-        currency: &str,
-        lang: &str,
-        country: &str,
+        adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
+        travel_class: &str,
+        stops: &str,
+        airlines_include: Vec<String>,
+        airlines_exclude: Vec<String>,
+        via: Vec<String>,
+        lower_emissions: bool,
+        max_price: Option<i32>,
+        carry_on: u8,
+        checked_bags: u8,
     ) -> PyResult<Bound<'py, PyAny>> {
         let dep_s = parse_date(&dep_start)?;
         let dep_e = parse_date(&dep_end)?;
         let ret_s = parse_date(&ret_start)?;
         let ret_e = parse_date(&ret_end)?;
-        let currency = parse_currency(currency)?;
-        let lang = lang.to_string();
-        let country = country.to_string();
+        let filters = SearchFilters::parse(
+            adults,
+            children,
+            infants_in_seat,
+            infants_on_lap,
+            travel_class,
+            stops,
+            "best",
+            airlines_include,
+            airlines_exclude,
+            via,
+            lower_emissions,
+            max_price,
+            carry_on,
+            checked_bags,
+        )?;
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let config = Config::builder()
+            let mut builder = Config::builder()
                 .departure(&from_airport, &client)
                 .await
                 .map_err(anyhow_to_py)?
@@ -745,12 +1191,9 @@ impl GFlights {
                 .await
                 .map_err(anyhow_to_py)?
                 .departing_date(dep_s)
-                .return_date(ret_s)
-                .currency(currency)
-                .language(&lang)
-                .country(&country)
-                .build()
-                .map_err(anyhow_to_py)?;
+                .return_date(ret_s);
+            builder = filters.apply(builder);
+            let config = builder.build().map_err(anyhow_to_py)?;
 
             let grid = client
                 .request_date_grid(&config, dep_s, dep_e, ret_s, ret_e)
@@ -785,21 +1228,18 @@ impl GFlights {
     /// :param max_price:    Maximum price cap (in the search currency). ``None`` for no cap.
     /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
     /// :param checked_bags: Number of checked bags required (0 = no restriction).
-    /// :param currency:     Currency name (e.g. ``"euro"``).
-    /// :param lang:         BCP-47 language subtag (default ``"en"``).
-    /// :param country:      ISO 3166-1 alpha-2 country code (default ``"GB"``).
     /// :returns:            Coroutine → ``list[FlightResult]``
     #[pyo3(signature = (
         legs,
         adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
         travel_class = "economy",
         sort = "best",
         max_price = None,
         carry_on = 0,
         checked_bags = 0,
-        currency = "euro",
-        lang = "en",
-        country = "GB",
     ))]
     #[allow(clippy::too_many_arguments)]
     fn multi_city_search<'py>(
@@ -807,14 +1247,14 @@ impl GFlights {
         py: Python<'py>,
         legs: Vec<(String, String, String)>,
         adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
         travel_class: &str,
         sort: &str,
         max_price: Option<i32>,
         carry_on: u8,
         checked_bags: u8,
-        currency: &str,
-        lang: &str,
-        country: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
         if legs.len() < 2 {
             return Err(pyo3::exceptions::PyValueError::new_err(
@@ -829,23 +1269,22 @@ impl GFlights {
             })
             .collect::<PyResult<_>>()?;
 
-        let currency = parse_currency(currency)?;
         let class = parse_travel_class(travel_class)?;
         let sort_ord = parse_sort_order(sort)?;
-        let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        let lang = lang.to_string();
-        let country = country.to_string();
+        let travelers = gflights::parsers::common::Travelers::new(vec![
+            adults.into(),
+            children.into(),
+            infants_on_lap.into(),
+            infants_in_seat.into(),
+        ])
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut builder = MultiCityConfig::builder()
                 .travellers(travelers)
                 .travel_class(class)
-                .sort_order(sort_ord)
-                .currency(currency)
-                .language(&lang)
-                .country(&country);
+                .sort_order(sort_ord);
 
             if let Some(p) = max_price {
                 builder = builder.max_price(p);
@@ -883,15 +1322,13 @@ impl GFlights {
     /// :param month:              Calendar month (1–12) to search in.  ``None`` for any month.
     /// :param duration:           Trip duration: ``"weekend"``, ``"week"``, or ``"2weeks"``.
     /// :param max_price:          Maximum total round-trip price.  ``None`` for no limit.
-    /// :param interest:           Interest category MID string (use ``gflights.Interest.*`` constants).
+    /// :param interest:           Interest name (e.g. ``"beaches"``, ``"climbing"``), an alias,
+    ///                            or a raw ``/m/…`` MID. Unknown values raise ``ValueError``.
     /// :param max_flight_hours:   Maximum one-way flight time in hours.  ``None`` for no limit.
     /// :param carry_on:           Number of carry-on bags (default 0).
     /// :param checked:            Number of checked bags (default 0).
     /// :param adults:             Number of adult passengers (default 1).
     /// :param travel_class:       ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
-    /// :param currency:           Currency name (e.g. ``"euro"``).
-    /// :param lang:               BCP-47 language subtag (default ``"en"``).
-    /// :param country:            ISO 3166-1 alpha-2 country code (default ``"GB"``).
     /// :returns:                  Coroutine → ``list[ExploreResult]``
     #[pyo3(signature = (
         from_airport,
@@ -903,10 +1340,10 @@ impl GFlights {
         carry_on = 0u8,
         checked = 0u8,
         adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
         travel_class = "economy",
-        currency = "euro",
-        lang = "en",
-        country = "GB",
     ))]
     #[allow(clippy::too_many_arguments)]
     fn explore<'py>(
@@ -921,10 +1358,10 @@ impl GFlights {
         carry_on: u8,
         checked: u8,
         adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
         travel_class: &str,
-        currency: &str,
-        lang: &str,
-        country: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
         let trip_duration = match duration.to_lowercase().as_str() {
             "weekend" => ExploreDuration::Weekend,
@@ -938,9 +1375,13 @@ impl GFlights {
         };
 
         let class = parse_travel_class(travel_class)?;
-        let currency = parse_currency(currency)?;
-        let travelers = gflights::parsers::common::Travelers::new(vec![adults.into(), 0, 0, 0])
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let travelers = gflights::parsers::common::Travelers::new(vec![
+            adults.into(),
+            children.into(),
+            infants_on_lap.into(),
+            infants_in_seat.into(),
+        ])
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let max_flight_duration_minutes = max_flight_hours.map(|h| h * 60);
         let baggage = if carry_on > 0 || checked > 0 {
@@ -949,8 +1390,13 @@ impl GFlights {
             None
         };
 
-        let lang = lang.to_string();
-        let country = country.to_string();
+        // Resolve an interest name/alias (e.g. "beaches") or raw MID to a MID,
+        // raising on unknown values instead of silently returning no results.
+        let interest = interest
+            .map(|i| gflights::requests::config::explore::resolve_interest(&i))
+            .transpose()
+            .map_err(anyhow_to_py)?;
+
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -983,9 +1429,6 @@ impl GFlights {
                 map_bounds: None,
                 travellers: travelers,
                 travel_class: class,
-                currency,
-                language: lang,
-                country,
             };
 
             let results = client
@@ -1024,6 +1467,120 @@ impl GFlights {
         })
     }
 
+    /// Find discounted destinations (flight deals) from an origin.
+    ///
+    /// The ``out`` / ``ret`` pair acts as a trip-length anchor; the endpoint
+    /// returns deals of similar length across many dates.
+    ///
+    /// :param from_airport:  Origin IATA code or city name.
+    /// :param out:           Outbound date ``"YYYY-MM-DD"`` (trip-length anchor).
+    /// :param ret:           Return date ``"YYYY-MM-DD"``.
+    /// :param nonstop:       Only non-stop deals (default ``False``).
+    /// :param max_hours:     Maximum one-way flight time in hours. ``None`` = no limit.
+    /// :param adults:        Number of adult passengers (default 1).
+    /// :param travel_class:  ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
+    /// :returns:             Coroutine → ``list[DealResult]``
+    #[pyo3(signature = (
+        from_airport,
+        out,
+        ret,
+        nonstop = false,
+        max_hours = None,
+        adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
+        travel_class = "economy",
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn deals<'py>(
+        &self,
+        py: Python<'py>,
+        from_airport: String,
+        out: &str,
+        ret: &str,
+        nonstop: bool,
+        max_hours: Option<u32>,
+        adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
+        travel_class: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let outbound_date = parse_date(out)?;
+        let return_date = parse_date(ret)?;
+        let class = parse_travel_class(travel_class)?;
+        let travelers = gflights::parsers::common::Travelers::new(vec![
+            adults.into(),
+            children.into(),
+            infants_on_lap.into(),
+            infants_in_seat.into(),
+        ])
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let client = self.client.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let origin_loc =
+                if from_airport.len() == 3 && from_airport.chars().all(char::is_uppercase) {
+                    gflights::parsers::common::Location {
+                        loc_identifier: from_airport.clone(),
+                        loc_type: gflights::parsers::common::PlaceType::Airport,
+                        location_name: Some(from_airport.clone()),
+                    }
+                } else {
+                    client
+                        .request_city(&from_airport)
+                        .await
+                        .map_err(anyhow_to_py)?
+                        .to_city_list()
+                };
+
+            let config = DealConfig {
+                origin: vec![origin_loc],
+                outbound_date,
+                return_date,
+                nonstop,
+                max_duration_minutes: max_hours.map(|h| h * 60),
+                travel_class: class,
+                travellers: travelers,
+            };
+
+            let results = client.request_deals(&config).await.map_err(anyhow_to_py)?;
+
+            Python::with_gil(|py| {
+                results
+                    .into_iter()
+                    .map(|r| {
+                        Py::new(
+                            py,
+                            DealResult {
+                                origin_iata: r.origin_iata,
+                                destination_iata: r.destination_iata,
+                                destination_city: r.destination_city,
+                                destination_country: r.destination_country,
+                                destination_mid: r.destination_mid,
+                                outbound_date: r.outbound_date.map(|d| d.to_string()),
+                                return_date: r.return_date.map(|d| d.to_string()),
+                                price: r.price,
+                                typical_price: r.typical_price,
+                                discount_pct: r.discount_pct,
+                                duration_minutes: r.duration_minutes,
+                                stops: r.stops,
+                                airline_code: r.airline_code,
+                                airline_name: r.airline_name,
+                                image_url: r.image_url,
+                                highlights: r.highlights,
+                                description: r.description,
+                                booking_url: r.booking_url,
+                                booking_token: r.booking_token,
+                            },
+                        )
+                    })
+                    .collect::<PyResult<Vec<_>>>()
+            })
+        })
+    }
+
     /// Find the cheapest departure dates for a route over a range of months.
     ///
     /// :param from_airport:       Origin IATA code or city name.
@@ -1032,9 +1589,16 @@ impl GFlights {
     /// :param months:             Number of months to scan. Default ``3``.
     /// :param trip_duration_days: Round-trip length in days. ``None`` for one-way
     ///                            date discovery.
-    /// :param currency:           Currency code (default ``"euro"``).
-    /// :param lang:               BCP-47 language subtag (default ``"en"``).
-    /// :param country:            ISO 3166-1 alpha-2 country code (default ``"GB"``).
+    /// :param adults:             Number of adult passengers (default 1).
+    /// :param travel_class:       ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
+    /// :param stops:              ``"all"`` / ``"nonstop"`` / ``"one-stop"``.
+    /// :param airlines_include:   IATA codes or alliances to include.
+    /// :param airlines_exclude:   IATA codes or alliances to exclude.
+    /// :param via:                Require a connection through these airports.
+    /// :param lower_emissions:    Restrict to below-average CO₂ flights.
+    /// :param max_price:          Maximum price cap (in the client currency). ``None`` for no cap.
+    /// :param carry_on:           Number of carry-on bags required (0 = no restriction).
+    /// :param checked_bags:       Number of checked bags required (0 = no restriction).
     /// :returns:                  Coroutine → ``list[CheapDate]``, sorted cheapest first.
     #[pyo3(signature = (
         from_airport,
@@ -1042,9 +1606,19 @@ impl GFlights {
         date,
         months = 3,
         trip_duration_days = None,
-        currency = "euro",
-        lang = "en",
-        country = "GB",
+        adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
+        travel_class = "economy",
+        stops = "all",
+        airlines_include = vec![],
+        airlines_exclude = vec![],
+        via = vec![],
+        lower_emissions = false,
+        max_price = None,
+        carry_on = 0,
+        checked_bags = 0,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn cheapest_dates<'py>(
@@ -1055,30 +1629,50 @@ impl GFlights {
         date: String,
         months: u32,
         trip_duration_days: Option<u32>,
-        currency: &str,
-        lang: &str,
-        country: &str,
+        adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
+        travel_class: &str,
+        stops: &str,
+        airlines_include: Vec<String>,
+        airlines_exclude: Vec<String>,
+        via: Vec<String>,
+        lower_emissions: bool,
+        max_price: Option<i32>,
+        carry_on: u8,
+        checked_bags: u8,
     ) -> PyResult<Bound<'py, PyAny>> {
         let dep_start = parse_date(&date)?;
-        let currency = parse_currency(currency)?;
-        let lang = lang.to_string();
-        let country = country.to_string();
+        let filters = SearchFilters::parse(
+            adults,
+            children,
+            infants_in_seat,
+            infants_on_lap,
+            travel_class,
+            stops,
+            "best",
+            airlines_include,
+            airlines_exclude,
+            via,
+            lower_emissions,
+            max_price,
+            carry_on,
+            checked_bags,
+        )?;
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let config = Config::builder()
+            let mut builder = Config::builder()
                 .departure(&from_airport, &client)
                 .await
                 .map_err(anyhow_to_py)?
                 .destination(&to_airport, &client)
                 .await
                 .map_err(anyhow_to_py)?
-                .departing_date(dep_start)
-                .currency(currency)
-                .language(&lang)
-                .country(&country)
-                .build()
-                .map_err(anyhow_to_py)?;
+                .departing_date(dep_start);
+            builder = filters.apply(builder);
+            let config = builder.build().map_err(anyhow_to_py)?;
 
             let results = client
                 .cheapest_dates(&config, chrono::Months::new(months), trip_duration_days)
@@ -1103,6 +1697,188 @@ impl GFlights {
         })
     }
 
+    /// Price the cheapest itinerary on a route and return its booking offers.
+    ///
+    /// Runs a search, locks in the cheapest outbound (and, for round trips, the
+    /// cheapest return), then fetches booking offers and resolves each one's
+    /// final booking URL.
+    ///
+    /// :param from_airport: Departure IATA code or city name.
+    /// :param to_airport:   Destination IATA code or city name.
+    /// :param date:         Departure date as ``"YYYY-MM-DD"``.
+    /// :param return_date:  Return date for round-trips.  ``None`` for one-way.
+    /// :param adults:       Number of adult passengers (default 1).
+    /// :param travel_class: ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
+    /// :param stops:        ``"all"`` / ``"nonstop"`` / ``"one-stop"``.
+    /// :param sort:         ``"best"`` / ``"price"`` / ``"duration"`` / etc.
+    /// :param airlines_include: IATA codes or alliances to include.
+    /// :param airlines_exclude: IATA codes or alliances to exclude.
+    /// :param via:          Require a connection through these airports.
+    /// :param lower_emissions: Restrict to below-average CO₂ flights.
+    /// :param max_price:    Maximum price cap (in the client currency). ``None`` for no cap.
+    /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
+    /// :param checked_bags: Number of checked bags required (0 = no restriction).
+    /// :returns:            Coroutine → ``list[Offer]``, sorted cheapest first.
+    #[pyo3(signature = (
+        from_airport,
+        to_airport,
+        date,
+        return_date = None,
+        adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
+        travel_class = "economy",
+        stops = "all",
+        sort = "best",
+        airlines_include = vec![],
+        airlines_exclude = vec![],
+        via = vec![],
+        lower_emissions = false,
+        max_price = None,
+        carry_on = 0,
+        checked_bags = 0,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn offer<'py>(
+        &self,
+        py: Python<'py>,
+        from_airport: String,
+        to_airport: String,
+        date: String,
+        return_date: Option<String>,
+        adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
+        travel_class: &str,
+        stops: &str,
+        sort: &str,
+        airlines_include: Vec<String>,
+        airlines_exclude: Vec<String>,
+        via: Vec<String>,
+        lower_emissions: bool,
+        max_price: Option<i32>,
+        carry_on: u8,
+        checked_bags: u8,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let dep_date = parse_date(&date)?;
+        let ret_date = return_date.as_deref().map(parse_date).transpose()?;
+        let filters = SearchFilters::parse(
+            adults,
+            children,
+            infants_in_seat,
+            infants_on_lap,
+            travel_class,
+            stops,
+            sort,
+            airlines_include,
+            airlines_exclude,
+            via,
+            lower_emissions,
+            max_price,
+            carry_on,
+            checked_bags,
+        )?;
+        let client = self.client.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let mut builder = Config::builder()
+                .departure(&from_airport, &client)
+                .await
+                .map_err(anyhow_to_py)?
+                .destination(&to_airport, &client)
+                .await
+                .map_err(anyhow_to_py)?
+                .departing_date(dep_date);
+            builder = filters.apply(builder);
+            if let Some(r) = ret_date {
+                builder = builder.return_date(r);
+            }
+            let config = builder.build().map_err(anyhow_to_py)?;
+
+            // Lock in the cheapest outbound (and return for round trips).
+            // Honour the "via" filter strictly so the fixed leg connects through
+            // the requested airport.
+            let first = client
+                .request_flights(&config)
+                .await
+                .map_err(anyhow_to_py)?
+                .get_all_flights_via(&config.connecting_airports)
+                .into_iter()
+                .next();
+            let first = match first {
+                Some(f) => f,
+                None => {
+                    return Python::with_gil(|_py| Ok(Vec::<Py<Offer>>::new()));
+                }
+            };
+            config
+                .fixed_flights
+                .add_element(first)
+                .map_err(anyhow_to_py)?;
+            if config.return_date.is_some() {
+                if let Some(ret) = client
+                    .request_flights(&config)
+                    .await
+                    .map_err(anyhow_to_py)?
+                    .get_all_flights_via(&config.connecting_airports)
+                    .into_iter()
+                    .next()
+                {
+                    config
+                        .fixed_flights
+                        .add_element(ret)
+                        .map_err(anyhow_to_py)?;
+                }
+            }
+
+            let offers = client.request_offer(&config).await.map_err(anyhow_to_py)?;
+            let mut groups: Vec<_> = offers
+                .response
+                .iter()
+                .flat_map(|r| &r.offers)
+                .filter(|o| o.price.is_some())
+                .cloned()
+                .collect();
+            groups.sort_by_key(|o| o.price.unwrap_or(i32::MAX));
+
+            // Resolve booking URLs (network) before re-acquiring the GIL.
+            let mut resolved: Vec<Offer> = Vec::with_capacity(groups.len());
+            for g in groups {
+                let booking_url = match g.click_token.as_deref() {
+                    Some(t) => client.resolve_booking_url(t).await.ok(),
+                    None => None,
+                };
+                let mut sub_options = Vec::with_capacity(g.sub_options.len());
+                for s in &g.sub_options {
+                    let url = match s.click_token.as_deref() {
+                        Some(t) => client.resolve_booking_url(t).await.ok(),
+                        None => None,
+                    };
+                    sub_options.push(BookingOption {
+                        partner_names: s.partner_names.clone(),
+                        price: s.price,
+                        booking_url: url,
+                    });
+                }
+                resolved.push(Offer {
+                    airline_names: g.airline_names.clone(),
+                    price: g.price,
+                    booking_url,
+                    sub_options,
+                });
+            }
+
+            Python::with_gil(|py| {
+                resolved
+                    .into_iter()
+                    .map(|o| Py::new(py, o))
+                    .collect::<PyResult<Vec<_>>>()
+            })
+        })
+    }
+
     /// `True` if the last request was rate-limited by Google (HTTP 429).
     #[getter]
     fn rate_limited(&self) -> bool {
@@ -1115,7 +1891,7 @@ impl GFlights {
     }
 
     fn __repr__(&self) -> &'static str {
-        "GFlights()"
+        "_Client()"
     }
 }
 
@@ -1132,7 +1908,7 @@ fn _gflights(m: &Bound<'_, PyModule>) -> PyResult<()> {
     rt_builder.enable_all();
     pyo3_async_runtimes::tokio::init(rt_builder);
 
-    m.add_class::<GFlights>()?;
+    m.add_class::<Client>()?;
     m.add_class::<FlightResult>()?;
     m.add_class::<LegInfo>()?;
     m.add_class::<LayoverInfo>()?;
@@ -1141,6 +1917,9 @@ fn _gflights(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DateGridEntry>()?;
     m.add_class::<CheapDate>()?;
     m.add_class::<ExploreResult>()?;
+    m.add_class::<DealResult>()?;
+    m.add_class::<Offer>()?;
+    m.add_class::<BookingOption>()?;
     m.add("GFlightsError", m.py().get_type::<GFlightsError>())?;
     Ok(())
 }

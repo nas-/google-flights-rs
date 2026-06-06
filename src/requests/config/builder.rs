@@ -7,7 +7,7 @@ use crate::parsers::common::{
 };
 use crate::requests::api::ApiClient;
 
-use super::{Config, Currency, TripType};
+use super::{Config, TripType};
 
 /// Maximum number of airports Google Flights accepts per origin/destination side.
 /// Exceeding this makes the API silently return zero results, so the builder
@@ -15,6 +15,7 @@ use super::{Config, Currency, TripType};
 const MAX_AIRPORTS_PER_SIDE: usize = 7;
 
 /// Builder for [`Config`].  Obtain one via [`Config::builder()`].
+#[derive(Default)]
 pub struct ConfigBuilder {
     pub(super) departing_date: Option<NaiveDate>,
     pub(super) departure: Vec<Location>,
@@ -29,11 +30,6 @@ pub struct ConfigBuilder {
     /// Minimum layover duration. Default: no minimum.
     pub(super) stopover_min: StopoverDuration,
     pub(super) duration_max: TotalDuration,
-    pub(super) currency: Option<Currency>,
-    /// BCP-47 language subtag, e.g. `"en"`, `"fr"`. Default: `"en"`.
-    pub(super) language: String,
-    /// ISO 3166-1 alpha-2 country code, e.g. `"GB"`, `"FR"`. Default: `"GB"`.
-    pub(super) country: String,
     /// Sort order for search results. Default: [`SortOrder::Best`].
     pub(super) sort_order: SortOrder,
     /// Airlines / alliances to include. Empty = no restriction.
@@ -48,35 +44,6 @@ pub struct ConfigBuilder {
     pub(super) max_price: Option<i32>,
     /// Baggage filter `(carry_on_count, checked_count)`. `None` = no restriction.
     pub(super) baggage: Option<(u8, u8)>,
-}
-
-impl Default for ConfigBuilder {
-    fn default() -> Self {
-        Self {
-            departing_date: None,
-            departure: Vec::new(),
-            destination: Vec::new(),
-            stop_options: StopOptions::default(),
-            travel_class: TravelClass::default(),
-            return_date: None,
-            travelers: Travelers::default(),
-            departing_times: FlightTimes::default(),
-            return_times: FlightTimes::default(),
-            stopover_max: StopoverDuration::default(),
-            stopover_min: StopoverDuration::default(),
-            duration_max: TotalDuration::default(),
-            currency: None,
-            language: "en".to_string(),
-            country: "GB".to_string(),
-            sort_order: SortOrder::default(),
-            airlines_include: Vec::new(),
-            airlines_exclude: Vec::new(),
-            connecting_airports: Vec::new(),
-            lower_emissions: false,
-            max_price: None,
-            baggage: None,
-        }
-    }
 }
 
 impl ConfigBuilder {
@@ -186,30 +153,6 @@ impl ConfigBuilder {
         self
     }
 
-    pub fn currency(mut self, currency: Currency) -> Self {
-        self.currency = Some(currency);
-        self
-    }
-
-    /// Set the language for the Google Flights UI.
-    ///
-    /// Accepts a BCP-47 language subtag such as `"en"`, `"fr"`, `"de"`.
-    /// Defaults to `"en"`.
-    pub fn language(mut self, language: impl Into<String>) -> Self {
-        self.language = language.into();
-        self
-    }
-
-    /// Set the country for the Google Flights locale.
-    ///
-    /// Accepts an ISO 3166-1 alpha-2 code such as `"GB"`, `"FR"`, `"US"`.
-    /// Case-insensitive — stored as-supplied, uppercased in requests.
-    /// Defaults to `"GB"`.
-    pub fn country(mut self, country: impl Into<String>) -> Self {
-        self.country = country.into();
-        self
-    }
-
     /// Set the sort order for flight search results.
     ///
     /// Defaults to [`SortOrder::Best`] (Google's composite ranking).
@@ -311,7 +254,6 @@ impl ConfigBuilder {
             stopover_max: self.stopover_max,
             stopover_min: self.stopover_min,
             duration_max: self.duration_max,
-            currency: self.currency.unwrap_or_default(),
             trip_type,
             fixed_flights: match trip_type {
                 TripType::Return => FixedFlights::new(2),
@@ -320,8 +262,6 @@ impl ConfigBuilder {
                     return Err(anyhow!("Multi-city trips are not yet implemented"));
                 }
             },
-            language: self.language,
-            country: self.country,
             sort_order: self.sort_order,
             airlines_include: self.airlines_include,
             airlines_exclude: self.airlines_exclude,
@@ -438,39 +378,6 @@ mod tests {
             msg.contains("departure") || msg.contains("destination"),
             "error should mention a missing airport, got: {msg}"
         );
-    }
-
-    /// ConfigBuilder locale setters work and Config::default() starts with en/GB.
-    #[test]
-    fn config_default_locale_is_en_gb() {
-        let cfg = Config::default();
-        assert_eq!(cfg.language, "en");
-        assert_eq!(cfg.country, "GB");
-    }
-
-    /// ConfigBuilder::language() and country() setters propagate to the built Config.
-    #[test]
-    fn builder_locale_setters_propagate() {
-        let lhr = Location {
-            loc_identifier: "LHR".to_owned(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        };
-        let jfk = Location {
-            loc_identifier: "JFK".to_owned(),
-            loc_type: PlaceType::Airport,
-            location_name: None,
-        };
-        let cfg = Config::builder()
-            .departing_date(future_date(30))
-            .departure_location(lhr)
-            .destination_location(jfk)
-            .language("fr")
-            .country("FR")
-            .build()
-            .expect("valid config");
-        assert_eq!(cfg.language, "fr");
-        assert_eq!(cfg.country, "FR");
     }
 
     /// ConfigBuilder::sort_order() propagates the chosen sort order.

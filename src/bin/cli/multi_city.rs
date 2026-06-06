@@ -3,7 +3,7 @@ use chrono::NaiveDate;
 use clap::Parser;
 use gflights::parsers::common::{SortOrder, TravelClass, Travelers};
 use gflights::requests::api::ApiClient;
-use gflights::requests::config::{Currency, MultiCityConfig};
+use gflights::requests::config::MultiCityConfig;
 
 use super::OutputFormat;
 
@@ -60,6 +60,18 @@ pub struct MultiCityArgs {
     #[arg(long, default_value = "1")]
     pub adults: u32,
 
+    /// Number of children (2–11 years).
+    #[arg(long, default_value = "0")]
+    pub children: u32,
+
+    /// Number of infants in their own seat.
+    #[arg(long = "infants-seat", default_value = "0")]
+    pub infants_seat: u32,
+
+    /// Number of lap infants.
+    #[arg(long = "infants-lap", default_value = "0")]
+    pub infants_lap: u32,
+
     /// Travel class.
     #[arg(long, default_value = "economy")]
     pub class: TravelClass,
@@ -67,18 +79,6 @@ pub struct MultiCityArgs {
     /// Sort order.
     #[arg(long, default_value = "best")]
     pub sort: SortOrder,
-
-    /// Currency for prices.
-    #[arg(long, default_value = "euro")]
-    pub currency: Currency,
-
-    /// BCP-47 language subtag (e.g. en, fr, de).
-    #[arg(long, default_value = "en")]
-    pub lang: String,
-
-    /// ISO 3166-1 alpha-2 country code (e.g. GB, FR, US).
-    #[arg(long, default_value = "GB")]
-    pub country: String,
 
     /// Output format.
     #[arg(long, default_value = "table")]
@@ -90,15 +90,17 @@ pub async fn cmd_multi_city(args: MultiCityArgs, client: &ApiClient) -> Result<(
         anyhow::bail!("multi-city requires at least 2 legs");
     }
 
-    let travelers = Travelers::new(vec![args.adults as i32, 0, 0, 0])?;
+    let travelers = Travelers::new(vec![
+        args.adults as i32,
+        args.children as i32,
+        args.infants_lap as i32,
+        args.infants_seat as i32,
+    ])?;
 
     let mut builder = MultiCityConfig::builder()
         .travellers(travelers)
         .travel_class(args.class)
-        .sort_order(args.sort)
-        .currency(args.currency)
-        .language(args.lang)
-        .country(args.country);
+        .sort_order(args.sort);
 
     for leg in &args.legs {
         builder = builder

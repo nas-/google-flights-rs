@@ -14,7 +14,7 @@ use gflights::parsers::response::date_grid_response::parse_date_grid_response;
 use gflights::parsers::response::explore_response::parse_explore_response;
 use gflights::parsers::response::flight_response::create_raw_response_vec;
 use gflights::requests::config::explore::{mid_from_name, region_from_name};
-use gflights::requests::config::{Config, Currency};
+use gflights::requests::config::Config;
 
 // ---------------------------------------------------------------------------
 // Travelers validation
@@ -154,17 +154,6 @@ fn config_build_valid_minimal_succeeds() {
         .destination_location(mxp())
         .build()
         .expect("minimal config with date + departure + destination should succeed");
-}
-
-#[test]
-fn config_build_with_currency_succeeds() {
-    Config::builder()
-        .departing_date(today())
-        .departure_location(lux())
-        .destination_location(mxp())
-        .currency(Currency::default())
-        .build()
-        .expect("config with currency should succeed");
 }
 
 // ---------------------------------------------------------------------------

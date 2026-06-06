@@ -10,3 +10,5 @@ pub const FLIGHTS_MAIN_PAGE: &str = "https://www.google.com/travel/flights";
 pub const CLK_URL: &str = "https://www.google.com/travel/clk/f";
 /// Explore-destinations endpoint: returns cheap destinations from a given origin.
 pub const EXPLORE_URL: &str = "https://www.google.com/_/FlightsFrontendUi/data/travel.frontend.flights.FlightsFrontendService/GetExploreDestinations";
+/// Flight-deals endpoint: returns discounted destinations (price vs typical) from a given origin.
+pub const FLIGHT_DEALS_URL: &str = "https://www.google.com/_/FlightsFrontendUi/data/travel.frontend.flights.FlightsFrontendService/GetFlightDealsStreaming";

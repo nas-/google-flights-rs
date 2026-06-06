@@ -158,10 +158,36 @@ impl fmt::Display for Currency {
     }
 }
 
+impl Currency {
+    /// Parse a currency from its ISO-4217 code (case-insensitive), e.g. `"USD"`.
+    ///
+    /// This is the reverse of [`Display`](std::fmt::Display): every variant
+    /// renders to its ISO code, so we match the input against each variant's
+    /// rendered code.
+    pub fn from_code(code: &str) -> Option<Self> {
+        let up = code.trim().to_uppercase();
+        <Self as ValueEnum>::value_variants()
+            .iter()
+            .find(|c| c.to_string() == up)
+            .cloned()
+    }
+}
+
+impl std::str::FromStr for Currency {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_code(s).ok_or_else(|| {
+            format!("unknown currency code {s:?} (expected ISO-4217, e.g. USD, EUR, GBP)")
+        })
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
     #[test]
     fn currency_display_spot_check() {
@@ -171,5 +197,31 @@ mod tests {
         assert_eq!(Currency::JapaneseYen.to_string(), "JPY");
         assert_eq!(Currency::SwissFranc.to_string(), "CHF");
         assert_eq!(Currency::AustralianDollar.to_string(), "AUD");
+    }
+
+    #[test]
+    fn from_code_parses_iso_case_insensitive() {
+        assert!(matches!(
+            Currency::from_code("USD"),
+            Some(Currency::USDollar)
+        ));
+        assert!(matches!(
+            Currency::from_code("usd"),
+            Some(Currency::USDollar)
+        ));
+        assert!(matches!(Currency::from_code(" eur "), Some(Currency::Euro)));
+        assert!(matches!(
+            Currency::from_code("GBP"),
+            Some(Currency::BritishPound)
+        ));
+        assert!(Currency::from_code("us-dollar").is_none());
+        assert!(Currency::from_code("ZZZ").is_none());
+    }
+
+    #[test]
+    fn from_str_errors_on_unknown() {
+        assert!(<Currency as FromStr>::from_str("USD").is_ok());
+        let err = <Currency as FromStr>::from_str("ZZZ").unwrap_err();
+        assert!(err.contains("unknown currency"));
     }
 }
