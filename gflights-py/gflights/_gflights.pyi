@@ -176,6 +176,19 @@ class GFlights:
         to_airport: str,
         date: str,
         months: int = ...,
+        adults: int = ...,
+        children: int = ...,
+        infants_in_seat: int = ...,
+        infants_on_lap: int = ...,
+        travel_class: str = ...,
+        stops: str = ...,
+        airlines_include: list[str] = ...,
+        airlines_exclude: list[str] = ...,
+        via: list[str] = ...,
+        lower_emissions: bool = ...,
+        max_price: Optional[int] = ...,
+        carry_on: int = ...,
+        checked_bags: int = ...,
     ) -> list[PriceEntry]:
         """Cheapest fare per day over a date range. Returns a coroutine."""
         ...
@@ -188,6 +201,19 @@ class GFlights:
         dep_end: str,
         ret_start: str,
         ret_end: str,
+        adults: int = ...,
+        children: int = ...,
+        infants_in_seat: int = ...,
+        infants_on_lap: int = ...,
+        travel_class: str = ...,
+        stops: str = ...,
+        airlines_include: list[str] = ...,
+        airlines_exclude: list[str] = ...,
+        via: list[str] = ...,
+        lower_emissions: bool = ...,
+        max_price: Optional[int] = ...,
+        carry_on: int = ...,
+        checked_bags: int = ...,
     ) -> list[DateGridEntry]:
         """Departure × return price matrix. Returns a coroutine."""
         ...
@@ -256,6 +282,19 @@ class GFlights:
         date: str,
         months: int = ...,
         trip_duration_days: Optional[int] = ...,
+        adults: int = ...,
+        children: int = ...,
+        infants_in_seat: int = ...,
+        infants_on_lap: int = ...,
+        travel_class: str = ...,
+        stops: str = ...,
+        airlines_include: list[str] = ...,
+        airlines_exclude: list[str] = ...,
+        via: list[str] = ...,
+        lower_emissions: bool = ...,
+        max_price: Optional[int] = ...,
+        carry_on: int = ...,
+        checked_bags: int = ...,
     ) -> list[CheapDate]:
         """Find cheapest departure dates sorted by price.
 

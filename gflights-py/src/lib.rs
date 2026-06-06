@@ -22,12 +22,12 @@
 use anyhow::Context as _;
 use chrono::{Months, NaiveDate};
 use gflights::{
-    parsers::common::{AirlineFilter, SortOrder, StopOptions, TravelClass},
+    parsers::common::{AirlineFilter, SortOrder, StopOptions, TravelClass, Travelers},
     requests::{
         api::ApiClient,
         config::{
-            Config, Currency, DealConfig, ExploreConfig, ExploreDate, ExploreDuration,
-            MultiCityConfig,
+            Config, ConfigBuilder, Currency, DealConfig, ExploreConfig, ExploreDate,
+            ExploreDuration, MultiCityConfig,
         },
     },
 };
@@ -658,6 +658,93 @@ fn itinerary_container_to_flight(
 }
 
 // ---------------------------------------------------------------------------
+// Shared search filters
+// ---------------------------------------------------------------------------
+
+/// Parsed + validated filters shared by every search-like endpoint
+/// (`search`, `price_graph`, `date_grid`, `cheapest_dates`).
+///
+/// Built synchronously from the Python kwargs so invalid input raises
+/// `ValueError` before any coroutine is awaited, then applied to a
+/// [`ConfigBuilder`] inside the async block.
+struct SearchFilters {
+    travelers: Travelers,
+    class: TravelClass,
+    stop_opt: StopOptions,
+    sort_ord: SortOrder,
+    inc: Vec<AirlineFilter>,
+    exc: Vec<AirlineFilter>,
+    via: Vec<String>,
+    lower_emissions: bool,
+    max_price: Option<i32>,
+    carry_on: u8,
+    checked_bags: u8,
+}
+
+impl SearchFilters {
+    #[allow(clippy::too_many_arguments)]
+    fn parse(
+        adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
+        travel_class: &str,
+        stops: &str,
+        sort: &str,
+        airlines_include: Vec<String>,
+        airlines_exclude: Vec<String>,
+        via: Vec<String>,
+        lower_emissions: bool,
+        max_price: Option<i32>,
+        carry_on: u8,
+        checked_bags: u8,
+    ) -> PyResult<Self> {
+        let travelers = Travelers::new(vec![
+            adults.into(),
+            children.into(),
+            infants_on_lap.into(),
+            infants_in_seat.into(),
+        ])
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok(SearchFilters {
+            travelers,
+            class: parse_travel_class(travel_class)?,
+            stop_opt: parse_stop_options(stops)?,
+            sort_ord: parse_sort_order(sort)?,
+            inc: parse_airline_filters(&airlines_include)?,
+            exc: parse_airline_filters(&airlines_exclude)?,
+            via,
+            lower_emissions,
+            max_price,
+            carry_on,
+            checked_bags,
+        })
+    }
+
+    /// Apply every filter to a builder, consuming `self`.
+    fn apply(self, mut builder: ConfigBuilder) -> ConfigBuilder {
+        builder = builder
+            .travel_class(self.class)
+            .stop_options(self.stop_opt)
+            .sort_order(self.sort_ord)
+            .travelers(self.travelers)
+            .airlines_include(self.inc)
+            .airlines_exclude(self.exc)
+            .lower_emissions(self.lower_emissions);
+        if let Some(p) = self.max_price {
+            builder = builder.max_price(p);
+        }
+        if self.carry_on > 0 || self.checked_bags > 0 {
+            builder = builder.baggage(self.carry_on, self.checked_bags);
+        }
+        for airport in &self.via {
+            builder = builder.add_connecting_airport(airport);
+        }
+        builder
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main Python class
 // ---------------------------------------------------------------------------
 
@@ -791,18 +878,22 @@ impl GFlights {
         // Validate synchronously — raises ValueError before the coroutine is even awaited.
         let dep_date = parse_date(&date)?;
         let ret_date = return_date.as_deref().map(parse_date).transpose()?;
-        let stop_opt = parse_stop_options(stops)?;
-        let class = parse_travel_class(travel_class)?;
-        let sort_ord = parse_sort_order(sort)?;
-        let inc = parse_airline_filters(&airlines_include)?;
-        let exc = parse_airline_filters(&airlines_exclude)?;
-        let travelers = gflights::parsers::common::Travelers::new(vec![
-            adults.into(),
-            children.into(),
-            infants_on_lap.into(),
-            infants_in_seat.into(),
-        ])
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let filters = SearchFilters::parse(
+            adults,
+            children,
+            infants_in_seat,
+            infants_on_lap,
+            travel_class,
+            stops,
+            sort,
+            airlines_include,
+            airlines_exclude,
+            via,
+            lower_emissions,
+            max_price,
+            carry_on,
+            checked_bags,
+        )?;
 
         // Convert &str → String before moving into the 'static async block.
         let client = self.client.clone();
@@ -815,24 +906,8 @@ impl GFlights {
                 .destination(&to_airport, &client)
                 .await
                 .map_err(anyhow_to_py)?
-                .departing_date(dep_date)
-                .travel_class(class)
-                .stop_options(stop_opt)
-                .sort_order(sort_ord)
-                .travelers(travelers)
-                .airlines_include(inc)
-                .airlines_exclude(exc)
-                .lower_emissions(lower_emissions);
-
-            if let Some(p) = max_price {
-                builder = builder.max_price(p);
-            }
-            if carry_on > 0 || checked_bags > 0 {
-                builder = builder.baggage(carry_on, checked_bags);
-            }
-            for airport in &via {
-                builder = builder.add_connecting_airport(airport);
-            }
+                .departing_date(dep_date);
+            builder = filters.apply(builder);
             if let Some(r) = ret_date {
                 builder = builder.return_date(r);
             }
@@ -859,15 +934,35 @@ impl GFlights {
     /// :param to_airport:   Destination IATA code or city name.
     /// :param date:         Start date as ``"YYYY-MM-DD"``.
     /// :param months:       How many months of price data to fetch (default 1).
-    /// :param currency:     ISO-4217 currency code (e.g. ``"EUR"``).
-    /// :param lang:         BCP-47 language subtag.
-    /// :param country:      ISO 3166-1 alpha-2 country code.
+    /// :param adults:       Number of adult passengers (default 1).
+    /// :param travel_class: ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
+    /// :param stops:        ``"all"`` / ``"nonstop"`` / ``"one-stop"``.
+    /// :param airlines_include: IATA codes or alliances to include.
+    /// :param airlines_exclude: IATA codes or alliances to exclude.
+    /// :param via:          Require a connection through these airports.
+    /// :param lower_emissions: Restrict to below-average CO₂ flights.
+    /// :param max_price:    Maximum price cap (in the client currency). ``None`` for no cap.
+    /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
+    /// :param checked_bags: Number of checked bags required (0 = no restriction).
     /// :returns:            Coroutine → ``list[PriceEntry]``, sorted by date.
     #[pyo3(signature = (
         from_airport,
         to_airport,
         date,
         months = 1,
+        adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
+        travel_class = "economy",
+        stops = "all",
+        airlines_include = vec![],
+        airlines_exclude = vec![],
+        via = vec![],
+        lower_emissions = false,
+        max_price = None,
+        carry_on = 0,
+        checked_bags = 0,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn price_graph<'py>(
@@ -877,21 +972,50 @@ impl GFlights {
         to_airport: String,
         date: String,
         months: u32,
+        adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
+        travel_class: &str,
+        stops: &str,
+        airlines_include: Vec<String>,
+        airlines_exclude: Vec<String>,
+        via: Vec<String>,
+        lower_emissions: bool,
+        max_price: Option<i32>,
+        carry_on: u8,
+        checked_bags: u8,
     ) -> PyResult<Bound<'py, PyAny>> {
         let dep_date = parse_date(&date)?;
+        let filters = SearchFilters::parse(
+            adults,
+            children,
+            infants_in_seat,
+            infants_on_lap,
+            travel_class,
+            stops,
+            "best",
+            airlines_include,
+            airlines_exclude,
+            via,
+            lower_emissions,
+            max_price,
+            carry_on,
+            checked_bags,
+        )?;
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let config = Config::builder()
+            let mut builder = Config::builder()
                 .departure(&from_airport, &client)
                 .await
                 .map_err(anyhow_to_py)?
                 .destination(&to_airport, &client)
                 .await
                 .map_err(anyhow_to_py)?
-                .departing_date(dep_date)
-                .build()
-                .map_err(anyhow_to_py)?;
+                .departing_date(dep_date);
+            builder = filters.apply(builder);
+            let config = builder.build().map_err(anyhow_to_py)?;
 
             let graph = client
                 .request_graph(&config, Months::new(months))
@@ -928,9 +1052,16 @@ impl GFlights {
     /// :param dep_end:      Last outbound departure date ``"YYYY-MM-DD"``.
     /// :param ret_start:    First return date ``"YYYY-MM-DD"``.
     /// :param ret_end:      Last return date ``"YYYY-MM-DD"``.
-    /// :param currency:     ISO-4217 currency code (e.g. ``"EUR"``).
-    /// :param lang:         BCP-47 language subtag.
-    /// :param country:      ISO 3166-1 alpha-2 country code.
+    /// :param adults:       Number of adult passengers (default 1).
+    /// :param travel_class: ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
+    /// :param stops:        ``"all"`` / ``"nonstop"`` / ``"one-stop"``.
+    /// :param airlines_include: IATA codes or alliances to include.
+    /// :param airlines_exclude: IATA codes or alliances to exclude.
+    /// :param via:          Require a connection through these airports.
+    /// :param lower_emissions: Restrict to below-average CO₂ flights.
+    /// :param max_price:    Maximum price cap (in the client currency). ``None`` for no cap.
+    /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
+    /// :param checked_bags: Number of checked bags required (0 = no restriction).
     /// :returns:            Coroutine → ``list[DateGridEntry]``
     #[pyo3(signature = (
         from_airport,
@@ -939,6 +1070,19 @@ impl GFlights {
         dep_end,
         ret_start,
         ret_end,
+        adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
+        travel_class = "economy",
+        stops = "all",
+        airlines_include = vec![],
+        airlines_exclude = vec![],
+        via = vec![],
+        lower_emissions = false,
+        max_price = None,
+        carry_on = 0,
+        checked_bags = 0,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn date_grid<'py>(
@@ -950,15 +1094,44 @@ impl GFlights {
         dep_end: String,
         ret_start: String,
         ret_end: String,
+        adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
+        travel_class: &str,
+        stops: &str,
+        airlines_include: Vec<String>,
+        airlines_exclude: Vec<String>,
+        via: Vec<String>,
+        lower_emissions: bool,
+        max_price: Option<i32>,
+        carry_on: u8,
+        checked_bags: u8,
     ) -> PyResult<Bound<'py, PyAny>> {
         let dep_s = parse_date(&dep_start)?;
         let dep_e = parse_date(&dep_end)?;
         let ret_s = parse_date(&ret_start)?;
         let ret_e = parse_date(&ret_end)?;
+        let filters = SearchFilters::parse(
+            adults,
+            children,
+            infants_in_seat,
+            infants_on_lap,
+            travel_class,
+            stops,
+            "best",
+            airlines_include,
+            airlines_exclude,
+            via,
+            lower_emissions,
+            max_price,
+            carry_on,
+            checked_bags,
+        )?;
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let config = Config::builder()
+            let mut builder = Config::builder()
                 .departure(&from_airport, &client)
                 .await
                 .map_err(anyhow_to_py)?
@@ -966,9 +1139,9 @@ impl GFlights {
                 .await
                 .map_err(anyhow_to_py)?
                 .departing_date(dep_s)
-                .return_date(ret_s)
-                .build()
-                .map_err(anyhow_to_py)?;
+                .return_date(ret_s);
+            builder = filters.apply(builder);
+            let config = builder.build().map_err(anyhow_to_py)?;
 
             let grid = client
                 .request_date_grid(&config, dep_s, dep_e, ret_s, ret_e)
@@ -1373,9 +1546,16 @@ impl GFlights {
     /// :param months:             Number of months to scan. Default ``3``.
     /// :param trip_duration_days: Round-trip length in days. ``None`` for one-way
     ///                            date discovery.
-    /// :param currency:           ISO-4217 currency code (default ``"EUR"``).
-    /// :param lang:               BCP-47 language subtag (default ``"en"``).
-    /// :param country:            ISO 3166-1 alpha-2 country code (default ``"GB"``).
+    /// :param adults:             Number of adult passengers (default 1).
+    /// :param travel_class:       ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
+    /// :param stops:              ``"all"`` / ``"nonstop"`` / ``"one-stop"``.
+    /// :param airlines_include:   IATA codes or alliances to include.
+    /// :param airlines_exclude:   IATA codes or alliances to exclude.
+    /// :param via:                Require a connection through these airports.
+    /// :param lower_emissions:    Restrict to below-average CO₂ flights.
+    /// :param max_price:          Maximum price cap (in the client currency). ``None`` for no cap.
+    /// :param carry_on:           Number of carry-on bags required (0 = no restriction).
+    /// :param checked_bags:       Number of checked bags required (0 = no restriction).
     /// :returns:                  Coroutine → ``list[CheapDate]``, sorted cheapest first.
     #[pyo3(signature = (
         from_airport,
@@ -1383,6 +1563,19 @@ impl GFlights {
         date,
         months = 3,
         trip_duration_days = None,
+        adults = 1,
+        children = 0,
+        infants_in_seat = 0,
+        infants_on_lap = 0,
+        travel_class = "economy",
+        stops = "all",
+        airlines_include = vec![],
+        airlines_exclude = vec![],
+        via = vec![],
+        lower_emissions = false,
+        max_price = None,
+        carry_on = 0,
+        checked_bags = 0,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn cheapest_dates<'py>(
@@ -1393,21 +1586,50 @@ impl GFlights {
         date: String,
         months: u32,
         trip_duration_days: Option<u32>,
+        adults: u8,
+        children: u8,
+        infants_in_seat: u8,
+        infants_on_lap: u8,
+        travel_class: &str,
+        stops: &str,
+        airlines_include: Vec<String>,
+        airlines_exclude: Vec<String>,
+        via: Vec<String>,
+        lower_emissions: bool,
+        max_price: Option<i32>,
+        carry_on: u8,
+        checked_bags: u8,
     ) -> PyResult<Bound<'py, PyAny>> {
         let dep_start = parse_date(&date)?;
+        let filters = SearchFilters::parse(
+            adults,
+            children,
+            infants_in_seat,
+            infants_on_lap,
+            travel_class,
+            stops,
+            "best",
+            airlines_include,
+            airlines_exclude,
+            via,
+            lower_emissions,
+            max_price,
+            carry_on,
+            checked_bags,
+        )?;
         let client = self.client.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let config = Config::builder()
+            let mut builder = Config::builder()
                 .departure(&from_airport, &client)
                 .await
                 .map_err(anyhow_to_py)?
                 .destination(&to_airport, &client)
                 .await
                 .map_err(anyhow_to_py)?
-                .departing_date(dep_start)
-                .build()
-                .map_err(anyhow_to_py)?;
+                .departing_date(dep_start);
+            builder = filters.apply(builder);
+            let config = builder.build().map_err(anyhow_to_py)?;
 
             let results = client
                 .cheapest_dates(&config, chrono::Months::new(months), trip_duration_days)
