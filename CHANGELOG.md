@@ -13,30 +13,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DealConfig` / `DealResult` return discounted destinations from an origin with
   price vs typical price, discount %, airline, stops, duration, dates, and a
   ready-to-open booking deep link. Exposed via the `deals` CLI subcommand, the
-  Python `GFlights.deals(...)` method, an MCP `deals` tool, and `examples/deals.rs`.
+  Python `Client.deals(...)` method, an MCP `deals` tool, and `examples/deals.rs`.
   Supports `--nonstop` and `--max-hours` filters.
+- **Python `offer()`** — price the cheapest itinerary and return booking offers
+  with resolved booking URLs. New `Offer` / `BookingOption` result classes.
+- **Children & infant passengers** — `children`, `infants_in_seat` and
+  `infants_on_lap` on every passenger endpoint (CLI `--children`,
+  `--infants-seat`, `--infants-lap`; matching Python kwargs).
+- **Full filters on price/date endpoints** — `price_graph`, `date_grid` and
+  `cheapest_dates` now accept the same filters as `search` (class, stops,
+  airlines, via, max price, baggage, lower emissions, passengers).
+- **`Currency` enum** and `datetime.date` inputs in the Python client; date
+  arguments accept `"YYYY-MM-DD"` strings or `datetime.date` objects.
 - **Rotating User-Agent pool** — each `ApiClient` now selects a real desktop
   browser User-Agent from a pool at construction instead of sending one fixed
   string, reducing trivial fingerprinting. Override with
   `ApiClient::with_user_agent(...)`, the CLI `--user-agent` flag, or the Python
-  `GFlights(user_agent=...)` argument. New `ApiClient::user_agent()` getter.
+  `Client(user_agent=...)` argument. New `ApiClient::user_agent()` getter.
 - **Proxy support** — route every request (including the frontend-version
   probe) through an `http://`, `https://`, or `socks5://` proxy via
   `ApiClient::new_with_proxy(...)`, the CLI `--proxy` flag, or the Python
-  `GFlights(proxy=...)` argument. Added a `Dockerfile` and `docker-compose.yml`
+  `Client(proxy=...)` argument. Added a `Dockerfile` and `docker-compose.yml`
   demonstrating a proxy-sidecar deployment with a shared network namespace.
 - **`select` subcommand** — interactive booking flow: pick an outbound flight
   (and a return for round trips) by number, then a booking offer, and get the
   resolved booking URL. Works one-shot or inside the REPL.
 - **`mcp` subcommand** — run as a Model Context Protocol server over stdio
-  (JSON-RPC 2.0), exposing `search`, `price_graph`, `cheapest_dates`, and
-  `explore` tools to MCP clients such as Claude Desktop. Honours the global
-  `--proxy` and `--user-agent` flags.
+  (JSON-RPC 2.0), exposing `search`, `price_graph`, `cheapest_dates`,
+  `explore`, and `deals` tools to MCP clients such as Claude Desktop. Honours
+  the global `--proxy` and `--user-agent` flags.
+
+### Changed
+
+- **Python: `GFlights` → `Client` (breaking).** The public client is now
+  `gflights.Client`, a pure-Python wrapper over the Rust engine with explicitly
+  typed signatures, full docstrings, and input normalization. No back-compat
+  alias.
+- **Python: locale is a client property (breaking).** `currency` / `lang` /
+  `country` move from per-call arguments to the `Client(...)` constructor.
+  `currency` takes an ISO-4217 code (e.g. `"USD"`) or a `Currency` member —
+  the old kebab `ValueEnum` names (`us-dollar`) are no longer accepted.
+- Result classes gained `.to_dict()` and pythonic `__repr__` (no leaked Rust
+  `Some(..)`).
+- CLI: `--currency` / `--lang` / `--country` are now global flags instead of
+  per-subcommand options.
 
 ### Fixed
 
 - PyPI project page showed no description: the Python package now ships a
   `readme` (`gflights-py/README.md`) so the long description is rendered.
+- `explore(interest=...)` now resolves interest names (e.g. `"beaches"`) and
+  raises on unknown values instead of silently returning no results.
 
 ---
 

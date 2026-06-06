@@ -21,20 +21,25 @@ distribution and require a Rust toolchain.
 
 ```python
 import asyncio
-from gflights import GFlights
+from gflights import Client
 
 async def main():
-    client = GFlights()
+    client = Client(currency="USD", country="US")
     flights = await client.search(
         from_airport="LHR",
         to_airport="JFK",
-        date="2026-09-15",
+        date="2026-09-15",   # str or datetime.date
     )
     for f in flights[:5]:
         print(f.airline, f.price, f.duration_minutes, "min", f.stops, "stop(s)")
 
 asyncio.run(main())
 ```
+
+Locale (currency / language / country) is fixed per client at construction.
+Currency accepts an ISO-4217 string or a `Currency` enum member
+(`Client(currency=Currency.USD)`); date arguments accept `"YYYY-MM-DD"` strings
+or `datetime.date` objects.
 
 ## Features
 
@@ -47,14 +52,19 @@ asyncio.run(main())
   (one-way or fixed-length round trips).
 - `multi_city_search` — open-jaw itineraries across multiple legs.
 - `explore` — discover cheap destinations from an origin airport.
-- Typed results (`FlightResult`, `CheapDate`, `ExploreResult`, `EmissionsInfo`,
-  `LayoverInfo`, `LegInfo`) and full `.pyi` stubs for IDE/mypy support.
+- `deals` — discounted destinations from an origin (price vs typical price).
+- `offer` — price the cheapest itinerary and resolve real booking URLs.
+- Children and infant passengers on every passenger endpoint
+  (`children`, `infants_in_seat`, `infants_on_lap`).
+- Typed results (`FlightResult`, `CheapDate`, `ExploreResult`, `DealResult`,
+  `Offer`, `BookingOption`, `EmissionsInfo`, `LayoverInfo`, `LegInfo`) with
+  `.to_dict()` and clean `__repr__`, plus full `.pyi` stubs for IDE/mypy.
 - Built-in rate limiting and retry with 429 detection.
 
 ## Proxy & User-Agent
 
 ```python
-client = GFlights(
+client = Client(
     proxy="socks5://127.0.0.1:9050",   # http://, https://, or socks5://
     user_agent="Mozilla/5.0 ...",      # default: rotating real desktop UA
 )
@@ -65,7 +75,7 @@ client = GFlights(
 All API calls raise `GFlightsError` on network or parse failures:
 
 ```python
-from gflights import GFlights, GFlightsError
+from gflights import Client, GFlightsError
 
 try:
     flights = await client.search(from_airport="LHR", to_airport="JFK", date="2026-09-15")

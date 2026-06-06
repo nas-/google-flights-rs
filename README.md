@@ -172,7 +172,8 @@ let client = ApiClient::new_with_proxy("socks5://127.0.0.1:9050").await?;
 ```
 
 ```python
-client = GFlights(proxy="socks5://127.0.0.1:9050")
+from gflights import Client
+client = Client(proxy="socks5://127.0.0.1:9050")
 ```
 
 For rotating egress IPs, run a proxy as a sidecar container and share its
@@ -351,10 +352,10 @@ cd gflights-py && maturin develop
 
 ```python
 import asyncio
-import gflights
+from gflights import Client
 
 async def main():
-    client = gflights.GFlights()
+    client = Client()
 
     # One-way search
     flights = await client.search(
