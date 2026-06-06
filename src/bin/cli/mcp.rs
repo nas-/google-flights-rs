@@ -134,10 +134,7 @@ fn tool_catalog() -> Vec<Value> {
         "return_date": { "type": "string", "description": "Return date YYYY-MM-DD (omit for one-way)" },
         "adults": { "type": "integer", "minimum": 1, "default": 1 },
         "class": { "type": "string", "enum": ["economy", "premium-economy", "business", "first"] },
-        "stops": { "type": "string", "enum": ["all", "nonstop", "one-stop"] },
-        "currency": { "type": "string", "description": "e.g. euro, us-dollar" },
-        "lang": { "type": "string", "description": "BCP-47 language subtag, default en" },
-        "country": { "type": "string", "description": "ISO 3166-1 alpha-2, default GB" }
+        "stops": { "type": "string", "enum": ["all", "nonstop", "one-stop"] }
     });
 
     vec![
@@ -155,8 +152,7 @@ fn tool_catalog() -> Vec<Value> {
                     "from": { "type": "string" }, "to": { "type": "string" },
                     "date": { "type": "string", "description": "Start date YYYY-MM-DD" },
                     "months": { "type": "integer", "minimum": 1, "default": 3 },
-                    "adults": { "type": "integer", "minimum": 1, "default": 1 },
-                    "currency": { "type": "string" }, "lang": { "type": "string" }, "country": { "type": "string" }
+                    "adults": { "type": "integer", "minimum": 1, "default": 1 }
                 }),
                 "required": ["from", "to", "date"]
             }
@@ -171,8 +167,7 @@ fn tool_catalog() -> Vec<Value> {
                     "date": { "type": "string", "description": "Earliest departure date YYYY-MM-DD" },
                     "months": { "type": "integer", "minimum": 1, "default": 3 },
                     "trip_days": { "type": "integer", "description": "Round-trip length in nights; omit for one-way" },
-                    "adults": { "type": "integer", "minimum": 1, "default": 1 },
-                    "currency": { "type": "string" }, "lang": { "type": "string" }, "country": { "type": "string" }
+                    "adults": { "type": "integer", "minimum": 1, "default": 1 }
                 }),
                 "required": ["from", "to", "date"]
             }
@@ -187,8 +182,7 @@ fn tool_catalog() -> Vec<Value> {
                     "to": { "type": "string", "description": "Optional destination IATA code" },
                     "month": { "type": "integer", "minimum": 1, "maximum": 12 },
                     "budget": { "type": "integer", "description": "Max price in the chosen currency" },
-                    "adults": { "type": "integer", "minimum": 1, "default": 1 },
-                    "currency": { "type": "string" }, "lang": { "type": "string" }, "country": { "type": "string" }
+                    "adults": { "type": "integer", "minimum": 1, "default": 1 }
                 }),
                 "required": ["from"]
             }
@@ -205,8 +199,7 @@ fn tool_catalog() -> Vec<Value> {
                     "nonstop": { "type": "boolean", "default": false },
                     "max_hours": { "type": "integer", "description": "Max one-way duration in hours" },
                     "class": { "type": "string", "enum": ["economy", "premium-economy", "business", "first"] },
-                    "adults": { "type": "integer", "minimum": 1, "default": 1 },
-                    "currency": { "type": "string" }, "lang": { "type": "string" }, "country": { "type": "string" }
+                    "adults": { "type": "integer", "minimum": 1, "default": 1 }
                 }),
                 "required": ["from", "out", "ret"]
             }

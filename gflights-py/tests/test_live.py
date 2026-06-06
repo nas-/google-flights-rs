@@ -20,7 +20,7 @@ live = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def client():
-    return gflights.GFlights()
+    return gflights.Client()
 
 
 @live
@@ -86,7 +86,7 @@ async def test_search_one_stop_filter(client):
 @live
 async def test_search_currency_usd():
     # Currency is a client property — build a USD client and search.
-    client = gflights.GFlights(currency="USD")
+    client = gflights.Client(currency="USD")
     flights = await client.search(
         from_airport="JFK", to_airport="LAX", date="2026-09-01",
     )
@@ -192,7 +192,7 @@ async def test_rate_limit_flag_and_reset():
     - reset_rate_limit() clears it to False
     - requests succeed again after reset (or were never blocked to begin with)
     """
-    burst_client = gflights.GFlights()
+    burst_client = gflights.Client()
     assert not burst_client.rate_limited, "should start not rate-limited"
 
     # reset when already clear is a safe no-op
