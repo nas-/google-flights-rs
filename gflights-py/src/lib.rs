@@ -4,10 +4,10 @@
 //!
 //! ```python
 //! import asyncio
-//! import gflights
+//! from gflights import Client
 //!
 //! async def main():
-//!     client = gflights.GFlights()
+//!     client = Client()
 //!     flights = await client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01")
 //!     for f in flights:
 //!         print(f.airline, f.duration_minutes, f.price)
@@ -833,30 +833,16 @@ impl SearchFilters {
 // Main Python class
 // ---------------------------------------------------------------------------
 
-/// Async Python client for Google Flights, backed by a fast Rust/tokio core.
-///
-/// All three search methods are coroutines — use with ``await``.
-/// Multiple calls can run concurrently with ``asyncio.gather``.
-///
-/// Example::
-///
-///     import asyncio, gflights
-///
-///     async def main():
-///         client = gflights.GFlights()
-///         lhr_jfk, mad_mex = await asyncio.gather(
-///             client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01"),
-///             client.search(from_airport="MAD", to_airport="MEX", date="2026-08-01"),
-///         )
-///
-///     asyncio.run(main())
-#[pyclass]
-pub struct GFlights {
+/// Internal Rust engine. The public, ergonomic surface is the pure-Python
+/// :class:`gflights.Client` wrapper, which normalizes inputs and owns the
+/// typed signatures and docstrings. Do not use ``_Client`` directly.
+#[pyclass(name = "_Client")]
+pub struct Client {
     client: ApiClient,
 }
 
 #[pymethods]
-impl GFlights {
+impl Client {
     /// Create a new client.
     ///
     /// The constructor is synchronous (fast — just initialises the HTTP client).
@@ -893,7 +879,7 @@ impl GFlights {
             client = client.with_user_agent(ua);
         }
         client = client.with_locale(currency, lang, country);
-        Ok(GFlights { client })
+        Ok(Client { client })
     }
 
     /// Search for flights.
@@ -913,9 +899,6 @@ impl GFlights {
     /// :param max_price:    Maximum price cap (in the search currency). ``None`` for no cap.
     /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
     /// :param checked_bags: Number of checked bags required (0 = no restriction).
-    /// :param currency:     ISO-4217 currency code (e.g. ``"USD"``, ``"EUR"``, ``"GBP"``).
-    /// :param lang:         BCP-47 language subtag (default ``"en"``).
-    /// :param country:      ISO 3166-1 alpha-2 country code (default ``"GB"``).
     /// :returns:            Coroutine → ``list[FlightResult]``
     #[pyo3(signature = (
         from_airport,
@@ -1261,9 +1244,6 @@ impl GFlights {
     /// :param max_price:    Maximum price cap (in the search currency). ``None`` for no cap.
     /// :param carry_on:     Number of carry-on bags required (0 = no restriction).
     /// :param checked_bags: Number of checked bags required (0 = no restriction).
-    /// :param currency:     ISO-4217 currency code (e.g. ``"EUR"``).
-    /// :param lang:         BCP-47 language subtag (default ``"en"``).
-    /// :param country:      ISO 3166-1 alpha-2 country code (default ``"GB"``).
     /// :returns:            Coroutine → ``list[FlightResult]``
     #[pyo3(signature = (
         legs,
@@ -1365,9 +1345,6 @@ impl GFlights {
     /// :param checked:            Number of checked bags (default 0).
     /// :param adults:             Number of adult passengers (default 1).
     /// :param travel_class:       ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
-    /// :param currency:           ISO-4217 currency code (e.g. ``"EUR"``).
-    /// :param lang:               BCP-47 language subtag (default ``"en"``).
-    /// :param country:            ISO 3166-1 alpha-2 country code (default ``"GB"``).
     /// :returns:                  Coroutine → ``list[ExploreResult]``
     #[pyo3(signature = (
         from_airport,
@@ -1518,9 +1495,6 @@ impl GFlights {
     /// :param max_hours:     Maximum one-way flight time in hours. ``None`` = no limit.
     /// :param adults:        Number of adult passengers (default 1).
     /// :param travel_class:  ``"economy"`` / ``"premium-economy"`` / ``"business"`` / ``"first"``.
-    /// :param currency:      ISO-4217 currency code (e.g. ``"EUR"``).
-    /// :param lang:          BCP-47 language subtag (default ``"en"``).
-    /// :param country:       ISO 3166-1 alpha-2 country code (default ``"GB"``).
     /// :returns:             Coroutine → ``list[DealResult]``
     #[pyo3(signature = (
         from_airport,
@@ -1931,7 +1905,7 @@ impl GFlights {
     }
 
     fn __repr__(&self) -> &'static str {
-        "GFlights()"
+        "_Client()"
     }
 }
 
@@ -1948,7 +1922,7 @@ fn _gflights(m: &Bound<'_, PyModule>) -> PyResult<()> {
     rt_builder.enable_all();
     pyo3_async_runtimes::tokio::init(rt_builder);
 
-    m.add_class::<GFlights>()?;
+    m.add_class::<Client>()?;
     m.add_class::<FlightResult>()?;
     m.add_class::<LegInfo>()?;
     m.add_class::<LayoverInfo>()?;

@@ -10,7 +10,7 @@ import gflights
 
 @pytest.fixture(scope="module")
 def client():
-    return gflights.GFlights()
+    return gflights.Client()
 
 
 # All validation errors fire synchronously (before the future is awaited),
@@ -32,7 +32,7 @@ async def test_bad_return_date_raises_value_error(client):
 def test_bad_currency_raises_value_error():
     # Currency is a client property; a bad code is rejected at construction.
     with pytest.raises(ValueError, match="unknown currency"):
-        gflights.GFlights(currency="moon-coins")
+        gflights.Client(currency="moon-coins")
 
 
 async def test_bad_stops_raises_value_error(client):

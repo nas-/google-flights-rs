@@ -5,10 +5,10 @@ All search methods are coroutines — use with ``await`` or ``asyncio.gather``.
 Quick start::
 
     import asyncio
-    import gflights
+    from gflights import Client
 
     async def main():
-        client = gflights.GFlights()
+        client = Client()
 
         # Single search
         flights = await client.search(from_airport="LHR", to_airport="JFK", date="2026-08-01")
@@ -26,6 +26,7 @@ Quick start::
 
 from __future__ import annotations
 
+from gflights._client import Client  # noqa: F401
 from gflights._gflights import (  # noqa: F401
     BookingOption,
     CheapDate,
@@ -34,17 +35,22 @@ from gflights._gflights import (  # noqa: F401
     EmissionsInfo,
     ExploreResult,
     FlightResult,
-    GFlights,
     GFlightsError,
     LayoverInfo,
     LegInfo,
     Offer,
     PriceEntry,
 )
-from gflights._types import SortOrder, StopFilter, TravelClass  # noqa: F401
+from gflights._types import (  # noqa: F401
+    Currency,
+    Duration,
+    SortOrder,
+    StopFilter,
+    TravelClass,
+)
 
 __all__ = [
-    "GFlights",
+    "Client",
     "GFlightsError",
     "FlightResult",
     "LegInfo",
@@ -57,6 +63,8 @@ __all__ = [
     "DealResult",
     "Offer",
     "BookingOption",
+    "Currency",
+    "Duration",
     "TravelClass",
     "StopFilter",
     "SortOrder",

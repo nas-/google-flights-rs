@@ -144,8 +144,8 @@ class Offer:
     def __repr__(self) -> str: ...
     def to_dict(self) -> dict: ...
 
-class GFlights:
-    """Async Python client for Google Flights, backed by Rust/tokio.
+class _Client:
+    """Internal Rust engine. Use the public :class:`gflights.Client` wrapper.
 
     The constructor is synchronous (fast — just initialises the HTTP client).
     All search methods are async coroutines that integrate directly with
