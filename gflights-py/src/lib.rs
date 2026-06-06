@@ -245,7 +245,7 @@ impl EmissionsInfo {
     }
 }
 
-/// One flight itinerary returned by :meth:`GFlights.search`.
+/// One flight itinerary returned by :meth:`Client.search`.
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct FlightResult {
@@ -261,7 +261,7 @@ pub struct FlightResult {
     /// Price in the requested currency, or `None` if unavailable.
     #[pyo3(get)]
     pub price: Option<i32>,
-    /// Raw booking token — pass to :meth:`GFlights.offers` for booking URLs.
+    /// Raw booking token — pass to :meth:`Client.offer` for booking URLs.
     #[pyo3(get)]
     pub booking_token: String,
     legs: Vec<LegInfo>,
@@ -389,7 +389,7 @@ impl DateGridEntry {
     }
 }
 
-/// One result from `GFlights.cheapest_dates`.
+/// One result from `Client.cheapest_dates`.
 ///
 /// `return_date` is `None` for one-way searches and set for round-trip searches.
 #[pyclass(get_all)]
@@ -428,7 +428,7 @@ impl CheapDate {
     }
 }
 
-/// One explore destination returned by :meth:`GFlights.explore`.
+/// One explore destination returned by :meth:`Client.explore`.
 #[pyclass(get_all)]
 #[derive(Clone, Debug)]
 pub struct ExploreResult {
@@ -504,7 +504,7 @@ impl ExploreResult {
     }
 }
 
-/// One discounted destination returned by :meth:`GFlights.deals`.
+/// One discounted destination returned by :meth:`Client.deals`.
 #[pyclass(get_all)]
 #[derive(Clone, Debug)]
 pub struct DealResult {
@@ -619,7 +619,7 @@ impl BookingOption {
     }
 }
 
-/// One booking option (priced offer) returned by :meth:`GFlights.offer`.
+/// One booking option (priced offer) returned by :meth:`Client.offer`.
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct Offer {

@@ -71,7 +71,7 @@ class DateGridEntry:
     def to_dict(self) -> dict: ...
 
 class CheapDate:
-    """One result from :meth:`GFlights.cheapest_dates`, sorted cheapest-first.
+    """One result from :meth:`Client.cheapest_dates`, sorted cheapest-first.
 
     ``return_date`` is ``None`` for one-way results and set for round-trip results.
     """
@@ -82,7 +82,7 @@ class CheapDate:
     def to_dict(self) -> dict: ...
 
 class ExploreResult:
-    """One destination returned by :meth:`GFlights.explore`."""
+    """One destination returned by :meth:`Client.explore`."""
     place_id: str
     name: str
     country: str
@@ -103,7 +103,7 @@ class ExploreResult:
     def to_dict(self) -> dict: ...
 
 class DealResult:
-    """One discounted destination returned by :meth:`GFlights.deals`."""
+    """One discounted destination returned by :meth:`Client.deals`."""
     origin_iata: str
     destination_iata: str
     destination_city: str
@@ -135,7 +135,7 @@ class BookingOption:
     def to_dict(self) -> dict: ...
 
 class Offer:
-    """One priced booking option returned by :meth:`GFlights.offer`."""
+    """One priced booking option returned by :meth:`Client.offer`."""
     airline_names: list[str]
     price: Optional[int]
     booking_url: Optional[str]
