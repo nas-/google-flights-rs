@@ -160,7 +160,7 @@ macro_rules! py_data_class {
 // ---------------------------------------------------------------------------
 
 /// One flight leg (a single departure → arrival hop).
-#[pyclass(get_all)]
+#[pyclass(get_all, skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct LegInfo {
     /// IATA code of the departure airport (e.g. `"LHR"`).
@@ -203,7 +203,7 @@ py_data_class! {
 }
 
 /// Details about one layover / connection between two legs.
-#[pyclass(get_all)]
+#[pyclass(get_all, skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct LayoverInfo {
     /// Minutes spent at the connecting airport.
@@ -233,7 +233,7 @@ py_data_class! {
 }
 
 /// CO₂ / emissions data for an itinerary (all values in grams).
-#[pyclass(get_all)]
+#[pyclass(get_all, skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct EmissionsInfo {
     /// How much more (+) or less (−) CO₂ vs. typical route, as a percentage.
@@ -264,7 +264,7 @@ py_data_class! {
 }
 
 /// One flight itinerary returned by :meth:`Client.search`.
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct FlightResult {
     /// Primary operating carrier code (e.g. `"BA"`) or `"multi"` for codeshares.
@@ -352,7 +352,7 @@ impl FlightResult {
 }
 
 /// One (date, price) entry from the price graph (cheapest fare per day).
-#[pyclass(get_all)]
+#[pyclass(get_all, skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PriceEntry {
     /// Departure date as `"YYYY-MM-DD"`.
@@ -371,7 +371,7 @@ py_data_class! {
 }
 
 /// One cell in the departure × return date grid.
-#[pyclass(get_all)]
+#[pyclass(get_all, skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct DateGridEntry {
     /// Outbound departure date as `"YYYY-MM-DD"`.
@@ -398,7 +398,7 @@ py_data_class! {
 /// One result from `Client.cheapest_dates`.
 ///
 /// `return_date` is `None` for one-way searches and set for round-trip searches.
-#[pyclass(get_all)]
+#[pyclass(get_all, skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct CheapDate {
     /// Cheapest outbound departure date as `"YYYY-MM-DD"`.
@@ -429,7 +429,7 @@ py_data_class! {
 }
 
 /// One explore destination returned by :meth:`Client.explore`.
-#[pyclass(get_all)]
+#[pyclass(get_all, skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct ExploreResult {
     /// Google Knowledge-Graph place ID (e.g. ``"/m/0vzm"`` for Vienna).
@@ -499,7 +499,7 @@ py_data_class! {
 }
 
 /// One discounted destination returned by :meth:`Client.deals`.
-#[pyclass(get_all)]
+#[pyclass(get_all, skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct DealResult {
     /// Origin airport IATA code.
@@ -574,7 +574,7 @@ py_data_class! {
 }
 
 /// One booking channel (OTA / partner) inside an :class:`Offer`.
-#[pyclass(get_all)]
+#[pyclass(get_all, skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct BookingOption {
     /// Partner / OTA display names for this channel (e.g. ``["Lufthansa"]``).
@@ -602,7 +602,7 @@ py_data_class! {
 }
 
 /// One booking option (priced offer) returned by :meth:`Client.offer`.
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct Offer {
     /// Airline display names involved in this offer.
@@ -971,7 +971,7 @@ impl Client {
                 .map_err(anyhow_to_py)?
                 .get_all_flights_via(&config.connecting_airports);
 
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 flights
                     .iter()
                     .map(|ic| Py::new(py, itinerary_container_to_flight(ic)))
@@ -1087,7 +1087,7 @@ impl Client {
                 .collect();
             entries.sort_by(|a, b| a.date.cmp(&b.date));
 
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 entries
                     .into_iter()
                     .map(|e| Py::new(py, e))
@@ -1200,7 +1200,7 @@ impl Client {
                 .await
                 .map_err(anyhow_to_py)?;
 
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 grid.entries
                     .into_iter()
                     .map(|e| {
@@ -1307,7 +1307,7 @@ impl Client {
                 .map_err(anyhow_to_py)?
                 .get_all_flights();
 
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 flights
                     .iter()
                     .map(|ic| Py::new(py, itinerary_container_to_flight(ic)))
@@ -1436,7 +1436,7 @@ impl Client {
                 .await
                 .map_err(anyhow_to_py)?;
 
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 results
                     .into_iter()
                     .map(|r| {
@@ -1547,7 +1547,7 @@ impl Client {
 
             let results = client.request_deals(&config).await.map_err(anyhow_to_py)?;
 
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 results
                     .into_iter()
                     .map(|r| {
@@ -1679,7 +1679,7 @@ impl Client {
                 .await
                 .map_err(anyhow_to_py)?;
 
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 results
                     .into_iter()
                     .map(|r| {
@@ -1810,7 +1810,7 @@ impl Client {
             let first = match first {
                 Some(f) => f,
                 None => {
-                    return Python::with_gil(|_py| Ok(Vec::<Py<Offer>>::new()));
+                    return Python::attach(|_py| Ok(Vec::<Py<Offer>>::new()));
                 }
             };
             config
@@ -1870,7 +1870,7 @@ impl Client {
                 });
             }
 
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 resolved
                     .into_iter()
                     .map(|o| Py::new(py, o))
