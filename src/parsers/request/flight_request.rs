@@ -68,6 +68,28 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
         let arrival = vec![options.arriving_city.iter().collect::<Vec<_>>()];
         let itinerary_going = options.fixed_flights.maybe_get_nth_flight_info(0_usize);
         let itinerary_return = options.fixed_flights.maybe_get_nth_flight_info(1_usize);
+
+        // When the itinerary is fully pinned (booking / offer request), the
+        // per-leg search filters must be cleared. The browser sends `null` for
+        // them on `GetBookingResults` because the exact flight is already
+        // specified. Leaving the airline include/exclude filter in place makes
+        // Google return only the airline-direct offer and suppresses the OTA
+        // reseller list. Mirror that: drop airline/connecting/emissions filters
+        // for booking requests (search requests keep them).
+        let is_booking = options.fixed_flights.is_full();
+        let empty_airlines: &[AirlineFilter] = &[];
+        let empty_airports: &[String] = &[];
+        let (inc, exc, conn, low_co2) = if is_booking {
+            (empty_airlines, empty_airlines, empty_airports, false)
+        } else {
+            (
+                options.airlines_include,
+                options.airlines_exclude,
+                options.connecting_airports,
+                options.lower_emissions,
+            )
+        };
+
         let leg1 = SingleLegStruct {
             departure: departure.clone(),
             arrival: arrival.clone(),
@@ -78,10 +100,10 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
             stopover_min: options.stopover_min,
             duration_max: options.duration_max,
             chosen_itinerary: itinerary_going.as_ref(),
-            airlines_include: options.airlines_include,
-            airlines_exclude: options.airlines_exclude,
-            connecting_airports: options.connecting_airports,
-            lower_emissions: options.lower_emissions,
+            airlines_include: inc,
+            airlines_exclude: exc,
+            connecting_airports: conn,
+            lower_emissions: low_co2,
         };
         let leg2 = options.date_return.map(|date_return| SingleLegStruct {
             departure: arrival,
@@ -93,18 +115,16 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
             stopover_min: options.stopover_min,
             duration_max: options.duration_max,
             chosen_itinerary: itinerary_return.as_ref(),
-            airlines_include: options.airlines_include,
-            airlines_exclude: options.airlines_exclude,
-            connecting_airports: options.connecting_airports,
-            lower_emissions: options.lower_emissions,
+            airlines_include: inc,
+            airlines_exclude: exc,
+            connecting_airports: conn,
+            lower_emissions: low_co2,
         });
         let legs: Vec<SingleLegStruct<'_>> = if let Some(leg_2) = leg2 {
             vec![leg1, leg_2]
         } else {
             vec![leg1]
         };
-
-        let is_booking = options.fixed_flights.is_full();
 
         let itinerary = ItineraryRequest {
             legs,
@@ -130,6 +150,8 @@ impl TryFrom<&FlightRequestOptions<'_>> for RequestBody {
         } else {
             FLIGHT_REQUEST
         };
+        // The `f.sid` placeholder here is overwritten per-session in
+        // `ApiClient::do_request` (a stale value is rejected by the backend).
         let url = format!(
             "{endpoint}?f.sid=6921237406276106431&bl={}&hl={}-{}&soc-app=162&soc-platform=1&soc-device=1&_reqid=4150414&rt=c",
             options.frontend_version,
@@ -390,9 +412,13 @@ impl SerializeToWeb for CompleteFlightRequest<'_> {
             None => "[]".to_string(),
         };
 
-        // Booking requests (GetBookingResults) use `null,0` as the body tail —
-        // matching what the browser sends.  Regular shopping requests use `1,0,0`.
-        let end_part = if self.is_booking { "null,0" } else { "1,0,0" };
+        // Body tail, matching the live browser wire format exactly:
+        //   * GetBookingResults  -> `null,0`
+        //   * GetShoppingResults -> `0,0,0,1` (both the plain search and the
+        //     token-bearing "outbound selected" step use this)
+        // The previous `1,0,0` is rejected by the backend with an
+        // `ErrorResponse`, so search/offer must send `0,0,0,1`.
+        let end_part = if self.is_booking { "null,0" } else { "0,0,0,1" };
 
         Ok(format!(
             r#"f.req=[null,"[{},{},{}]"]&at=AAuQa1qiXfSThbBOCdcDUAVTopoc:{}&"#,
@@ -585,7 +611,7 @@ mod tests {
         };
 
         let req: RequestBody = (&search_settings).try_into()?;
-        let expected = "f.req=%5Bnull%2C%22%5B%5B%5D%2C%5Bnull%2Cnull%2C1%2Cnull%2C%5B%5D%2C1%2C%5B1%2C0%2C0%2C0%5D%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-02-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%5D%2Cnull%2Cnull%2Cnull%2C1%5D%2C1%2C0%2C0%5D%22%5D&";
+        let expected = "f.req=%5Bnull%2C%22%5B%5B%5D%2C%5Bnull%2Cnull%2C1%2Cnull%2C%5B%5D%2C1%2C%5B1%2C0%2C0%2C0%5D%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-02-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%5D%2Cnull%2Cnull%2Cnull%2C1%5D%2C0%2C0%2C0%2C1%5D%22%5D&";
         assert!(req.body.starts_with(expected));
 
         assert!(req.url.contains(&frontend_version));
@@ -637,7 +663,7 @@ mod tests {
         };
 
         let req: RequestBody = (&search_settings).try_into()?;
-        let expected = "f.req=%5Bnull%2C%22%5B%5B%5D%2C%5Bnull%2Cnull%2C1%2Cnull%2C%5B%5D%2C1%2C%5B1%2C0%2C0%2C0%5D%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-02-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%2C%5B%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-03-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%5D%2Cnull%2Cnull%2Cnull%2C1%5D%2C1%2C0%2C0%5D%22%5D";
+        let expected = "f.req=%5Bnull%2C%22%5B%5B%5D%2C%5Bnull%2Cnull%2C1%2Cnull%2C%5B%5D%2C1%2C%5B1%2C0%2C0%2C0%5D%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-02-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%2C%5B%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-03-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%5D%2Cnull%2Cnull%2Cnull%2C1%5D%2C0%2C0%2C0%2C1%5D%22%5D";
         assert!(req.body.starts_with(expected));
         Ok(())
     }
@@ -878,7 +904,7 @@ mod tests {
     fn test_complete_flight_request() -> Result<()> {
         let travelers = Travelers::new([1, 0, 0, 0].to_vec())?;
 
-        let expected_two_legs = r#"f.req=[null,"[[],[null,null,1,null,[],4,[1,0,0,0],null,null,null,null,null,null,[[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-10-20\",null,null,null,null,null,null,null,3],[[[[\"CDG\",0]]],[[[\"MXP\",0]]],null,0,null,null,\"2022-10-30\",null,null,null,null,null,null,null,3]],null,null,null,1],1,0,0]"]&at=AAuQa1qiXfSThbBOCdcDUAVTopoc:"#;
+        let expected_two_legs = r#"f.req=[null,"[[],[null,null,1,null,[],4,[1,0,0,0],null,null,null,null,null,null,[[[[[\"MXP\",0]]],[[[\"CDG\",0]]],null,0,null,null,\"2022-10-20\",null,null,null,null,null,null,null,3],[[[[\"CDG\",0]]],[[[\"MXP\",0]]],null,0,null,null,\"2022-10-30\",null,null,null,null,null,null,null,3]],null,null,null,1],0,0,0,1]"]&at=AAuQa1qiXfSThbBOCdcDUAVTopoc:"#;
 
         let departure = Location {
             loc_identifier: "MXP".to_owned(),

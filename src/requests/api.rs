@@ -24,7 +24,7 @@ use parsers::flight_request::{FlightRequestOptions, MultiCityRequestOptions};
 use parsers::flight_response::{create_raw_response_vec, FlightResponseContainer};
 use parsers::offer_response::{self, OfferRawResponseContainer};
 use regex::Regex;
-use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Response, StatusCode};
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -94,6 +94,10 @@ pub struct ApiClient {
     pub rate_limiter: Arc<DefaultDirectRateLimiter>,
     pub client: Arc<Client>,
     frontend_version: String,
+    /// Per-session `f.sid` extracted from the main page (`FdrFJe`). Sent as the
+    /// `f.sid` query param on every API request. A stale hardcoded value is
+    /// rejected by the backend on some locales, so it must track the session.
+    f_sid: String,
     /// Set to `true` the first time any request on this client (or any clone)
     /// receives HTTP 429.  While `true`, every call to `do_request` returns
     /// [`RateLimitedError`] immediately without touching the network.
@@ -110,6 +114,10 @@ pub struct ApiClient {
     language: String,
     /// ISO 3166-1 alpha-2 country code applied to every request, e.g. `"GB"`.
     country: String,
+    /// `name=value; …` Cookie header built from the main-page `Set-Cookie`s,
+    /// replayed on every API request so the session matches the one the page
+    /// was issued for. `None` if the page set no cookies.
+    session_cookies: Option<Arc<str>>,
 }
 
 impl ApiClient {
@@ -161,19 +169,27 @@ impl ApiClient {
         let user_agent = pick_user_agent().to_string();
         tracing::debug!(%user_agent, proxy = ?proxy, "constructing client");
         let client = build_reqwest_client(proxy.as_deref())?;
-        let frontend_version = get_frontend_version(&user_agent, &client).await;
+        let page = fetch_main_page(&user_agent, &client).await;
+        let frontend_version = page.as_ref().and_then(|(h, _)| extract_frontend_version(h));
+        let f_sid = page.as_ref().and_then(|(h, _)| extract_f_sid(h));
+        let session_cookies = match page {
+            Some((_, c)) => (!c.is_empty()).then(|| Arc::from(c)),
+            None => None,
+        };
 
         Ok(Self {
             rate_limiter,
             client: Arc::new(client),
             frontend_version: frontend_version
                 .unwrap_or("boq_travel-frontend-flights-ui_20260527.01_p0".into()),
+            f_sid: f_sid.unwrap_or_else(|| "-1".into()),
             rate_limited: Arc::new(AtomicBool::new(false)),
             retry_config: RetryConfig::default(),
             user_agent,
             currency: Currency::default(),
             language: "en".to_string(),
             country: "GB".to_string(),
+            session_cookies,
         })
     }
 
@@ -965,9 +981,23 @@ impl ApiClient {
             return Err(anyhow::Error::new(RateLimitedError));
         }
 
-        let req_payload = options.to_request_body()?;
+        let mut req_payload = options.to_request_body()?;
+        // Force the per-session `f.sid` onto every endpoint URL. The request
+        // builders embed a placeholder; a stale hardcoded value is rejected by
+        // the backend with an `ErrorResponse` on some locales, so rewrite it to
+        // the value extracted from this session's main page.
+        req_payload.url = replace_f_sid(&req_payload.url, &self.f_sid);
         tracing::debug!(user_agent = %self.user_agent, "outgoing request User-Agent");
-        let headers = get_headers(currency, language, country, &self.user_agent)?;
+        let mut headers = get_headers(currency, language, country, &self.user_agent)?;
+
+        // Replay the session cookies from the main-page fetch (no cookie jar is
+        // used — a jar traps the page fetch on the consent wall — so cookies are
+        // attached manually here).
+        if let Some(cookies) = self.session_cookies.as_deref() {
+            if let Ok(hv) = HeaderValue::from_str(cookies) {
+                headers.insert(reqwest::header::COOKIE, hv);
+            }
+        }
 
         let decoded_body = percent_encoding::percent_decode_str(&req_payload.body)
             .decode_utf8_lossy()
@@ -1098,15 +1128,26 @@ fn pick_user_agent() -> &'static str {
 }
 
 /// Static base headers shared by all requests, with the given User-Agent.
-///
-/// Note: `x-goog-batchexecute-bgr` is intentionally omitted — its value is
-/// difficult to reverse-engineer and its absence only slightly reduces result
-/// accuracy.
 fn base_headers(user_agent: &str) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(
         reqwest::header::ACCEPT_LANGUAGE,
         HeaderValue::from_static("en-US,en;q=0.9"),
+    );
+    // The browser sends these on every same-origin batchexecute XHR. Without
+    // `X-Same-Domain` Google validates the request more strictly and can reject
+    // it with an `ErrorResponse` (observed live).
+    headers.insert(
+        HeaderName::from_static("x-same-domain"),
+        HeaderValue::from_static("1"),
+    );
+    headers.insert(
+        reqwest::header::ORIGIN,
+        HeaderValue::from_static("https://www.google.com"),
+    );
+    headers.insert(
+        reqwest::header::REFERER,
+        HeaderValue::from_static("https://www.google.com/travel/flights"),
     );
     headers.insert(
         reqwest::header::CONTENT_TYPE,
@@ -1144,8 +1185,11 @@ fn get_headers(
     let mut headers = base_headers(user_agent);
     if let Some(currency) = currency {
         let country_upper = country.to_uppercase();
+        // NB: index 7 (the experiment-id list) is sent as `null`. Hardcoded
+        // experiment ids rot — once Google retires them the backend rejects the
+        // request with an `ErrorResponse`. The browser sends `null` here too.
         let currency_header = format!(
-            r#"["{language}-{country_upper}","{country_upper}","{}",1,null,[-120],null,[[72534415,72446893,97456553,72399613]],1,[]]"#,
+            r#"["{language}-{country_upper}","{country_upper}","{}",1,null,[-120],null,null,1,[]]"#,
             currency
         );
         let header_value = reqwest::header::HeaderValue::from_str(&currency_header)
@@ -1163,6 +1207,12 @@ fn get_headers(
 /// `proxy` accepts `http://`, `https://`, and `socks5://` URLs. Returns an
 /// error if the proxy URL is invalid or the client cannot be built.
 fn build_reqwest_client(proxy: Option<&str>) -> Result<Client> {
+    // NOTE: do NOT enable a cookie store / `cookie_provider` here. Counter-
+    // intuitively, enabling one makes the main-page GET stick on the EU
+    // consent.google.com wall (the stored consent.google.com Set-Cookie keeps
+    // the redirect on the consent page); with no jar, reqwest's redirect bounces
+    // straight through to the real flights page that carries `WIZ_global_data`.
+    // The session cookies are therefore taken from this same cookieless fetch.
     let mut builder = Client::builder();
     if let Some(url) = proxy {
         builder = builder.proxy(
@@ -1174,15 +1224,30 @@ fn build_reqwest_client(proxy: Option<&str>) -> Result<Client> {
         .map_err(|e| anyhow::anyhow!("failed to build HTTP client: {e}"))
 }
 
-/// Retrieves the frontend version from the Google Flights website, reusing the
-/// supplied client so any configured proxy applies here too.
-async fn get_frontend_version(user_agent: &str, client: &Client) -> Option<String> {
+/// Fetches the Google Flights main page HTML, reusing the supplied client so
+/// any configured proxy applies here too. The HTML is used to extract the
+/// frontend version and the per-session `f.sid`.
+/// Returns `(html, cookie_header)` — the page HTML plus a `name=value; …`
+/// Cookie string built from the response's `Set-Cookie` headers, so the API
+/// requests can replay the same session cookies the page handed us (the
+/// browser sends these on `GetBookingResults`; without them Google returns the
+/// minimal single-vendor offer list).
+async fn fetch_main_page(user_agent: &str, client: &Client) -> Option<(String, String)> {
     let headers = base_headers(user_agent); // no currency header needed for the version fetch
     let url = FLIGHTS_MAIN_PAGE.to_string();
     let res = client.get(&url).headers(headers).send().await.ok()?;
 
     let status = res.status();
     let final_url = res.url().to_string();
+    // Collect Set-Cookie name=value pairs before consuming the body.
+    let cookie_header = res
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .filter_map(|c| c.split(';').next()) // name=value
+        .collect::<Vec<_>>()
+        .join("; ");
     // Only warn when the base path changes (different host or path).
     // Ignore minor redirects that only add/change query parameters.
     fn base_url(u: &str) -> &str {
@@ -1199,8 +1264,12 @@ async fn get_frontend_version(user_agent: &str, client: &Client) -> Option<Strin
         tracing::debug!(url = %final_url, status = %status, "main page response");
     }
 
-    let response_body = res.text().await.ok()?;
+    let html = res.text().await.ok()?;
+    Some((html, cookie_header))
+}
 
+/// Extracts the frontend version string from the main-page HTML.
+fn extract_frontend_version(response_body: &str) -> Option<String> {
     // Matches both:
     //   boq_travel-frontend-ui_20260527.01_p0  (old)
     //   boq_travel-frontend-flights-ui_20260527.01_p0  (new)
@@ -1215,7 +1284,7 @@ async fn get_frontend_version(user_agent: &str, client: &Client) -> Option<Strin
     };
 
     let result = regex
-        .captures_iter(&response_body)
+        .captures_iter(response_body)
         .map(|f| f.extract::<2>())
         .next();
 
@@ -1230,9 +1299,63 @@ async fn get_frontend_version(user_agent: &str, client: &Client) -> Option<Strin
     Some(result?.0.to_string())
 }
 
+/// Extracts the per-session `f.sid` from the main page (the `FdrFJe` field in
+/// `WIZ_global_data`). Google validates this against the session; a stale
+/// hardcoded value is rejected with an `ErrorResponse` on some locales, so the
+/// live request must echo the page's own value (as the browser does).
+fn extract_f_sid(html: &str) -> Option<String> {
+    let regex = Regex::new(r#"FdrFJe["\]:,]+(-?\d{6,})"#).ok()?;
+    let sid = regex.captures(html)?.get(1)?.as_str().to_string();
+    tracing::debug!(f_sid = %sid, "f.sid extracted");
+    Some(sid)
+}
+
+/// Replaces the value of the `f.sid` query parameter in `url` with `f_sid`,
+/// leaving the rest of the URL untouched. If the URL has no `f.sid` param it is
+/// returned unchanged.
+fn replace_f_sid(url: &str, f_sid: &str) -> String {
+    let Some(start) = url.find("f.sid=") else {
+        return url.to_string();
+    };
+    let value_start = start + "f.sid=".len();
+    let value_end = url[value_start..]
+        .find('&')
+        .map(|i| value_start + i)
+        .unwrap_or(url.len());
+    format!("{}{}{}", &url[..value_start], f_sid, &url[value_end..])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_f_sid_reads_fdrfje() {
+        let html = r#"...,"FdrFJe":"-5078133052890781250",..."#;
+        assert_eq!(extract_f_sid(html).as_deref(), Some("-5078133052890781250"));
+    }
+
+    #[test]
+    fn replace_f_sid_rewrites_middle_param() {
+        let url = "https://x/y?f.sid=123&bl=v&hl=en-GB";
+        assert_eq!(
+            replace_f_sid(url, "-99"),
+            "https://x/y?f.sid=-99&bl=v&hl=en-GB"
+        );
+    }
+
+    #[test]
+    fn replace_f_sid_rewrites_trailing_param() {
+        assert_eq!(
+            replace_f_sid("https://x/y?a=1&f.sid=123", "-99"),
+            "https://x/y?a=1&f.sid=-99"
+        );
+    }
+
+    #[test]
+    fn replace_f_sid_noop_without_param() {
+        assert_eq!(replace_f_sid("https://x/y?a=1", "-99"), "https://x/y?a=1");
+    }
 
     /// Build a minimal ApiClient without hitting the network (no frontend-version fetch).
     fn make_client() -> ApiClient {
@@ -1241,12 +1364,14 @@ mod tests {
             rate_limiter: Arc::new(DefaultDirectRateLimiter::direct(quota)),
             client: Arc::new(Client::new()),
             frontend_version: "test".into(),
+            f_sid: "-1".into(),
             rate_limited: Arc::new(AtomicBool::new(false)),
             retry_config: RetryConfig::default(),
             user_agent: pick_user_agent().to_string(),
             currency: Currency::default(),
             language: "en".to_string(),
             country: "GB".to_string(),
+            session_cookies: None,
         }
     }
 
