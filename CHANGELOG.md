@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] — 2026-07-10
+
+### Fixed
+
+- **Live requests rejected by the backend** — every search/offer had started
+  returning a `travel.frontend.flights.ErrorResponse`. Diffing our wire request
+  against a real browser capture found four stale/incorrect fields, all now
+  corrected:
+  - `f.sid` is read per-session from the main page (`FdrFJe`) and rewritten onto
+    every endpoint URL instead of a stale hardcoded value.
+  - the rotted experiment-id list at index 7 of the
+    `x-goog-ext-259736195-jspb` header is sent as `null`.
+  - the same-origin XHR headers the browser always sends are now included
+    (`X-Same-Domain`, `Origin`, `Referer`).
+  - shopping requests send the `0,0,0,1` body tail (was the booking-only
+    `1,0,0`).
+- Main-page session cookies are replayed on every request so booking/offer
+  responses include the full reseller list.
+
+### Security
+
+- Bumped `pyo3` / `pyo3-async-runtimes` to `0.29.0` and patched
+  `crossbeam-epoch`, `quinn-proto`, and `anyhow` to clear all open Dependabot /
+  cargo-audit advisories.
+
 ## [0.3.0] — 2026-06-06
 
 ### Added
@@ -213,7 +238,9 @@ Initial release.
 - Booking offer resolution.
 - City / airport lookup.
 
-[Unreleased]: https://github.com/nas-/google-flights-rs/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/nas-/google-flights-rs/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/nas-/google-flights-rs/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/nas-/google-flights-rs/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/nas-/google-flights-rs/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/nas-/google-flights-rs/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nas-/google-flights-rs/releases/tag/v0.1.0
