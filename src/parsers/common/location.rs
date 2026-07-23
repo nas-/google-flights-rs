@@ -19,10 +19,10 @@ impl SerializeToWeb for Location {
         // Airports are encoded as type 0 in the request body regardless of the
         // PlaceType discriminant; all other location types use their discriminant.
         match self.loc_type {
-            PlaceType::Airport => Ok(format!(r#"[\"{}\",{}]"#, &self.loc_identifier, 0_i32)),
+            PlaceType::Airport => Ok(format!(r#"[\"{}\",{}]"#, self.loc_identifier, 0_i32)),
             _ => Ok(format!(
                 r#"[\"{}\",{}]"#,
-                &self.loc_identifier, self.loc_type as i32
+                self.loc_identifier, self.loc_type as i32
             )),
         }
     }

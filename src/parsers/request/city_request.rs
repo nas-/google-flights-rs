@@ -25,7 +25,7 @@ impl TryFrom<&CityRequestOptions> for RequestBody {
 
         let body = format!(
             r#"f.req=[[["H028ib","[\"{0}\",[1,2,3,5,4],null,[1,1,1],1]",null,"generic"]]]&at=AAuQa1qqZgn5F209lkOLZp20vq5d:{1}&"#,
-            &options.city, epoch_now
+            options.city, epoch_now
         );
 
         let url = format!("{BATCHEXECUTE}?rpcids=H028ib&source-path=/travel/flights&f.sid=-2414068248310847860&bl={}&hl=en-GB&soc-app=162&soc-platform=1&soc-device=1&_reqid=581503&rt=c",options.frontend_version);
