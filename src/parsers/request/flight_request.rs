@@ -1,4 +1,4 @@
-﻿use std::{
+use std::{
     time::{SystemTime, UNIX_EPOCH},
     vec,
 };
@@ -273,15 +273,15 @@ impl SerializeToWeb for SingleLegStruct<'_> {
 
         Ok(format!(
             r#"[{0},{1},{2},{3},{4},{5},\"{6}\",{7},{8},{9},null,{10},{11},{12},{13}]"#,
-            &self.departure.serialize_to_web()?,    // [0]
-            &self.arrival.serialize_to_web()?,      // [1]
-            &self.times.serialize_to_web()?,        // [2]
-            &self.stop_options.serialize_to_web()?, // [3]
+            self.departure.serialize_to_web()?,    // [0]
+            self.arrival.serialize_to_web()?,      // [1]
+            self.times.serialize_to_web()?,        // [2]
+            self.stop_options.serialize_to_web()?, // [3]
             serialize_airline_filters(self.airlines_include), // [4]
             serialize_airline_filters(self.airlines_exclude), // [5]
-            self.date,                              // [6]
-            self.duration_max.serialize_to_web()?,  // [7]
-            chosen_itinerary,                       // [8]
+            self.date,                             // [6]
+            self.duration_max.serialize_to_web()?, // [7]
+            chosen_itinerary,                      // [8]
             serialize_airport_list(self.connecting_airports), // [9]
             // [10] hardcoded null (in format string above)
             self.stopover_min.serialize_to_web()?, // [11] ← FIXED (was [13])
@@ -385,11 +385,11 @@ impl SerializeToWeb for ItineraryRequest<'_> {
             //   [13] legs
             r#"[null,null,{0},null,[],{1},{2},{3},null,null,{4},null,null,{5},null,null,null,1{6}]"#,
             self.sort_order as i32,
-            &self.travel_class.serialize_to_web()?,
-            &self.travelers.serialize_to_web()?,
+            self.travel_class.serialize_to_web()?,
+            self.travelers.serialize_to_web()?,
             serialize_price_filter(self.max_price),
             serialize_baggage(self.baggage),
-            &self.legs.serialize_to_web()?,
+            self.legs.serialize_to_web()?,
             graph
         ))
     }
@@ -423,7 +423,7 @@ impl SerializeToWeb for CompleteFlightRequest<'_> {
         Ok(format!(
             r#"f.req=[null,"[{},{},{}]"]&at=AAuQa1qiXfSThbBOCdcDUAVTopoc:{}&"#,
             departure_token,
-            &self.itinerary.serialize_to_web()?,
+            self.itinerary.serialize_to_web()?,
             end_part,
             epoch_now
         ))

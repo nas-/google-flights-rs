@@ -561,7 +561,7 @@ dependencies = [
 
 [[package]]
 name = "gflights"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "gflights-py"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "chrono",
