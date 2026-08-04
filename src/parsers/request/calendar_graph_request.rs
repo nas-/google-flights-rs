@@ -4,7 +4,7 @@ use chrono::NaiveDate;
 use percent_encoding::utf8_percent_encode;
 
 use crate::parsers::common::{
-    FlightTimes, Location, RequestBody, SerializeToWeb, SortOrder, StopOptions, StopoverDuration,
+    FlightTimes, Location, RequestBody, SerializeToWeb, StopOptions, StopoverDuration,
     ToRequestBody, TotalDuration, TravelClass, Travelers, CHARACTERS_TO_ENCODE,
 };
 use crate::parsers::constants::CALENDAR_GRAPH;
@@ -32,8 +32,6 @@ pub struct GraphRequestOptions<'a> {
     pub language: &'a str,
     /// ISO 3166-1 alpha-2 country code (upper-case), e.g. `"GB"`.
     pub country: &'a str,
-    /// Result sort order sent to Google Flights.
-    pub sort_order: &'a SortOrder,
 }
 
 impl ToRequestBody for GraphRequestOptions<'_> {
@@ -62,7 +60,6 @@ impl TryFrom<&GraphRequestOptions<'_>> for RequestBody {
             options.stopover_min,
             options.duration_max,
             true,
-            *options.sort_order,
             None,
             None,
         );
@@ -166,11 +163,10 @@ mod tests {
             frontend_version: &frontend_version,
             language: "en",
             country: "GB",
-            sort_order: &SortOrder::Best,
         };
 
         let req: RequestBody = (&search_settings).try_into()?;
-        let expected = "f.req=%5Bnull%2C%22%5Bnull%2C%5Bnull%2Cnull%2C1%2Cnull%2C%5B%5D%2C1%2C%5B1%2C0%2C0%2C0%5D%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-02-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%5D%2Cnull%2Cnull%2Cnull%2C1%2C1%5D%2C%5B%5C%222024-02-02%5C%22%2C%5C%222024-05-02%5C%22%5D%5D%22%5D&";
+        let expected = "f.req=%5Bnull%2C%22%5Bnull%2C%5Bnull%2Cnull%2C2%2Cnull%2C%5B%5D%2C1%2C%5B1%2C0%2C0%2C0%5D%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C%5B%5B%5B%5B%5B%5C%22MXP%5C%22%2C0%5D%5D%5D%2C%5B%5B%5B%5C%22SYD%5C%22%2C0%5D%5D%5D%2Cnull%2C0%2Cnull%2Cnull%2C%5C%222024-02-02%5C%22%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2Cnull%2C3%5D%5D%2Cnull%2Cnull%2Cnull%2C1%2C1%5D%2C%5B%5C%222024-02-02%5C%22%2C%5C%222024-05-02%5C%22%5D%5D%22%5D&";
         assert!(req.body.starts_with(expected));
         Ok(())
     }
@@ -205,7 +201,6 @@ mod tests {
             &StopoverDuration::UNLIMITED,
             &duration_max,
             true,
-            SortOrder::Best,
             None,
             None,
         );
@@ -216,7 +211,7 @@ mod tests {
             date_end_graph: "2024-05-02",
         };
 
-        let expected = r#"f.req=[null,"[null,[null,null,1,null,[],1,[1,0,0,0],null,null,null,null,null,null,[[[[[\"MXP\",0]]],[[[\"SYD\",0]]],null,0,null,null,\"2024-02-02\",null,null,null,null,null,null,null,3]],null,null,null,1,1],[\"2024-02-02\",\"2024-05-02\"]]"]"#;
+        let expected = r#"f.req=[null,"[null,[null,null,2,null,[],1,[1,0,0,0],null,null,null,null,null,null,[[[[[\"MXP\",0]]],[[[\"SYD\",0]]],null,0,null,null,\"2024-02-02\",null,null,null,null,null,null,null,3]],null,null,null,1,1],[\"2024-02-02\",\"2024-05-02\"]]"]"#;
         assert!(x.serialize_to_web()?.starts_with(expected));
         Ok(())
     }

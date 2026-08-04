@@ -78,32 +78,35 @@ impl From<i32> for TravelClass {
 }
 
 /// Sort order for flight search results.
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, ValueEnum, Default)]
+///
+/// Discriminants follow Google Flights' sort dropdown — best, price,
+/// departure time, arrival time, duration — the same values the web UI
+/// sends at position 2 of the outer request array.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
 pub enum SortOrder {
     /// Google's default: best combination of price, duration, and convenience.
     #[default]
     Best = 1,
     /// Sort by total price, cheapest first.
     Price = 2,
-    /// Sort by total journey duration, shortest first.
-    Duration = 3,
     /// Sort by departure time, earliest first.
-    DepartureTime = 4,
+    DepartureTime = 3,
     /// Sort by arrival time, earliest first.
-    ArrivalTime = 5,
+    ArrivalTime = 4,
+    /// Sort by total journey duration, shortest first.
+    Duration = 5,
 }
 
 impl SortOrder {
     /// Returns the sort discriminant to send to the Google Flights backend.
     ///
-    /// `DepartureTime` (4) and `ArrivalTime` (5) are not recognised as valid
-    /// sort modes by the server and cause it to return an empty response.
-    /// Fall back to `Best` for those two and handle the ordering client-side.
+    /// All discriminants are accepted server-side now that they match the
+    /// web UI's values: departure time 3, arrival time 4, duration 5.
+    /// Previously duration, departure and arrival were shifted by one, which
+    /// made the server reject the last two. Kept as a hook in case a future
+    /// mode needs a client-side fallback again.
     pub fn server_sort(self) -> SortOrder {
-        match self {
-            SortOrder::DepartureTime | SortOrder::ArrivalTime => SortOrder::Best,
-            other => other,
-        }
+        self
     }
 }
 
@@ -149,9 +152,9 @@ mod tests {
     fn sort_order_discriminant_values() {
         assert_eq!(SortOrder::Best as i32, 1);
         assert_eq!(SortOrder::Price as i32, 2);
-        assert_eq!(SortOrder::Duration as i32, 3);
-        assert_eq!(SortOrder::DepartureTime as i32, 4);
-        assert_eq!(SortOrder::ArrivalTime as i32, 5);
+        assert_eq!(SortOrder::DepartureTime as i32, 3);
+        assert_eq!(SortOrder::ArrivalTime as i32, 4);
+        assert_eq!(SortOrder::Duration as i32, 5);
     }
 
     #[test]
@@ -160,25 +163,16 @@ mod tests {
     }
 
     #[test]
-    fn sort_order_server_sort_passthrough_for_best_price_duration() {
-        assert!(matches!(SortOrder::Best.server_sort(), SortOrder::Best));
-        assert!(matches!(SortOrder::Price.server_sort(), SortOrder::Price));
-        assert!(matches!(
-            SortOrder::Duration.server_sort(),
-            SortOrder::Duration
-        ));
-    }
-
-    #[test]
-    fn sort_order_server_sort_falls_back_to_best_for_time_based() {
-        assert!(matches!(
-            SortOrder::DepartureTime.server_sort(),
-            SortOrder::Best
-        ));
-        assert!(matches!(
-            SortOrder::ArrivalTime.server_sort(),
-            SortOrder::Best
-        ));
+    fn sort_order_server_sort_is_passthrough_for_all_modes() {
+        for mode in [
+            SortOrder::Best,
+            SortOrder::Price,
+            SortOrder::DepartureTime,
+            SortOrder::ArrivalTime,
+            SortOrder::Duration,
+        ] {
+            assert_eq!(mode.server_sort(), mode);
+        }
     }
 
     #[test]

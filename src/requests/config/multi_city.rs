@@ -498,4 +498,43 @@ mod tests {
              decoded first-leg section: {first_leg_section}"
         );
     }
+
+    /// Multi-city requests must carry trip type 3 at itinerary position [2]
+    /// and the sort mode at position 2 of the outer request array.
+    #[test]
+    fn multi_city_sends_trip_type_3_and_sort_in_outer_array() {
+        use crate::parsers::common::ToRequestBody;
+        use crate::parsers::request::flight_request::MultiCityRequestOptions;
+
+        let cfg = MultiCityConfig {
+            legs: vec![
+                leg("LUX", "FCO", "2026-09-10"),
+                leg("FCO", "MAD", "2026-09-13"),
+            ],
+            travellers: Travelers::new(vec![1, 0, 0, 0]).unwrap(),
+            travel_class: TravelClass::Economy,
+            sort_order: SortOrder::Price,
+            max_price: None,
+            baggage: None,
+        };
+        let opts = MultiCityRequestOptions {
+            config: &cfg,
+            frontend_version: "test-version",
+            language: "en",
+            country: "GB",
+        };
+        let body = opts.to_request_body().unwrap();
+        let decoded = percent_encoding::percent_decode_str(&body.body)
+            .decode_utf8_lossy()
+            .to_string();
+
+        assert!(
+            decoded.contains(r#"[[],[null,null,3,null,[]"#),
+            "trip type 3 expected at itinerary position [2]; decoded: {decoded}"
+        );
+        assert!(
+            decoded.contains(r#",2,1,0,1]"]&at="#),
+            "sort mode 2 — price — expected in the outer tail; decoded: {decoded}"
+        );
+    }
 }

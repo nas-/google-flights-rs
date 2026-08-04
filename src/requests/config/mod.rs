@@ -24,12 +24,15 @@ pub use explore::{
 pub use multi_city::{LegFilters, MultiCityConfig, MultiCityConfigBuilder, MultiCityLeg};
 
 /// The `TripType` enum is used to specify the type of trip.
+///
+/// Discriminants are the wire values Google Flights expects at position
+/// \[2\] of the itinerary array: 1 round trip, 2 one-way, 3 multi-city.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum TripType {
+    Return = 1,
     #[default]
-    OneWay,
-    Return,
-    MultiCity,
+    OneWay = 2,
+    MultiCity = 3,
 }
 
 /// The `Config` struct is used to specify the options for a flight search.

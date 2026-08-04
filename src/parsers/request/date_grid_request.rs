@@ -4,7 +4,7 @@ use chrono::NaiveDate;
 use percent_encoding::utf8_percent_encode;
 
 use crate::parsers::common::{
-    FlightTimes, Location, RequestBody, SerializeToWeb, SortOrder, StopOptions, StopoverDuration,
+    FlightTimes, Location, RequestBody, SerializeToWeb, StopOptions, StopoverDuration,
     ToRequestBody, TotalDuration, TravelClass, Travelers, CHARACTERS_TO_ENCODE,
 };
 use crate::parsers::constants::CALENDAR_GRID;
@@ -114,7 +114,6 @@ impl TryFrom<&DateGridRequestOptions<'_>> for RequestBody {
                 &StopoverDuration::UNLIMITED,
                 options.duration_max,
                 false,
-                SortOrder::Best,
                 None,
                 None,
             ),
@@ -152,12 +151,10 @@ impl SerializeToWeb for DateGridRequest<'_> {
     fn serialize_to_web(&self) -> Result<String> {
         let epoch_now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
 
-        // The date grid itinerary uses number=1 (not 2).  We achieve this by
-        // serialising the itinerary normally (which yields number=2 for a fresh
-        // request) and then replacing the leading `[null,null,2,` with
-        // `[null,null,1,`.  This is safe: the prefix is unique and always present.
-        let raw_itinerary = self.itinerary.serialize_to_web()?;
-        let itinerary = raw_itinerary.replacen("[null,null,2,", "[null,null,1,", 1);
+        // The grid is round-trip only, so the itinerary serialises with
+        // trip type 1 — round trip — at position 2, exactly what the
+        // endpoint expects.
+        let itinerary = self.itinerary.serialize_to_web()?;
 
         Ok(format!(
             r#"f.req=[null,"[null,{0},[\"{1}\",\"{2}\"],[\"{3}\",\"{4}\"]]"]&at=AAuQa1qiXfSThbBOCdcDUAVTopoc:{5}&"#,
