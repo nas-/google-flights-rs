@@ -128,6 +128,27 @@ The Rust crate and Python bindings must stay in sync at all times.
 
 ---
 
+## MCP parity rule
+
+Every user-facing **action** exposed as a CLI subcommand must also be exposed as
+an MCP tool in `src/bin/cli/mcp.rs`. MCP tools are thin adapters over the
+existing `ApiClient` request methods — no new business logic.
+
+When adding or changing an action:
+
+| Change | MCP update needed |
+|---|---|
+| New CLI action / `ApiClient::request_*` method | Add a `tool_*` adapter, a `tool_catalog()` entry (name + description + input schema), and a `tools/call` match arm |
+| New argument / filter on an action | Add it to that tool's input schema and parse it in the adapter |
+| Renamed / removed action | Mirror in the catalog, dispatch, and tests |
+
+Keep the `tool_catalog_has_expected_tools` test updated with every tool name.
+Interactive-only helpers (`select`) and pure lookups (`city`) are exempt — MCP
+covers the data-returning actions: `search`, `price_graph`, `cheapest_dates`,
+`explore`, `deals`, `date_grid`, `offer`, `multi_city`.
+
+---
+
 ## Building the Python extension
 
 ```sh
