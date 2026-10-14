@@ -6,7 +6,8 @@
 //! `Config`/`ExploreConfig`, calls the corresponding `ApiClient` method, and
 //! returns the serialized result. No new business logic lives here.
 //!
-//! Supported tools: `search`, `price_graph`, `cheapest_dates`, `explore`, `deals`.
+//! Supported tools: `search`, `price_graph`, `cheapest_dates`, `explore`,
+//! `deals`, `date_grid`, `offer`, `multi_city`.
 
 use anyhow::Result;
 use chrono::{Months, NaiveDate};
@@ -15,7 +16,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdout};
 
 use gflights::parsers::common::{Location, PlaceType, StopOptions, TravelClass, Travelers};
 use gflights::requests::api::ApiClient;
-use gflights::requests::config::{Config, DealConfig, ExploreConfig, ExploreDate};
+use gflights::requests::config::{Config, DealConfig, ExploreConfig, ExploreDate, MultiCityConfig};
 
 /// MCP protocol revision this server implements.
 const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -204,6 +205,55 @@ fn tool_catalog() -> Vec<Value> {
                 "required": ["from", "out", "ret"]
             }
         }),
+        json!({
+            "name": "date_grid",
+            "description": "Price grid over departure x return date windows for a round trip. Returns entries with outbound date, return date, and price.",
+            "inputSchema": {
+                "type": "object",
+                "properties": json!({
+                    "from": { "type": "string" }, "to": { "type": "string" },
+                    "dep_start": { "type": "string", "description": "First outbound date YYYY-MM-DD" },
+                    "dep_end": { "type": "string", "description": "Last outbound date YYYY-MM-DD" },
+                    "ret_start": { "type": "string", "description": "First return date YYYY-MM-DD" },
+                    "ret_end": { "type": "string", "description": "Last return date YYYY-MM-DD" },
+                    "class": { "type": "string", "enum": ["economy", "premium-economy", "business", "first"] },
+                    "stops": { "type": "string", "enum": ["all", "nonstop", "one-stop"] },
+                    "adults": { "type": "integer", "minimum": 1, "default": 1 }
+                }),
+                "required": ["from", "to", "dep_start", "dep_end", "ret_start", "ret_end"]
+            }
+        }),
+        json!({
+            "name": "offer",
+            "description": "Price the cheapest itinerary for a route (one-way or round-trip) and return booking offers: airline(s), price, click token, and sub-options.",
+            "inputSchema": { "type": "object", "properties": route_props, "required": ["from", "to", "date"] }
+        }),
+        json!({
+            "name": "multi_city",
+            "description": "Multi-city (open-jaw) search across 2+ legs. Returns itineraries spanning all legs.",
+            "inputSchema": {
+                "type": "object",
+                "properties": json!({
+                    "legs": {
+                        "type": "array",
+                        "minItems": 2,
+                        "description": "Ordered legs; each is {from, to, date}",
+                        "items": {
+                            "type": "object",
+                            "properties": json!({
+                                "from": { "type": "string" },
+                                "to": { "type": "string" },
+                                "date": { "type": "string", "description": "Departure date YYYY-MM-DD" }
+                            }),
+                            "required": ["from", "to", "date"]
+                        }
+                    },
+                    "class": { "type": "string", "enum": ["economy", "premium-economy", "business", "first"] },
+                    "adults": { "type": "integer", "minimum": 1, "default": 1 }
+                }),
+                "required": ["legs"]
+            }
+        }),
     ]
 }
 
@@ -227,6 +277,9 @@ async fn handle_tool_call(
         "cheapest_dates" => tool_cheapest_dates(&args, client).await,
         "explore" => tool_explore(&args, client).await,
         "deals" => tool_deals(&args, client).await,
+        "date_grid" => tool_date_grid(&args, client).await,
+        "offer" => tool_offer(&args, client).await,
+        "multi_city" => tool_multi_city(&args, client).await,
         other => Err(format!("unknown tool: {other}")),
     }
 }
@@ -425,6 +478,112 @@ async fn tool_deals(args: &Value, client: &ApiClient) -> std::result::Result<Str
     serde_json::to_string(&deals).map_err(|e| e.to_string())
 }
 
+async fn tool_date_grid(args: &Value, client: &ApiClient) -> std::result::Result<String, String> {
+    let from = req_str(args, "from")?;
+    let to = req_str(args, "to")?;
+    let dep_start = parse_date(&req_str(args, "dep_start")?)?;
+    let dep_end = parse_date(&req_str(args, "dep_end")?)?;
+    let ret_start = parse_date(&req_str(args, "ret_start")?)?;
+    let ret_end = parse_date(&req_str(args, "ret_end")?)?;
+    let adults = opt_u32(args, "adults").unwrap_or(1);
+
+    let mut b = Config::builder()
+        .departure(&from, client)
+        .await
+        .map_err(|e| e.to_string())?
+        .destination(&to, client)
+        .await
+        .map_err(|e| e.to_string())?
+        // dep_start is the nominal departing date; ret_end the nominal return
+        // (both required by Config). The windows below drive the actual grid.
+        .departing_date(dep_start)
+        .return_date(ret_end)
+        .travelers(travelers_for(adults)?);
+    if let Some(c) = opt_str(args, "class") {
+        b = b.travel_class(parse_class(&c)?);
+    }
+    if let Some(s) = opt_str(args, "stops") {
+        b = b.stop_options(parse_stops(&s)?);
+    }
+    let config = b.build().map_err(|e| e.to_string())?;
+
+    let grid = client
+        .request_date_grid(&config, dep_start, dep_end, ret_start, ret_end)
+        .await
+        .map_err(|e| e.to_string())?;
+    serde_json::to_string(&grid.entries).map_err(|e| e.to_string())
+}
+
+async fn tool_offer(args: &Value, client: &ApiClient) -> std::result::Result<String, String> {
+    let config = build_route_config(args, client, true).await?;
+
+    let result = client
+        .request_flights(&config)
+        .await
+        .map_err(|e| e.to_string())?;
+    let first = result
+        .get_all_flights()
+        .into_iter()
+        .next()
+        .ok_or_else(|| "no flights found to price".to_string())?;
+    config
+        .fixed_flights
+        .add_element(first)
+        .map_err(|e| e.to_string())?;
+
+    // Round trip: also lock in the cheapest return leg before pricing.
+    if config.return_date.is_some() {
+        let second = client
+            .request_flights(&config)
+            .await
+            .map_err(|e| e.to_string())?;
+        if let Some(ret) = second.get_all_flights().into_iter().next() {
+            config
+                .fixed_flights
+                .add_element(ret)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    let offers = client
+        .request_offer(&config)
+        .await
+        .map_err(|e| e.to_string())?;
+    serde_json::to_string(&offers.response).map_err(|e| e.to_string())
+}
+
+async fn tool_multi_city(args: &Value, client: &ApiClient) -> std::result::Result<String, String> {
+    let legs = args
+        .get("legs")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "missing or non-array argument: legs".to_string())?;
+    if legs.len() < 2 {
+        return Err("multi_city requires at least 2 legs".to_string());
+    }
+    let adults = opt_u32(args, "adults").unwrap_or(1);
+
+    let mut builder = MultiCityConfig::builder().travellers(travelers_for(adults)?);
+    if let Some(c) = opt_str(args, "class") {
+        builder = builder.travel_class(parse_class(&c)?);
+    }
+    for leg in legs {
+        let from = req_str(leg, "from")?;
+        let to = req_str(leg, "to")?;
+        let date = parse_date(&req_str(leg, "date")?)?;
+        builder = builder
+            .add_leg(&from, &to, date, client)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    let config = builder.build().map_err(|e| e.to_string())?;
+
+    let results = client
+        .request_multi_city_flights(&config)
+        .await
+        .map_err(|e| e.to_string())?;
+    serde_json::to_string(&results.get_all_flights()).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -440,6 +599,9 @@ mod tests {
         assert!(names.contains(&"cheapest_dates".to_string()));
         assert!(names.contains(&"explore".to_string()));
         assert!(names.contains(&"deals".to_string()));
+        assert!(names.contains(&"date_grid".to_string()));
+        assert!(names.contains(&"offer".to_string()));
+        assert!(names.contains(&"multi_city".to_string()));
     }
 
     #[test]
